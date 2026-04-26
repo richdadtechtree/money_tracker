@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}목표저축{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="fw-bold mb-0"><i class="bi bi-trophy me-2 text-warning"></i>목표저축</h2>
+  <button class="btn btn-warning" onclick="grid.addRow()">
+    <i class="bi bi-plus-lg me-1"></i>행 추가
+  </button>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="dataTable">
+        <thead class="table-light">
+          <tr>
+            <th>목표명</th>
+            <th class="text-end">목표금액</th>
+            <th class="text-end">현재금액</th>
+            <th class="text-end">월 저축액</th>
+            <th>목표일</th>
+            <th>메모</th>
+            <th class="text-end">달성률</th>
+            <th class="text-center">삭제</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const grid = new GridTable({
+  tableId: 'dataTable',
+  columns: [
+    { key: 'name',           type: 'text' },
+    { key: 'target_amount',  type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'current_amount', type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'monthly_saving', type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'target_date',    type: 'date' },
+    { key: 'memo',           type: 'text' },
+    { key: '_progress', type: 'computed', align: 'end',
+      compute: r => {
+        const pct      = r.target_amount ? Math.min(100, Math.round(r.current_amount / r.target_amount * 100)) : 0;
+        const barClass = pct >= 100 ? 'bg-success' : pct >= 70 ? 'bg-warning' : 'bg-primary';
+        return `<div style="min-width:80px">
+          <div class="d-flex justify-content-between mb-1">
+            <small class="fw-semibold">${pct}%</small>
+          </div>
+          <div class="progress" style="height:6px">
+            <div class="progress-bar ${barClass}" style="width:${pct}%"></div>
+          </div>
+        </div>`;
+      }},
+  ],
+  apiUrl: '/api/goals',
+});
+
+grid.load();
+</script>
+{% endblock %}

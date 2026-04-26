@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}연금{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="fw-bold mb-0"><i class="bi bi-person-check me-2 text-purple"></i>연금 관리</h2>
+  <button class="btn btn-primary" onclick="grid.addRow()">
+    <i class="bi bi-plus-lg me-1"></i>행 추가
+  </button>
+</div>
+
+<!-- 요약 통계 -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-muted small mb-1">총 누적액</div>
+      <div class="fs-4 fw-bold text-primary" id="sum-acc">-</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-muted small mb-1">월 납입 합계</div>
+      <div class="fs-4 fw-bold text-success" id="sum-monthly">-</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-muted small mb-1">평균 수익률</div>
+      <div class="fs-4 fw-bold text-warning" id="avg-return">-</div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="dataTable">
+        <thead class="table-light">
+          <tr>
+            <th>유형</th><th>상품명</th><th>기관</th>
+            <th class="text-end">월 납입</th><th class="text-end">누적액</th>
+            <th class="text-end">수익률</th><th>메모</th>
+            <th class="text-center">삭제</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const typeColors = {
+  '국민연금':     'bg-success-subtle text-success',
+  '퇴직연금(DB)': 'bg-primary-subtle text-primary',
+  '퇴직연금(DC)': 'bg-primary-subtle text-primary',
+  'IRP':          'bg-warning-subtle text-warning',
+  '연금저축펀드': 'bg-info-subtle text-info',
+  '연금저축보험': 'bg-info-subtle text-info',
+  '개인연금':     'bg-secondary-subtle text-secondary',
+};
+
+const grid = new GridTable({
+  tableId: 'dataTable',
+  columns: [
+    { key: 'pension_type', type: 'select',
+      options: ['국민연금','퇴직연금(DB)','퇴직연금(DC)','IRP','연금저축펀드','연금저축보험','개인연금'],
+      render: v => {
+        const cls = typeColors[v] || 'bg-secondary-subtle text-secondary';
+        return v ? `<span class="badge ${cls}">${v}</span>` : '-';
+      }},
+    { key: 'name',            type: 'text' },
+    { key: 'institution',     type: 'text' },
+    { key: 'monthly_payment', type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'accumulated',     type: 'number', align: 'end',
+      render: v => `<span class="fw-semibold text-primary">${fmt(v)}원</span>` },
+    { key: 'return_rate',     type: 'number', align: 'end', step: 0.01,
+      render: (v, r) => `<span class="${r.return_rate >= 0 ? 'text-danger' : 'text-primary'}">${r.return_rate >= 0 ? '+' : ''}${v}%</span>` },
+    { key: 'memo',            type: 'text' },
+  ],
+  apiUrl: '/api/pension',
+  onLoad: rows => {
+    let sumA = 0, sumM = 0, sumR = 0;
+    rows.forEach(r => { sumA += r.accumulated; sumM += r.monthly_payment; sumR += r.return_rate; });
+    document.getElementById('sum-acc').textContent    = fmt(sumA) + '원';
+    document.getElementById('sum-monthly').textContent = fmt(sumM) + '원';
+    document.getElementById('avg-return').textContent  = (rows.length ? (sumR / rows.length).toFixed(2) : 0) + '%';
+  },
+});
+
+grid.load();
+</script>
+{% endblock %}

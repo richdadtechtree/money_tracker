@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% block title %}투자 관리{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="fw-bold mb-0"><i class="bi bi-graph-up-arrow me-2 text-primary"></i>투자 관리</h2>
+</div>
+
+<ul class="nav nav-tabs mb-3" id="investTabs">
+  <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-stocks">주식</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-etf">ETF</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-crypto">코인</a></li>
+</ul>
+
+<div class="tab-content">
+  <!-- 주식 탭 -->
+  <div class="tab-pane fade show active" id="tab-stocks">
+    <!-- 포지션 헤더 -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="text-muted small">
+        평가총액: <strong id="stocks-total" class="text-primary">-</strong> &nbsp;|&nbsp;
+        미실현손익: <strong id="stocks-profit">-</strong> &nbsp;|&nbsp;
+        실현손익: <strong id="stocks-realized">-</strong>
+      </div>
+      <button class="btn btn-outline-primary btn-sm" onclick="stockGrid.addRow()">
+        <i class="bi bi-plus-lg me-1"></i>종목 등록
+      </button>
+    </div>
+
+    <!-- 포지션 현황 -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 pt-3 pb-2 fw-semibold">
+        <i class="bi bi-bar-chart-fill me-2 text-primary"></i>포지션 현황
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="stockTable">
+            <thead class="table-light">
+              <tr>
+                <th>종목명</th><th>티커</th>
+                <th class="text-end">보유수량</th>
+                <th class="text-end">평균단가</th>
+                <th class="text-end">현재가</th>
+                <th class="text-end">평가액</th>
+                <th class="text-end">미실현손익</th>
+                <th class="text-end">수익률</th>
+                <th class="text-end">실현손익</th>
+                <th>메모</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 거래내역 -->
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-journal-text me-2 text-secondary"></i>매매 거래내역</span>
+        <div class="d-flex gap-2 align-items-center">
+          <select id="txStockFilter" class="form-select form-select-sm" style="width:auto" onchange="stockTxGrid.load()">
+            <option value="">전체 종목</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="stockTxGrid.addRow()">
+            <i class="bi bi-plus-lg me-1"></i>거래 입력
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="stockTxTable">
+            <thead class="table-light">
+              <tr>
+                <th>날짜</th><th>종목</th><th>구분</th>
+                <th class="text-end">단가</th>
+                <th class="text-end">수량</th>
+                <th class="text-end">거래금액</th>
+                <th class="text-end">수수료</th>
+                <th>메모</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ETF 탭 -->
+  <div class="tab-pane fade" id="tab-etf">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="text-muted small">
+        평가총액: <strong id="etf-total" class="text-primary">-</strong> &nbsp;|&nbsp;
+        수익률: <strong id="etf-return">-</strong>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="etfGrid.addRow()">
+        <i class="bi bi-plus-lg me-1"></i>ETF 추가
+      </button>
+    </div>
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="etfTable">
+            <thead class="table-light">
+              <tr>
+                <th>ETF명</th><th>티커</th><th>유형</th><th>매수일</th>
+                <th class="text-end">매수가</th><th class="text-end">수량</th>
+                <th class="text-end">현재가</th>
+                <th>메모</th>
+                <th class="text-end">평가액</th><th class="text-end">수익률</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 코인 탭 -->
+  <div class="tab-pane fade" id="tab-crypto">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="text-muted small">
+        평가총액: <strong id="crypto-total" class="text-primary">-</strong> &nbsp;|&nbsp;
+        수익률: <strong id="crypto-return">-</strong>
+      </div>
+      <button class="btn btn-warning btn-sm" onclick="cryptoGrid.addRow()">
+        <i class="bi bi-plus-lg me-1"></i>코인 추가
+      </button>
+    </div>
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="cryptoTable">
+            <thead class="table-light">
+              <tr>
+                <th>코인명</th><th>심볼</th><th>거래소</th><th>매수일</th>
+                <th class="text-end">매수가</th><th class="text-end">수량</th>
+                <th class="text-end">현재가</th>
+                <th>메모</th>
+                <th class="text-end">평가액</th><th class="text-end">수익률</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allStocks = [];
+
+function pnlHtml(v) {
+  if (v == null || isNaN(v)) return '-';
+  const cls = v > 0 ? 'text-danger' : v < 0 ? 'text-primary' : 'text-muted';
+  return `<span class="${cls} fw-semibold">${v >= 0 ? '+' : ''}${fmt(Math.round(v))}원</span>`;
+}
+function rateHtml(pct) {
+  if (pct == null || isNaN(pct)) return '-';
+  const cls = pct > 0 ? 'text-danger' : pct < 0 ? 'text-primary' : 'text-muted';
+  return `<span class="${cls} fw-semibold">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</span>`;
+}
+
+// ── 주식 포지션 ──
+const stockGrid = new GridTable({
+  tableId: 'stockTable',
+  columns: [
+    { key: 'name',    type: 'text' },
+    { key: 'ticker',  type: 'text' },
+    { key: '_qty',    type: 'computed', align: 'end',
+      compute: r => (r.quantity % 1 === 0 ? r.quantity : r.quantity.toFixed(4)) },
+    { key: '_avg',    type: 'computed', align: 'end',
+      compute: r => fmt(r.avg_price) },
+    { key: 'current_price', type: 'number', align: 'end', render: v => fmt(v) },
+    { key: '_eval',   type: 'computed', align: 'end',
+      compute: r => `<span class="fw-semibold">${fmt(r.eval_amount)}원</span>` },
+    { key: '_pnl',    type: 'computed', align: 'end',
+      compute: r => pnlHtml(r.unrealized_pnl) },
+    { key: '_rate',   type: 'computed', align: 'end',
+      compute: r => rateHtml(r.return_rate) },
+    { key: '_real',   type: 'computed', align: 'end',
+      compute: r => r.sell_qty > 0 ? pnlHtml(r.realized_pnl) : '-' },
+    { key: 'memo',    type: 'text' },
+  ],
+  apiUrl: '/api/stocks',
+  onLoad: rows => {
+    allStocks = rows;
+    // 종목 필터 셀렉트 갱신
+    const sel = document.getElementById('txStockFilter');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">전체 종목</option>' +
+      rows.map(r => `<option value="${r.id}"${String(r.id) === cur ? ' selected' : ''}>${r.name}${r.ticker ? ` (${r.ticker})` : ''}</option>`).join('');
+    // 요약 KPI
+    let tv = 0, tp = 0, tr = 0;
+    rows.forEach(r => { tv += r.eval_amount; tp += r.unrealized_pnl; tr += (r.realized_pnl || 0); });
+    document.getElementById('stocks-total').textContent = fmt(Math.round(tv)) + '원';
+    document.getElementById('stocks-profit').innerHTML   = pnlHtml(tp);
+    document.getElementById('stocks-realized').innerHTML = pnlHtml(tr);
+    stockTxGrid.load();
+  },
+});
+
+// ── 주식 거래내역 ──
+const stockTxGrid = new GridTable({
+  tableId: 'stockTxTable',
+  columns: [
+    { key: 'tx_date',  type: 'date' },
+    { key: 'stock_id', type: 'select',
+      options: () => allStocks.map(s => ({ value: String(s.id), label: s.name + (s.ticker ? ` (${s.ticker})` : '') })),
+      render: (v, row) => row.name || '-' },
+    { key: 'tx_type',  type: 'select',
+      options: [{value:'buy',label:'매수'},{value:'sell',label:'매도'}],
+      render: v => v === 'buy'
+        ? '<span class="badge bg-danger-subtle text-danger">매수</span>'
+        : '<span class="badge bg-primary-subtle text-primary">매도</span>' },
+    { key: 'price',    type: 'number', align: 'end', render: v => fmt(v) },
+    { key: 'quantity', type: 'number', align: 'end', step: 0.001 },
+    { key: '_amount',  type: 'computed', align: 'end',
+      compute: r => `<span class="fw-semibold">${fmt(Math.round(r.price * r.quantity))}원</span>` },
+    { key: 'fee',      type: 'number', align: 'end', render: v => v ? fmt(v) : '-' },
+    { key: 'memo',     type: 'text' },
+  ],
+  apiUrl: '/api/stock-tx',
+  getQueryParams: () => {
+    const sid = document.getElementById('txStockFilter').value;
+    return sid ? `stock_id=${sid}` : '';
+  },
+  onLoad: () => {},
+  onSave:   () => stockGrid.load(),
+  onDelete: () => stockGrid.load(),
+});
+
+// ── ETF ──
+const etfGrid = new GridTable({
+  tableId: 'etfTable',
+  columns: [
+    { key: 'name',          type: 'text' },
+    { key: 'ticker',        type: 'text' },
+    { key: 'etf_type',      type: 'select',
+      options: ['국내주식형','해외주식형','채권형','리츠형','원자재형','혼합형'],
+      render: v => v ? `<span class="badge bg-primary-subtle text-primary">${v}</span>` : '-' },
+    { key: 'buy_date',      type: 'date' },
+    { key: 'buy_price',     type: 'number', align: 'end', render: v => fmt(v) },
+    { key: 'quantity',      type: 'number', align: 'end', step: 0.01 },
+    { key: 'current_price', type: 'number', align: 'end', render: v => fmt(v) },
+    { key: 'memo',          type: 'text' },
+    { key: '_eval',   type: 'computed', align: 'end',
+      compute: r => `<span class="fw-semibold">${fmt(Math.round(r.current_price * r.quantity))}원</span>` },
+    { key: '_return', type: 'computed', align: 'end',
+      compute: r => rateHtml(r.buy_price ? (r.current_price - r.buy_price) / r.buy_price * 100 : null) },
+  ],
+  apiUrl: '/api/etf',
+  onLoad: rows => {
+    let tv = 0, tc = 0;
+    rows.forEach(r => { tv += r.current_price * r.quantity; tc += r.buy_price * r.quantity; });
+    document.getElementById('etf-total').textContent = fmt(Math.round(tv)) + '원';
+    document.getElementById('etf-return').innerHTML  = rateHtml(tc ? (tv - tc) / tc * 100 : null);
+  },
+});
+
+// ── 코인 ──
+const cryptoGrid = new GridTable({
+  tableId: 'cryptoTable',
+  columns: [
+    { key: 'name',          type: 'text' },
+    { key: 'symbol',        type: 'text' },
+    { key: 'exchange',      type: 'text' },
+    { key: 'buy_date',      type: 'date' },
+    { key: 'buy_price',     type: 'number', align: 'end', step: 0.00000001, render: v => fmt(Math.round(v)) },
+    { key: 'quantity',      type: 'number', align: 'end', step: 0.00000001 },
+    { key: 'current_price', type: 'number', align: 'end', step: 0.00000001, render: v => fmt(Math.round(v)) },
+    { key: 'memo',          type: 'text' },
+    { key: '_eval',   type: 'computed', align: 'end',
+      compute: r => `<span class="fw-semibold">${fmt(Math.round(r.current_price * r.quantity))}원</span>` },
+    { key: '_return', type: 'computed', align: 'end',
+      compute: r => rateHtml(r.buy_price ? (r.current_price - r.buy_price) / r.buy_price * 100 : null) },
+  ],
+  apiUrl: '/api/crypto',
+  onLoad: rows => {
+    let tv = 0, tc = 0;
+    rows.forEach(r => { tv += r.current_price * r.quantity; tc += r.buy_price * r.quantity; });
+    document.getElementById('crypto-total').textContent = fmt(Math.round(tv)) + '원';
+    document.getElementById('crypto-return').innerHTML  = rateHtml(tc ? (tv - tc) / tc * 100 : null);
+  },
+});
+
+stockGrid.load();   // onLoad → allStocks 세팅 → stockTxGrid.load() 자동 호출
+etfGrid.load();
+cryptoGrid.load();
+</script>
+{% endblock %}

@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+{% block title %}데이터 동기화{% endblock %}
+
+{% block content %}
+<h2 class="mb-4 fw-bold"><i class="bi bi-arrow-left-right me-2 text-primary"></i>동기화</h2>
+
+<ul class="nav nav-tabs mb-4" id="syncTabs">
+  <li class="nav-item">
+    <a class="nav-link active" data-bs-toggle="tab" href="#tab-data">
+      <i class="bi bi-database me-1"></i>데이터
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" data-bs-toggle="tab" href="#tab-source">
+      <i class="bi bi-code-slash me-1"></i>소스 코드
+    </a>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+  <!-- ── 데이터 탭 ── -->
+  <div class="tab-pane fade show active" id="tab-data">
+    <div class="row g-4">
+
+      <div class="col-12">
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-white border-0 pt-3 fw-semibold">
+            <i class="bi bi-box-arrow-up me-2 text-success"></i>내보내기 — 이 컴퓨터 데이터를 복사
+          </div>
+          <div class="card-body">
+            <p class="text-muted small mb-3">버튼을 누르면 전체 데이터가 텍스트로 생성됩니다. 전체 복사 후 이메일 본문에 붙여넣어 전송하세요.</p>
+            <button class="btn btn-success mb-3" onclick="doExport('data')">
+              <i class="bi bi-download me-1"></i>데이터 불러오기
+            </button>
+            <div id="exportDataArea" style="display:none">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="text-muted small" id="exportDataInfo"></span>
+                <button class="btn btn-sm btn-outline-success" onclick="copyText('exportDataText', this)">
+                  <i class="bi bi-clipboard me-1"></i>전체 복사
+                </button>
+              </div>
+              <textarea id="exportDataText" class="form-control font-monospace" rows="14" readonly
+                style="font-size:0.75rem; resize:vertical"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-white border-0 pt-3 fw-semibold">
+            <i class="bi bi-box-arrow-in-down me-2 text-warning"></i>가져오기 — 복사한 데이터로 교체
+          </div>
+          <div class="card-body">
+            <p class="text-muted small mb-2">다른 컴퓨터에서 복사한 텍스트를 붙여넣고 가져오기를 누르세요.<br>
+              <strong class="text-danger">현재 데이터가 교체됩니다.</strong> (직전 데이터는 자동 백업)</p>
+            <textarea id="importDataText" class="form-control font-monospace mb-3" rows="14"
+              placeholder="여기에 붙여넣기 (Ctrl+V)..." style="font-size:0.75rem; resize:vertical"></textarea>
+            <button class="btn btn-warning fw-semibold" onclick="doImport('data')">
+              <i class="bi bi-arrow-clockwise me-1"></i>가져오기 (데이터 교체)
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── 소스 코드 탭 ── -->
+  <div class="tab-pane fade" id="tab-source">
+    <div class="row g-4">
+
+      <div class="col-12">
+        <div class="alert alert-info border-0 d-flex gap-2">
+          <i class="bi bi-info-circle-fill mt-1"></i>
+          <div>소스 코드를 가져온 후 <strong>서버를 재시작</strong>해야 변경사항이 적용됩니다.<br>
+          (터미널에서 Ctrl+C 후 <code>python app.py</code> 재실행)</div>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-white border-0 pt-3 fw-semibold">
+            <i class="bi bi-box-arrow-up me-2 text-primary"></i>내보내기 — 이 컴퓨터 소스 코드를 복사
+          </div>
+          <div class="card-body">
+            <p class="text-muted small mb-3">현재 앱의 모든 소스 파일을 텍스트로 묶습니다. 전체 복사 후 이메일 본문에 붙여넣어 전송하세요.</p>
+            <button class="btn btn-primary mb-3" onclick="doExport('source')">
+              <i class="bi bi-download me-1"></i>소스 불러오기
+            </button>
+            <div id="exportSourceArea" style="display:none">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="text-muted small" id="exportSourceInfo"></span>
+                <button class="btn btn-sm btn-outline-primary" onclick="copyText('exportSourceText', this)">
+                  <i class="bi bi-clipboard me-1"></i>전체 복사
+                </button>
+              </div>
+              <textarea id="exportSourceText" class="form-control font-monospace" rows="14" readonly
+                style="font-size:0.75rem; resize:vertical"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-white border-0 pt-3 fw-semibold">
+            <i class="bi bi-box-arrow-in-down me-2 text-danger"></i>가져오기 — 복사한 소스로 파일 교체
+          </div>
+          <div class="card-body">
+            <p class="text-muted small mb-2">다른 컴퓨터에서 복사한 소스 텍스트를 붙여넣고 <strong>비교하기</strong>를 누르세요.<br>
+              <strong class="text-danger">가져온 후 서버를 재시작해야 적용됩니다.</strong></p>
+            <textarea id="importSourceText" class="form-control font-monospace mb-3" rows="10"
+              placeholder="여기에 붙여넣기 (Ctrl+V)..." style="font-size:0.75rem; resize:vertical"></textarea>
+            <button class="btn btn-outline-primary fw-semibold" onclick="compareSource()">
+              <i class="bi bi-search me-1"></i>비교하기
+            </button>
+
+            <!-- 비교 결과 -->
+            <div id="compareResult" style="display:none" class="mt-4">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="fw-semibold small" id="compareResultTitle"></span>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-sm btn-outline-secondary" onclick="toggleAllFiles(true)">전체 선택</button>
+                  <button class="btn btn-sm btn-outline-secondary" onclick="toggleAllFiles(false)">전체 해제</button>
+                </div>
+              </div>
+              <div class="table-responsive mb-3">
+                <table class="table table-sm table-hover mb-0 border rounded">
+                  <thead class="table-light">
+                    <tr>
+                      <th class="text-center" style="width:40px">선택</th>
+                      <th>파일</th>
+                      <th class="text-center" style="width:80px">상태</th>
+                      <th class="text-end" style="width:80px">크기</th>
+                    </tr>
+                  </thead>
+                  <tbody id="compareFileList"></tbody>
+                </table>
+              </div>
+              <button class="btn btn-danger fw-semibold" onclick="importSelected()">
+                <i class="bi bi-arrow-clockwise me-1"></i>선택한 파일만 가져오기
+              </button>
+              <span class="text-muted small ms-2" id="selectedCount"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function doExport(type) {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>불러오는 중...';
+
+  const url   = type === 'data' ? '/api/export-text' : '/api/export-source';
+  const data  = await fetchJSON(url);
+  const text  = type === 'data' ? data.sql : JSON.stringify(data.files);
+  const lines = text.split('\n').length;
+  const kb    = Math.round(text.length / 1024);
+
+  document.getElementById(`export${cap(type)}Info`).textContent = `${lines.toLocaleString()}줄 / 약 ${kb} KB`;
+  document.getElementById(`export${cap(type)}Text`).value = text;
+  document.getElementById(`export${cap(type)}Area`).style.display = 'block';
+  document.getElementById(`export${cap(type)}Text`).select();
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-download me-1"></i>' + (type === 'data' ? '데이터' : '소스') + ' 불러오기';
+}
+
+async function doImport(type) {
+  const text = document.getElementById(`import${cap(type)}Text`).value.trim();
+  if (!text) { alert('텍스트를 붙여넣어 주세요.'); return; }
+
+  if (!confirm(`현재 데이터를 교체합니다. 계속할까요?`)) return;
+
+  const url  = '/api/import-text';
+  const body = JSON.stringify({ sql: text });
+
+  const res = await fetchJSON(url, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body
+  });
+
+  if (res?.ok) {
+    alert('데이터 가져오기 완료! 대시보드로 이동합니다.');
+    location.href = '/';
+  } else {
+    alert('오류: ' + (res?.error || '알 수 없는 오류'));
+  }
+}
+
+// ── 소스 비교 & 선택 가져오기 ─────────────────────────────
+let parsedSourceFiles = {};
+
+async function compareSource() {
+  const text = document.getElementById('importSourceText').value.trim();
+  if (!text) { alert('텍스트를 붙여넣어 주세요.'); return; }
+
+  let files;
+  try { files = JSON.parse(text); }
+  catch { alert('텍스트 형식이 올바르지 않습니다.'); return; }
+
+  parsedSourceFiles = files;
+
+  const res = await fetchJSON('/api/compare-source', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ files }),
+  });
+  if (!Array.isArray(res)) { alert('비교 중 오류가 발생했습니다.'); return; }
+
+  const statusLabel = { changed: '변경됨', new: '신규', same: '동일' };
+  const statusClass = { changed: 'text-warning fw-semibold', new: 'text-success fw-semibold', same: 'text-muted' };
+
+  const changed = res.filter(r => r.status !== 'same');
+  document.getElementById('compareResultTitle').textContent =
+    `총 ${res.length}개 파일 중 변경 ${changed.length}개, 신규 ${res.filter(r=>r.status==='new').length}개, 동일 ${res.filter(r=>r.status==='same').length}개`;
+
+  document.getElementById('compareFileList').innerHTML = res.map(r => `
+    <tr class="${r.status === 'same' ? 'text-muted' : ''}">
+      <td class="text-center">
+        <input type="checkbox" class="form-check-input file-cb" data-file="${r.file}"
+          ${r.status !== 'same' ? 'checked' : ''} onchange="updateSelectedCount()">
+      </td>
+      <td class="font-monospace small">${r.file}</td>
+      <td class="text-center small ${statusClass[r.status]}">${statusLabel[r.status]}</td>
+      <td class="text-end small text-muted">${(r.size / 1024).toFixed(1)} KB</td>
+    </tr>`).join('');
+
+  document.getElementById('compareResult').style.display = '';
+  updateSelectedCount();
+}
+
+function toggleAllFiles(checked) {
+  document.querySelectorAll('.file-cb').forEach(cb => cb.checked = checked);
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  const count = document.querySelectorAll('.file-cb:checked').length;
+  document.getElementById('selectedCount').textContent = `${count}개 파일 선택됨`;
+}
+
+async function importSelected() {
+  const selected = [...document.querySelectorAll('.file-cb:checked')].map(cb => cb.dataset.file);
+  if (!selected.length) { alert('가져올 파일을 선택해주세요.'); return; }
+  if (!confirm(`선택한 ${selected.length}개 파일을 교체합니다. 계속할까요?`)) return;
+
+  const filesToImport = Object.fromEntries(
+    selected.map(f => [f, parsedSourceFiles[f]])
+  );
+
+  const res = await fetchJSON('/api/import-source', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ files: filesToImport }),
+  });
+
+  if (res?.ok) {
+    alert(`소스 ${res.count}개 파일 교체 완료!\n\n터미널에서 서버를 재시작하세요.\n(Ctrl+C → python app.py)`);
+  } else {
+    alert('오류: ' + (res?.error || '알 수 없는 오류'));
+  }
+}
+
+async function copyText(id, btn) {
+  const ta = document.getElementById(id);
+  ta.select();
+  try { await navigator.clipboard.writeText(ta.value); }
+  catch { document.execCommand('copy'); }
+  btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>복사됨!';
+  setTimeout(() => btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>전체 복사', 2000);
+}
+
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+</script>
+{% endblock %}
