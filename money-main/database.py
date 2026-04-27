@@ -225,6 +225,17 @@ def init_db():
             budget_amount INTEGER NOT NULL DEFAULT 0,
             UNIQUE(fund_group_id, year, month)
         );
+
+        CREATE TABLE IF NOT EXISTS asset_snapshots (
+            month           TEXT PRIMARY KEY, -- 'YYYY-MM'
+            cash            INTEGER DEFAULT 0,
+            stocks          INTEGER DEFAULT 0,
+            real_estate     INTEGER DEFAULT 0,
+            crypto          INTEGER DEFAULT 0,
+            pension         INTEGER DEFAULT 0,
+            total           INTEGER DEFAULT 0,
+            updated_at      TEXT
+        );
     """)
 
     # 마이그레이션: 기존 DB에 컬럼 추가 / 데이터 이전

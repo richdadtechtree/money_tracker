@@ -49,6 +49,11 @@
       </a>
     </li>
     <li class="nav-item">
+      <a href="/cash" class="nav-link text-white {% if request.path == '/cash' %}active{% endif %}">
+        <i class="bi bi-wallet2 me-2"></i>현금 관리
+      </a>
+    </li>
+    <li class="nav-item">
       <a href="/realestate" class="nav-link text-white {% if request.path == '/realestate' %}active{% endif %}">
         <i class="bi bi-house-door me-2"></i>부동산
       </a>
@@ -71,6 +76,11 @@
     <li class="nav-item">
       <a href="/monthly" class="nav-link text-white {% if request.path == '/monthly' %}active{% endif %}">
         <i class="bi bi-calendar3 me-2"></i>월별 결산
+      </a>
+    </li>
+    <li class="nav-item">
+      <a href="/tech-tree" class="nav-link text-white {% if request.path == '/tech-tree' %}active{% endif %}">
+        <i class="bi bi-diagram-3 me-2 text-warning"></i>자본주의 테크트리
       </a>
     </li>
   </ul>

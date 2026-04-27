@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+{% block title %}자본주의 테크트리{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div class="d-flex align-items-center">
+    <h2 class="fw-bold mb-0"><i class="bi bi-diagram-3 me-2 text-warning"></i>자본주의 테크트리</h2>
+    <span class="badge bg-danger ms-3 px-3 py-2" style="cursor: pointer;" onclick="openStrawModal()">
+      <i class="bi bi-exclamation-triangle me-1"></i>내 돈을 빨아가는 빨대 찾기
+    </span>
+  </div>
+  <div class="d-flex align-items-center gap-3">
+    <div class="input-group input-group-sm" style="width: 250px;">
+      <span class="input-group-text bg-light fw-bold">목표 자산</span>
+      <input type="text" id="targetAmountInput" class="form-control text-end" placeholder="0">
+      <span class="input-group-text bg-light">원</span>
+      <button class="btn btn-warning fw-bold" onclick="saveTarget()">설정</button>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4 mb-4">
+  <div class="col-lg-9">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body p-4 overflow-hidden">
+        <div class="flow-container position-relative" style="height: 550px; background: #fafbfc; border-radius: 20px; border: 1px solid #edf2f7;">
+          <!-- [1] 근로소득 노드 -->
+          <div class="node labor-node shadow clickable-node" style="top: 20%; left: 3%;" onclick="openDetailModal('labor', '근로소득 상세')">
+            <div class="node-header bg-primary text-white">근로소득 (Active) <i class="bi bi-search float-end small"></i></div>
+            <div class="node-body">
+              <div class="small text-muted mb-1">급여 / 사업소득</div>
+              <div class="fw-bold fs-5 text-primary" id="laborIncomeVal">0원</div>
+            </div>
+          </div>
+          <!-- [2] 지출 노드 -->
+          <div class="node expense-node shadow clickable-node" style="top: 5%; left: 45%;" onclick="openDetailModal('expense', '지출 상세')">
+            <div class="node-header bg-danger text-white">지출 (Expense) <i class="bi bi-search float-end small"></i></div>
+            <div class="node-body position-relative">
+              <div class="small text-muted mb-1">총 지출액 (대출 포함)</div>
+              <div class="fw-bold fs-5 text-danger" id="expenseTotalVal">0원</div>
+              <div class="mt-2 pt-2 border-top border-danger border-opacity-10">
+                <div class="d-flex justify-content-between align-items-center">
+                  <span class="small text-danger fw-bold">고정비(빨대)</span>
+                  <span class="small fw-bold text-danger" id="strawTotalVal">0원</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- [3] 자생소득 노드 -->
+          <div class="node passive-node shadow clickable-node" style="top: 70%; left: 3%;" onclick="openDetailModal('passive', '자생소득 상세')">
+            <div class="node-header bg-success text-white">자생소득 (Passive) <i class="bi bi-search float-end small"></i></div>
+            <div class="node-body">
+              <div class="small text-muted mb-1">부동산 / 주식 / 이자 / 배당 / 임대</div>
+              <div class="fw-bold fs-5 text-success" id="passiveIncomeVal">0원</div>
+            </div>
+          </div>
+          <!-- [4] 저축/탱크 진입 노드 -->
+          <div class="node saving-node shadow-sm border-primary" style="top: 40%; left: 75%; border: 2px dashed #0d6efd;">
+            <div class="node-header bg-light text-dark fw-bold text-center">자산 축적 (Tank In)</div>
+            <div class="node-body text-center">
+              <div class="fw-bold fs-4 text-info" id="netSavingsVal">0원</div>
+              <div class="small text-muted mt-1">(소득 - 지출)</div>
+            </div>
+          </div>
+          <!-- 연결선 (SVG) -->
+          <svg class="position-absolute top-0 left-0 w-100 h-100" style="z-index: 0; pointer-events: none;">
+            <defs>
+              <linearGradient id="gradLabor" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#0d6efd;stop-opacity:0.2" /><stop offset="100%" style="stop-color:#0d6efd;stop-opacity:0.8" /></linearGradient>
+              <linearGradient id="gradPassive" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#198754;stop-opacity:0.2" /><stop offset="100%" style="stop-color:#198754;stop-opacity:0.8" /></linearGradient>
+              <linearGradient id="gradExpense" x1="0%" y1="100%" x2="0%" y2="0%"><stop offset="0%" style="stop-color:#fa5252;stop-opacity:0.8" /><stop offset="100%" style="stop-color:#fa5252;stop-opacity:0.2" /></linearGradient>
+            </defs>
+            <path d="M 215 160 L 735 300" stroke="url(#gradLabor)" stroke-width="14" fill="none" class="flow-path-anim" />
+            <path d="M 475 230 L 475 140" stroke="url(#gradExpense)" stroke-width="10" fill="none" class="flow-path-anim" style="stroke-dasharray: 8, 4;" />
+            <path d="M 215 455 C 450 455, 650 455, 735 345" stroke="url(#gradPassive)" stroke-width="14" fill="none" class="flow-path-anim" />
+            <path d="M 915 295 L 990 295" stroke="#0dcaf0" stroke-width="20" fill="none" class="flow-path-anim" />
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 오른쪽: 물탱크 -->
+  <div class="col-lg-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white fw-bold py-3 border-0"><i class="bi bi-bank me-2 text-primary"></i>자산 물탱크</div>
+      <div class="card-body d-flex flex-column align-items-center justify-content-center p-3">
+        <div class="tank-container shadow-inner">
+          <div class="tank-water" id="tankWater">
+            <div class="layer layer-pension" title="연금" onclick="openDetailModal('pension', '연금 상세')"></div>
+            <div class="layer layer-crypto" title="코인" onclick="openDetailModal('crypto', '코인 상세')"></div>
+            <div class="layer layer-re" title="부동산" onclick="openDetailModal('real_estate', '부동산 상세')"></div>
+            <div class="layer layer-stocks" title="주식" onclick="openDetailModal('stocks', '주식 상세')"></div>
+            <div class="layer layer-cash" title="현금" onclick="openDetailModal('cash', '현금 상세')"></div>
+          </div>
+          <div class="tank-percentage" id="tankPercentLabel">0%</div>
+        </div>
+        <div class="mt-4 w-100 small">
+          <div class="d-flex justify-content-between mb-1"><span class="text-muted">현재 자산</span><span class="fw-bold" id="currentTotalAssets">0원</span></div>
+          <div class="d-flex justify-content-between mb-3 border-bottom pb-2"><span class="text-muted">목표 자산</span><span class="text-warning fw-bold" id="targetTotalAssets">0원</span></div>
+          <div class="col-12 d-flex align-items-center mb-1 clickable-item" onclick="openDetailModal('cash', '현금 상세')"><span class="asset-dot bg-cash me-2"></span> 현금: <span class="ms-auto" id="valCash">0</span></div>
+          <div class="col-12 d-flex align-items-center mb-1 clickable-item" onclick="openDetailModal('stocks', '주식 상세')"><span class="asset-dot bg-stocks me-2"></span> 주식: <span class="ms-auto" id="valStocks">0</span></div>
+          <div class="col-12 d-flex align-items-center mb-1 clickable-item" onclick="openDetailModal('real_estate', '부동산 상세')"><span class="asset-dot bg-re me-2"></span> 부동산: <span class="ms-auto" id="valRE">0</span></div>
+          <div class="col-12 d-flex align-items-center mb-1 clickable-item" onclick="openDetailModal('crypto', '코인 상세')"><span class="asset-dot bg-crypto me-2"></span> 코인: <span class="ms-auto" id="valCrypto">0</span></div>
+          <div class="col-12 d-flex align-items-center mb-1 clickable-item" onclick="openDetailModal('pension', '연금 상세')"><span class="asset-dot bg-pension me-2"></span> 연금: <span class="ms-auto" id="valPension">0</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- [하단] 자산별 히스토리 그래프 -->
+<div class="row g-4">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+        <h5 class="fw-bold mb-0"><i class="bi bi-graph-up me-2 text-info"></i>자산별 성장 추이 (최근 12개월)</h5>
+        <div class="btn-group btn-group-sm shadow-sm">
+          <input type="radio" class="btn-check" name="chartMode" id="modeValue" checked onchange="loadHistoryChart()">
+          <label class="btn btn-outline-primary px-3" for="modeValue">금액 기준</label>
+          <input type="radio" class="btn-check" name="chartMode" id="modePercent" onchange="loadHistoryChart()">
+          <label class="btn btn-outline-primary px-3" for="modePercent">증감률(%) 기준</label>
+        </div>
+      </div>
+      <div class="card-body p-4">
+        <div style="height: 400px;">
+          <canvas id="assetHistoryChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 상세 내역 모달 -->
+<div class="modal fade" id="detailModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold" id="detailModalTitle">상세 내역</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4">
+        <div class="table-responsive" style="max-height: 500px;">
+          <table class="table table-hover align-middle">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th style="width: 120px;">일자/구분</th>
+                <th>명칭</th>
+                <th class="text-end">금액</th>
+                <th>메모/기관</th>
+              </tr>
+            </thead>
+            <tbody id="detailList"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 빨대(고정비) 관리 모달 -->
+<div class="modal fade" id="strawModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-triangle me-2"></i>돈을 빨아가는 빨대(고정비) 목록</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div id="strawList" class="list-group list-group-flush"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.node { position: absolute; width: 200px; background: white; border-radius: 16px; overflow: hidden; z-index: 10; border: 1px solid #e2e8f0; }
+.node-header { padding: 10px 15px; font-weight: bold; font-size: 0.85rem; }
+.node-body { padding: 12px; }
+.tank-container { width: 100%; height: 350px; border: 5px solid #f1f3f5; border-radius: 20px 20px 60px 60px; position: relative; overflow: hidden; }
+.tank-water { position: absolute; bottom: 0; left: 0; width: 100%; height: 0%; transition: height 1.5s; display: flex; flex-direction: column-reverse; }
+.tank-water .layer { width: 100%; transition: height 1s; cursor: pointer; }
+.tank-water .layer:hover { filter: brightness(1.1); }
+.layer-cash { background: #339af0; } .layer-stocks { background: #51cf66; } .layer-re { background: #ff922b; } .layer-crypto { background: #cc5de8; } .layer-pension { background: #6741d9; }
+.bg-cash { background: #339af0; } .bg-stocks { background: #51cf66; } .bg-re { background: #ff922b; } .bg-crypto { background: #cc5de8; } .bg-pension { background: #6741d9; }
+.asset-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.tank-percentage { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 2rem; font-weight: 900; color: #495057; text-shadow: 0 0 10px white; z-index: 20; pointer-events: none; }
+.flow-path-anim { stroke-dasharray: 15, 10; animation: flow-dash 30s linear infinite; }
+@keyframes flow-dash { to { stroke-dashoffset: -1000; } }
+.clickable-node { cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+.clickable-node:hover { transform: scale(1.05); box-shadow: 0 10px 20px rgba(0,0,0,0.1) !important; }
+.clickable-item { cursor: pointer; border-radius: 6px; padding: 4px 8px; margin: 0 -8px; transition: background 0.2s; }
+.clickable-item:hover { background: #f1f3f5; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let historyChart = null;
+let detailModal = null;
+let rawHistoryData = null;
+
+async function loadTechTree() {
+  const data = await fetchJSON('/api/tech-tree-data');
+  if (!data) return;
+  const { assets, income, expense, straw_total, target_amount } = data;
+  document.getElementById('targetAmountInput').value = fmt(target_amount);
+  document.getElementById('targetTotalAssets').textContent = fmt(target_amount) + '원';
+  document.getElementById('laborIncomeVal').textContent = fmt(income.labor) + '원';
+  document.getElementById('passiveIncomeVal').textContent = fmt(income.passive) + '원';
+  document.getElementById('expenseTotalVal').textContent = fmt(expense) + '원';
+  document.getElementById('strawTotalVal').textContent = fmt(straw_total) + '원';
+  const netSavings = (income.labor - expense) + income.passive;
+  const elNet = document.getElementById('netSavingsVal');
+  elNet.textContent = (netSavings >= 0 ? '+' : '') + fmt(netSavings) + '원';
+  elNet.className = 'fw-bold fs-4 ' + (netSavings >= 0 ? 'text-info' : 'text-danger');
+  const total = assets.cash + assets.stocks + assets.real_estate + assets.crypto + assets.pension;
+  document.getElementById('currentTotalAssets').textContent = fmt(total) + '원';
+  document.getElementById('valCash').textContent = fmt(assets.cash);
+  document.getElementById('valStocks').textContent = fmt(assets.stocks);
+  document.getElementById('valRE').textContent = fmt(assets.real_estate);
+  document.getElementById('valCrypto').textContent = fmt(assets.crypto);
+  document.getElementById('valPension').textContent = fmt(assets.pension);
+  const percent = Math.min(Math.round((total / target_amount) * 100), 100);
+  document.getElementById('tankWater').style.height = percent + '%';
+  document.getElementById('tankPercentLabel').textContent = percent + '%';
+  if (total > 0) {
+    const setL = (id, v) => document.querySelector('.layer-' + id).style.height = (v / total * 100) + '%';
+    setL('cash', assets.cash); setL('stocks', assets.stocks); setL('re', assets.real_estate); setL('crypto', assets.crypto); setL('pension', assets.pension);
+  }
+}
+
+async function loadHistoryChart() {
+  if (!rawHistoryData) {
+    rawHistoryData = await fetchJSON('/api/asset-history');
+  }
+  if (!rawHistoryData || rawHistoryData.length === 0) return;
+
+  const isPercent = document.getElementById('modePercent').checked;
+  const labels = rawHistoryData.map(h => h.month);
+  
+  // 기준점 (첫 달) 및 초기 총 자산
+  const base = rawHistoryData[0];
+  const baseTotal = base.cash + base.stocks + base.real_estate + base.crypto + base.pension;
+  
+  const getVal = (h, key) => {
+    if (!isPercent) return h[key];
+    if (baseTotal === 0) return 0;
+    // 초기 전체 자산 대비 해당 자산의 증감 비율(기여도) 계산
+    return ((h[key] - base[key]) / baseTotal) * 100;
+  };
+
+  const datasets = [
+    { label: '현금', data: rawHistoryData.map(h => getVal(h, 'cash')), borderColor: '#339af0', backgroundColor: '#339af011', fill: true, tension: 0.3, pointRadius: 2 },
+    { label: '주식/ETF', data: rawHistoryData.map(h => getVal(h, 'stocks')), borderColor: '#51cf66', backgroundColor: '#51cf6611', fill: true, tension: 0.3, pointRadius: 2 },
+    { label: '부동산', data: rawHistoryData.map(h => getVal(h, 'real_estate')), borderColor: '#ff922b', backgroundColor: '#ff922b11', fill: true, tension: 0.3, pointRadius: 2 },
+    { label: '코인', data: rawHistoryData.map(h => getVal(h, 'crypto')), borderColor: '#cc5de8', backgroundColor: '#cc5de811', fill: true, tension: 0.3, pointRadius: 2 },
+    { label: '연금', data: rawHistoryData.map(h => getVal(h, 'pension')), borderColor: '#6741d9', backgroundColor: '#6741d911', fill: true, tension: 0.3, pointRadius: 2 }
+  ];
+
+  const ctx = document.getElementById('assetHistoryChart').getContext('2d');
+  if (historyChart) historyChart.destroy();
+  
+  historyChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 6 } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ` ${ctx.dataset.label}: ${isPercent ? ctx.parsed.y.toFixed(2) + '%' : fmt(ctx.parsed.y) + '원'}`
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: isPercent,
+          ticks: { 
+            callback: (v) => isPercent ? v + '%' : (v >= 10000 ? fmt(v / 10000) + '만' : fmt(v)),
+            font: { size: 10 }
+          },
+          grid: { color: '#f0f0f0' }
+        },
+        x: { ticks: { font: { size: 10 } }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+async function openDetailModal(type, title) {
+  document.getElementById('detailModalTitle').textContent = title;
+  const list = document.getElementById('detailList');
+  list.innerHTML = '<tr><td colspan="4" class="text-center py-5"><div class="spinner-border text-primary"></div></td></tr>';
+  detailModal.show();
+  const data = await fetchJSON(`/api/tech-tree-detail?type=${type}`);
+  if (!data || data.length === 0) {
+    list.innerHTML = '<tr><td colspan="4" class="text-center py-5 text-muted">상세 내역이 없습니다.</td></tr>';
+    return;
+  }
+  list.innerHTML = data.map(item => `
+    <tr><td class="small text-muted">${item.date}</td><td class="fw-bold">${item.name}</td><td class="text-end fw-bold text-primary">${fmt(item.amount)}원</td><td class="small text-muted">${item.memo || '-'}</td></tr>
+  `).join('');
+}
+
+async function openStrawModal() {
+  const straws = await fetchJSON('/api/straws');
+  const list = document.getElementById('strawList');
+  list.innerHTML = straws.length ? straws.map(s => `
+    <div class="list-group-item d-flex justify-content-between align-items-center py-3">
+      <div><div class="fw-bold text-dark">${s.name}</div><div class="small text-muted">${s.cnt}회 반복됨</div></div>
+      <div class="text-end"><div class="fw-bold text-danger">${fmt(s.amount)}원</div></div>
+    </div>
+  `).join('') : '<div class="p-4 text-center text-muted">감지된 빨대가 없습니다.</div>';
+  new bootstrap.Modal(document.getElementById('strawModal')).show();
+}
+
+async function saveTarget() {
+  const amount = parseInt(document.getElementById('targetAmountInput').value.replace(/,/g, '')) || 0;
+  await fetchJSON('/api/tech-tree-goal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target_amount: amount }) });
+  loadTechTree();
+}
+
+document.getElementById('targetAmountInput').addEventListener('input', function() {
+  this.value = this.value.replace(/[^\d]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
+  loadTechTree();
+  loadHistoryChart();
+});
+</script>
+{% endblock %}

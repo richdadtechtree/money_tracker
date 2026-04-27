@@ -4,7 +4,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2 class="fw-bold mb-0"><i class="bi bi-cash-coin me-2 text-success"></i>수입 관리</h2>
-  <button class="btn btn-success" onclick="grid.addRow()">
+  <button class="btn btn-success" onclick="openAddModal()">
     <i class="bi bi-plus-lg me-1"></i>행 추가
   </button>
 </div>
@@ -49,6 +49,90 @@
     </div>
   </div>
 </div>
+
+<!-- ── 수입 추가 모달 ───────────────────────────────────────── -->
+<div class="modal fade" id="addIncomeModal" tabindex="-1" aria-labelledby="addIncomeModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title" id="addIncomeModalLabel">
+          <i class="bi bi-plus-circle me-2"></i>수입 추가
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <!-- 날짜 -->
+          <div class="col-12">
+            <label class="form-label fw-semibold">날짜 <span class="text-danger">*</span></label>
+            <input type="date" id="mi_date" class="form-control">
+          </div>
+          <!-- 카테고리 -->
+          <div class="col-12">
+            <label class="form-label fw-semibold">카테고리</label>
+            <select id="mi_category" class="form-select">
+              <option value="">선택 안함</option>
+              <option>급여</option>
+              <option>부수입</option>
+              <option>사업소득</option>
+              <option>투자수익</option>
+              <option>임대소득</option>
+              <option>기타</option>
+            </select>
+          </div>
+          <!-- 항목명 -->
+          <div class="col-12">
+            <label class="form-label fw-semibold">항목명</label>
+            <input type="text" id="mi_name" class="form-control" placeholder="항목명 입력">
+          </div>
+          <!-- 금액 -->
+          <div class="col-12">
+            <label class="form-label fw-semibold">금액 <span class="text-danger">*</span></label>
+            <div class="input-group">
+              <input type="text" id="mi_amount" class="form-control" placeholder="0" inputmode="decimal">
+              <span class="input-group-text">원</span>
+            </div>
+          </div>
+          <!-- 메모 -->
+          <div class="col-12">
+            <label class="form-label fw-semibold">메모</label>
+            <input type="text" id="mi_memo" class="form-control" placeholder="메모 (선택)">
+          </div>
+
+          <!-- ── 반복 수입 섹션 ── -->
+          <div class="col-12">
+            <hr class="my-1">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="mi_recurring" role="switch">
+                <label class="form-check-label fw-semibold" for="mi_recurring">
+                  <i class="bi bi-arrow-repeat me-1 text-success"></i>매월 반복
+                </label>
+              </div>
+            </div>
+            <!-- 반복 옵션 (토글 시 표시) -->
+            <div id="recurringOptions" class="ps-2 d-none">
+              <label class="form-label text-muted small mb-1">반복 개월 수</label>
+              <div class="d-flex align-items-center gap-2">
+                <input type="number" id="mi_repeat_months" class="form-control form-control-sm"
+                       style="width:90px" min="2" max="120" value="12">
+                <span class="text-muted small">개월 동안 반복</span>
+              </div>
+              <div id="recurringPreview" class="mt-2 p-2 bg-success bg-opacity-10 rounded small text-success d-none">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-success" onclick="saveIncome()">
+          <i class="bi bi-check-lg me-1"></i>저장
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -81,5 +165,140 @@ const grid = new GridTable({
 });
 
 grid.load();
+
+/* ── 모달 열기 ─────────────────────────────────── */
+let addModal;
+function openAddModal() {
+  if (!addModal) addModal = new bootstrap.Modal(document.getElementById('addIncomeModal'));
+
+  // 기본값 초기화
+  document.getElementById('mi_date').value     = new Date().toISOString().split('T')[0];
+  document.getElementById('mi_category').value = '';
+  document.getElementById('mi_name').value     = '';
+  document.getElementById('mi_amount').value   = '';
+  document.getElementById('mi_memo').value     = '';
+  document.getElementById('mi_recurring').checked = false;
+  document.getElementById('mi_repeat_months').value = 12;
+  document.getElementById('recurringOptions').classList.add('d-none');
+  document.getElementById('recurringPreview').classList.add('d-none');
+
+  addModal.show();
+  setTimeout(() => document.getElementById('mi_date').focus(), 300);
+}
+
+/* ── 반복 토글 ─────────────────────────────────── */
+document.getElementById('mi_recurring').addEventListener('change', function () {
+  const opts = document.getElementById('recurringOptions');
+  if (this.checked) {
+    opts.classList.remove('d-none');
+    updatePreview();
+  } else {
+    opts.classList.add('d-none');
+    document.getElementById('recurringPreview').classList.add('d-none');
+  }
+});
+
+/* 날짜·개월 수 변경 시 미리보기 갱신 */
+['mi_date', 'mi_repeat_months'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    if (document.getElementById('mi_recurring').checked) updatePreview();
+  });
+});
+
+function updatePreview() {
+  const dateStr = document.getElementById('mi_date').value;
+  const months  = parseInt(document.getElementById('mi_repeat_months').value) || 0;
+  const preview = document.getElementById('recurringPreview');
+  if (!dateStr || months < 2) { preview.classList.add('d-none'); return; }
+
+  const base = new Date(dateStr + 'T00:00:00');
+  const labels = [];
+  for (let i = 0; i < months; i++) {
+    const d = new Date(base.getFullYear(), base.getMonth() + i, base.getDate());
+    labels.push(`${d.getFullYear()}년 ${d.getMonth()+1}월`);
+  }
+  preview.innerHTML = `<i class="bi bi-info-circle me-1"></i>${labels[0]} ~ ${labels[labels.length-1]} (${months}개월)`;
+  preview.classList.remove('d-none');
+}
+
+/* ── 금액 콤마 포맷 ────────────────────────────── */
+document.getElementById('mi_amount').addEventListener('input', function () {
+  const sel   = this.selectionStart;
+  const prev  = this.value;
+  const clean = prev.replace(/[^\d.]/g, '');
+  const parts = clean.split('.');
+  const intFmt = (parts[0] || '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const next  = parts.length > 1 ? intFmt + '.' + parts[1] : intFmt;
+  this.value  = next;
+  try { this.setSelectionRange(sel + next.length - prev.length, sel + next.length - prev.length); } catch {}
+});
+
+/* ── 저장 ───────────────────────────────────────── */
+async function saveIncome() {
+  const dateVal   = document.getElementById('mi_date').value;
+  const amountRaw = document.getElementById('mi_amount').value.replace(/,/g, '');
+  const amount    = parseFloat(amountRaw) || 0;
+
+  if (!dateVal)    { alert('날짜를 입력해주세요.'); return; }
+  if (amount <= 0) { alert('금액을 입력해주세요.'); return; }
+
+  const isRecurring   = document.getElementById('mi_recurring').checked;
+  const repeatMonths  = parseInt(document.getElementById('mi_repeat_months').value) || 1;
+
+  const payload = {
+    date:           dateVal,
+    category:       document.getElementById('mi_category').value,
+    name:           document.getElementById('mi_name').value,
+    memo:           document.getElementById('mi_memo').value,
+    amount:         amount,
+    is_recurring:   isRecurring,
+    repeat_months:  isRecurring ? repeatMonths : 1,
+  };
+
+  const saveBtn = document.querySelector('#addIncomeModal .btn-success');
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>저장 중...';
+
+  const res = await fetchJSON('/api/income', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  saveBtn.disabled = false;
+  saveBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>저장';
+
+  if (res) {
+    addModal.hide();
+    await grid.load();
+    if (isRecurring && repeatMonths > 1) {
+      // 토스트 형태 알림
+      showToast(`${repeatMonths}개월치 수입이 등록되었습니다.`, 'success');
+    }
+  }
+}
+
+/* 모달에서 Enter 키 저장 */
+document.getElementById('addIncomeModal').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'BUTTON') {
+    e.preventDefault();
+    saveIncome();
+  }
+});
+
+/* ── 토스트 헬퍼 ────────────────────────────────── */
+function showToast(msg, type = 'success') {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999';
+  wrap.innerHTML = `
+    <div class="toast align-items-center text-bg-${type} border-0 show" role="alert">
+      <div class="d-flex">
+        <div class="toast-body fw-semibold">${msg}</div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" onclick="this.closest('div[style]').remove()"></button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  setTimeout(() => wrap.remove(), 4000);
+}
 </script>
 {% endblock %}
