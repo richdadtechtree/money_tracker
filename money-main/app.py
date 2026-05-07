@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, jsonify, Response
 from flask_cors import CORS
-from database import get_db, init_db, DB_PATH
+from database import get_db, init_db
 from datetime import datetime, date
 import json, os, shutil, sqlite3, re, csv, io
 
@@ -84,10 +84,13 @@ def api_income():
         query = "SELECT * FROM income"
         params = []
         if year and month:
-            query += " WHERE strftime('%Y', date) = ? AND strftime('%m', date) = ?"
+            query += " WHERE to_char(date::date, 'YYYY') = %s AND to_char(date::date, 'MM') = %s"
             params = [year, month.zfill(2)]
         query += " ORDER BY date DESC"
-        rows = db.execute(query, params).fetchall()
+        cur = db.cursor()
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
 
@@ -108,15 +111,19 @@ def api_income():
             # 말일 초과 보정 (예: 1월31일 → 2월28일)
             d = min(base_date.day, _cal.monthrange(y, m)[1])
             tx_date = _date(y, m, d).isoformat()
-            db.execute(
-                "INSERT INTO income (date, category, name, memo, amount) VALUES (?,?,?,?,?)",
-                (tx_date, data.get('category'), data.get('name'), data.get('memo'), data['amount'])
+            cur = db.cursor()
+            cur.execute(
+            "INSERT INTO income (date, category, name, memo, amount) VALUES (%s,%s,%s,%s,%s)",
+            (tx_date, data.get('category'), data.get('name'), data.get('memo'), data['amount'])
             )
+            cur.close()
     else:
-        db.execute(
-            "INSERT INTO income (date, category, name, memo, amount) VALUES (?,?,?,?,?)",
-            (base_date_str, data.get('category'), data.get('name'), data.get('memo'), data['amount'])
+        cur = db.cursor()
+        cur.execute(
+        "INSERT INTO income (date, category, name, memo, amount) VALUES (%s,%s,%s,%s,%s)",
+        (base_date_str, data.get('category'), data.get('name'), data.get('memo'), data['amount'])
         )
+        cur.close()
 
     db.commit()
     db.close()
@@ -128,15 +135,19 @@ def api_income_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
-        db.execute(
-            "UPDATE income SET date=?, category=?, name=?, memo=?, amount=? WHERE id=?",
-            (data.get('date'), data.get('category'), data.get('name'),
-             data.get('memo'), data.get('amount', 0), rid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE income SET date=%s, category=%s, name=%s, memo=%s, amount=%s WHERE id=%s",
+        (data.get('date'), data.get('category'), data.get('name'),
+        data.get('memo'), data.get('amount', 0), rid)
         )
+        cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM income WHERE id = ?", (rid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM income WHERE id = %s", (rid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -147,21 +158,30 @@ def _sync_card_tx(db, budget_id, data):
     """budget 저장 시 card_tx 자동 동기화"""
     card_id = data.get('card_id') or None
     if card_id:
-        existing = db.execute("SELECT id FROM card_tx WHERE budget_id = ?", (budget_id,)).fetchone()
+        cur = db.cursor()
+        cur.execute("SELECT id FROM card_tx WHERE budget_id = %s", (budget_id,))
+        existing = cur.fetchone()
+        cur.close()
         if existing:
-            db.execute(
-                "UPDATE card_tx SET card_id=?, date=?, name=?, category=?, amount=?, memo=? WHERE budget_id=?",
-                (card_id, data.get('date'), data.get('name'), data.get('category'),
-                 data.get('amount', 0), data.get('memo'), budget_id)
+            cur = db.cursor()
+            cur.execute(
+            "UPDATE card_tx SET card_id=%s, date=%s, name=%s, category=%s, amount=%s, memo=%s WHERE budget_id=%s",
+            (card_id, data.get('date'), data.get('name'), data.get('category'),
+            data.get('amount', 0), data.get('memo'), budget_id)
             )
+            cur.close()
         else:
-            db.execute(
-                "INSERT INTO card_tx (card_id, date, name, category, amount, installment, memo, budget_id) VALUES (?,?,?,?,?,1,?,?)",
-                (card_id, data.get('date'), data.get('name'), data.get('category'),
-                 data.get('amount', 0), data.get('memo'), budget_id)
+            cur = db.cursor()
+            cur.execute(
+            "INSERT INTO card_tx (card_id, date, name, category, amount, installment, memo, budget_id) VALUES (%s,%s,%s,%s,%s,1,%s,%s)",
+            (card_id, data.get('date'), data.get('name'), data.get('category'),
+            data.get('amount', 0), data.get('memo'), budget_id)
             )
+            cur.close()
     else:
-        db.execute("DELETE FROM card_tx WHERE budget_id = ?", (budget_id,))
+        cur = db.cursor()
+        cur.execute("DELETE FROM card_tx WHERE budget_id = %s", (budget_id,))
+        cur.close()
 
 
 @app.route('/api/budget', methods=['GET', 'POST'])
@@ -175,21 +195,29 @@ def api_budget():
                    LEFT JOIN card_info c ON b.card_id = c.id"""
         params = []
         if year and month:
-            query += " WHERE strftime('%Y', b.date) = ? AND strftime('%m', b.date) = ?"
+            query += " WHERE to_char(b.date::date, 'YYYY') = %s AND to_char(b.date::date, 'MM') = %s"
             params = [year, month.zfill(2)]
         query += " ORDER BY b.date DESC"
-        rows = db.execute(query, params).fetchall()
+        cur = db.cursor()
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
 
     data = request.json
-    db.execute(
-        "INSERT INTO budget (date, category, name, type, payment_method, amount, memo, card_id) VALUES (?,?,?,?,?,?,?,?)",
-        (data['date'], data.get('category'), data.get('name'), data.get('type'),
-         data.get('payment_method'), data['amount'], data.get('memo'),
-         data.get('card_id') or None)
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO budget (date, category, name, type, payment_method, amount, memo, card_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+    (data['date'], data.get('category'), data.get('name'), data.get('type'),
+    data.get('payment_method'), data['amount'], data.get('memo'),
+    data.get('card_id') or None)
     )
-    budget_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT last_insert_rowid()")
+    budget_id = cur.fetchone()[0]
+    cur.close()
     _sync_card_tx(db, budget_id, data)
     db.commit()
     db.close()
@@ -201,18 +229,24 @@ def api_budget_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
-        db.execute(
-            "UPDATE budget SET date=?, category=?, name=?, type=?, payment_method=?, amount=?, memo=?, card_id=? WHERE id=?",
-            (data.get('date'), data.get('category'), data.get('name'), data.get('type'),
-             data.get('payment_method'), data.get('amount', 0), data.get('memo'),
-             data.get('card_id') or None, rid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE budget SET date=%s, category=%s, name=%s, type=%s, payment_method=%s, amount=%s, memo=%s, card_id=%s WHERE id=%s",
+        (data.get('date'), data.get('category'), data.get('name'), data.get('type'),
+        data.get('payment_method'), data.get('amount', 0), data.get('memo'),
+        data.get('card_id') or None, rid)
         )
+        cur.close()
         _sync_card_tx(db, rid, data)
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM card_tx WHERE budget_id = ?", (rid,))
-    db.execute("DELETE FROM budget WHERE id = ?", (rid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM card_tx WHERE budget_id = %s", (rid,))
+    cur.close()
+    cur = db.cursor()
+    cur.execute("DELETE FROM budget WHERE id = %s", (rid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -223,16 +257,21 @@ def api_budget_detail(rid):
 def api_cards():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute("SELECT * FROM card_info ORDER BY card_num").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT * FROM card_info ORDER BY card_num")
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
 
     data = request.json
-    db.execute(
-        "INSERT INTO card_info (card_num, card_name, limit_amount, payment_day, billing_day, benefit) VALUES (?,?,?,?,?,?)",
-        (data['card_num'], data.get('card_name'), data.get('limit_amount', 0),
-         data.get('payment_day'), data.get('billing_day'), data.get('benefit'))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO card_info (card_num, card_name, limit_amount, payment_day, billing_day, benefit) VALUES (%s,%s,%s,%s,%s,%s)",
+    (data['card_num'], data.get('card_name'), data.get('limit_amount', 0),
+    data.get('payment_day'), data.get('billing_day'), data.get('benefit'))
     )
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True}), 201
@@ -243,15 +282,19 @@ def api_card_detail(cid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
-        db.execute(
-            "UPDATE card_info SET card_num=?, card_name=?, limit_amount=?, payment_day=?, billing_day=?, benefit=? WHERE id=?",
-            (data.get('card_num'), data.get('card_name'), data.get('limit_amount', 0),
-             data.get('payment_day'), data.get('billing_day'), data.get('benefit'), cid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE card_info SET card_num=%s, card_name=%s, limit_amount=%s, payment_day=%s, billing_day=%s, benefit=%s WHERE id=%s",
+        (data.get('card_num'), data.get('card_name'), data.get('limit_amount', 0),
+        data.get('payment_day'), data.get('billing_day'), data.get('benefit'), cid)
         )
+        cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM card_info WHERE id = ?", (cid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM card_info WHERE id = %s", (cid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -269,14 +312,17 @@ def api_card_tx():
         params  = []
         conds   = []
         if card_id:
-            conds.append("t.card_id = ?"); params.append(card_id)
+            conds.append("t.card_id = %s"); params.append(card_id)
         if year and month:
-            conds.append("strftime('%Y', t.date) = ?"); params.append(year)
-            conds.append("strftime('%m', t.date) = ?"); params.append(month.zfill(2))
+            conds.append("to_char(t.date::date, 'YYYY') = %s"); params.append(year)
+            conds.append("to_char(t.date::date, 'MM') = %s"); params.append(month.zfill(2))
         if conds:
             query += " WHERE " + " AND ".join(conds)
         query += " ORDER BY t.date DESC"
-        rows = db.execute(query, params).fetchall()
+        cur = db.cursor()
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        cur.close()
         total = sum(r['amount'] for r in rows)
         # 카테고리별 집계 (없는 건 → '미분류')
         cat_map = {}
@@ -288,7 +334,10 @@ def api_card_tx():
             key=lambda x: x['total'], reverse=True
         )
         # 자금 그룹별 집계
-        fund_group_names = {r['id']: r['name'] for r in db.execute("SELECT id, name FROM fund_groups").fetchall()}
+        cur = db.cursor()
+        cur.execute("SELECT id, name FROM fund_groups")
+        fund_group_names = cur.fetchall()}
+        cur.close()
         fund_map = {}
         for r in rows:
             gid = r['fund_group_id']
@@ -303,11 +352,13 @@ def api_card_tx():
                         'by_category': by_category, 'by_fund_group': by_fund_group})
 
     data = request.json
-    db.execute(
-        "INSERT INTO card_tx (card_id, date, name, category, amount, installment, memo) VALUES (?,?,?,?,?,?,?)",
-        (data.get('card_id'), data['date'], data.get('name'), data.get('category'),
-         data['amount'], data.get('installment', 1), data.get('memo'))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO card_tx (card_id, date, name, category, amount, installment, memo) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+    (data.get('card_id'), data['date'], data.get('name'), data.get('category'),
+    data['amount'], data.get('installment', 1), data.get('memo'))
     )
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True}), 201
@@ -322,17 +373,21 @@ def api_card_tx_detail(rid):
         locked = 1 if category else 0
         fund_group_id = data.get('fund_group_id')
         fund_group_locked = 1 if fund_group_id else 0
-        db.execute(
-            "UPDATE card_tx SET card_id=?, date=?, name=?, category=?, amount=?, installment=?, memo=?,"
-            " category_locked=?, fund_group_id=?, fund_group_locked=? WHERE id=?",
-            (data.get('card_id'), data.get('date'), data.get('name'), category,
-             data.get('amount', 0), data.get('installment', 1), data.get('memo'),
-             locked, fund_group_id, fund_group_locked, rid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE card_tx SET card_id=%s, date=%s, name=%s, category=%s, amount=%s, installment=%s, memo=%s,"
+        " category_locked=%s, fund_group_id=%s, fund_group_locked=%s WHERE id=%s",
+        (data.get('card_id'), data.get('date'), data.get('name'), category,
+        data.get('amount', 0), data.get('installment', 1), data.get('memo'),
+        locked, fund_group_id, fund_group_locked, rid)
         )
+        cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM card_tx WHERE id = ?", (rid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM card_tx WHERE id = %s", (rid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -345,9 +400,14 @@ def api_card_tx_bulk_delete():
     if not ids:
         return jsonify({'error': 'ids가 필요합니다'}), 400
     db = get_db()
-    placeholders = ','.join('?' * len(ids))
-    db.execute(f"DELETE FROM card_tx WHERE id IN ({placeholders})", ids)
-    deleted = db.execute("SELECT changes()").fetchone()[0]
+    placeholders = ','.join('%s' * len(ids))
+    cur = db.cursor()
+    cur.execute(f"DELETE FROM card_tx WHERE id IN ({placeholders})", ids)
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT changes()")
+    deleted = cur.fetchone()[0]
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True, 'deleted': deleted})
 
@@ -363,17 +423,22 @@ def api_card_tx_auto_categorize():
     query  = "SELECT id, name FROM card_tx WHERE category_locked = 0"
     params = []
     if card_id:
-        query += " AND card_id = ?"; params.append(card_id)
+        query += " AND card_id = %s"; params.append(card_id)
     if year and month:
-        query += " AND strftime('%Y', date) = ? AND strftime('%m', date) = ?"
+        query += " AND to_char(date::date, 'YYYY') = %s AND to_char(date::date, 'MM') = %s"
         params += [year, month.zfill(2)]
 
-    rows = db.execute(query, params).fetchall()
+    cur = db.cursor()
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    cur.close()
     updated = 0
     for row in rows:
         hint = _get_category_hint(db, row['name'])
         if hint:
-            db.execute("UPDATE card_tx SET category=? WHERE id=?", (hint, row['id']))
+            cur = db.cursor()
+            cur.execute("UPDATE card_tx SET category=%s WHERE id=%s", (hint, row['id']))
+            cur.close()
             updated += 1
     db.commit()
     db.close()
@@ -385,17 +450,20 @@ def api_card_tx_auto_categorize():
 def api_stocks():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute("""
-            SELECT s.id, s.name, s.ticker, s.current_price, s.dividend, s.memo,
-                   COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
-                   COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
-                   COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity + t.fee ELSE 0 END), 0) AS total_buy_amount,
-                   COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.price * t.quantity - t.fee ELSE 0 END), 0) AS total_sell_amount
-            FROM stocks s
-            LEFT JOIN stock_tx t ON t.stock_id = s.id
-            GROUP BY s.id
-            ORDER BY s.name
-        """).fetchall()
+        cur = db.cursor()
+        cur.execute("""
+        SELECT s.id, s.name, s.ticker, s.current_price, s.dividend, s.memo,
+        COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+        COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
+        COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity + t.fee ELSE 0 END), 0) AS total_buy_amount,
+        COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.price * t.quantity - t.fee ELSE 0 END), 0) AS total_sell_amount
+        FROM stocks s
+        LEFT JOIN stock_tx t ON t.stock_id = s.id
+        GROUP BY s.id
+        ORDER BY s.name
+        """)
+        rows = cur.fetchall()
+        cur.close()
         result = []
         for row in rows:
             r = dict(row)
@@ -414,11 +482,13 @@ def api_stocks():
         return jsonify(result)
 
     data = request.json
-    db.execute(
-        "INSERT INTO stocks (name, ticker, current_price, dividend, memo) VALUES (?,?,?,?,?)",
-        (data.get('name'), data.get('ticker'),
-         data.get('current_price', 0), data.get('dividend', 0), data.get('memo'))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO stocks (name, ticker, current_price, dividend, memo) VALUES (%s,%s,%s,%s,%s)",
+    (data.get('name'), data.get('ticker'),
+    data.get('current_price', 0), data.get('dividend', 0), data.get('memo'))
     )
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True}), 201
@@ -429,16 +499,22 @@ def api_stocks_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
-        db.execute(
-            "UPDATE stocks SET name=?, ticker=?, current_price=?, dividend=?, memo=? WHERE id=?",
-            (data.get('name'), data.get('ticker'),
-             data.get('current_price', 0), data.get('dividend', 0), data.get('memo'), rid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE stocks SET name=%s, ticker=%s, current_price=%s, dividend=%s, memo=%s WHERE id=%s",
+        (data.get('name'), data.get('ticker'),
+        data.get('current_price', 0), data.get('dividend', 0), data.get('memo'), rid)
         )
+        cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM stock_tx WHERE stock_id = ?", (rid,))
-    db.execute("DELETE FROM stocks WHERE id = ?", (rid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM stock_tx WHERE stock_id = %s", (rid,))
+    cur.close()
+    cur = db.cursor()
+    cur.execute("DELETE FROM stocks WHERE id = %s", (rid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -453,19 +529,24 @@ def api_stock_tx():
         query  = "SELECT t.*, s.name, s.ticker FROM stock_tx t LEFT JOIN stocks s ON t.stock_id = s.id"
         params = []
         if stock_id:
-            query += " WHERE t.stock_id = ?"
+            query += " WHERE t.stock_id = %s"
             params.append(stock_id)
         query += " ORDER BY t.tx_date DESC, t.id DESC"
-        rows = db.execute(query, params).fetchall()
+        cur = db.cursor()
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
 
     data = request.json
-    db.execute(
-        "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo) VALUES (?,?,?,?,?,?,?)",
-        (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
-         data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+    (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'))
     )
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True}), 201
@@ -476,15 +557,19 @@ def api_stock_tx_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
-        db.execute(
-            "UPDATE stock_tx SET stock_id=?, tx_date=?, tx_type=?, price=?, quantity=?, fee=?, memo=? WHERE id=?",
-            (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
-             data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), rid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE stock_tx SET stock_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s WHERE id=%s",
+        (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
+        data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), rid)
         )
+        cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM stock_tx WHERE id = ?", (rid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM stock_tx WHERE id = %s", (rid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -495,17 +580,22 @@ def api_stock_tx_detail(rid):
 def api_etf():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute("SELECT * FROM etf ORDER BY name").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT * FROM etf ORDER BY name")
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
 
     data = request.json
-    db.execute(
-        "INSERT INTO etf (name, ticker, buy_date, buy_price, quantity, current_price, etf_type, memo) VALUES (?,?,?,?,?,?,?,?)",
-        (data.get('name'), data.get('ticker'), data.get('buy_date'),
-         data.get('buy_price', 0), data.get('quantity', 0),
-         data.get('current_price', 0), data.get('etf_type'), data.get('memo'))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO etf (name, ticker, buy_date, buy_price, quantity, current_price, etf_type, memo) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+    (data.get('name'), data.get('ticker'), data.get('buy_date'),
+    data.get('buy_price', 0), data.get('quantity', 0),
+    data.get('current_price', 0), data.get('etf_type'), data.get('memo'))
     )
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True}), 201
@@ -516,16 +606,20 @@ def api_etf_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
-        db.execute(
-            "UPDATE etf SET name=?, ticker=?, buy_date=?, buy_price=?, quantity=?, current_price=?, etf_type=?, memo=? WHERE id=?",
-            (data.get('name'), data.get('ticker'), data.get('buy_date'),
-             data.get('buy_price', 0), data.get('quantity', 0),
-             data.get('current_price', 0), data.get('etf_type'), data.get('memo'), rid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE etf SET name=%s, ticker=%s, buy_date=%s, buy_price=%s, quantity=%s, current_price=%s, etf_type=%s, memo=%s WHERE id=%s",
+        (data.get('name'), data.get('ticker'), data.get('buy_date'),
+        data.get('buy_price', 0), data.get('quantity', 0),
+        data.get('current_price', 0), data.get('etf_type'), data.get('memo'), rid)
         )
+        cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM etf WHERE id = ?", (rid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM etf WHERE id = %s", (rid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -536,17 +630,22 @@ def api_etf_detail(rid):
 def api_crypto():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute("SELECT * FROM crypto ORDER BY name").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT * FROM crypto ORDER BY name")
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
 
     data = request.json
-    db.execute(
-        "INSERT INTO crypto (name, symbol, exchange, buy_date, buy_price, quantity, current_price, memo) VALUES (?,?,?,?,?,?,?,?)",
-        (data.get('name'), data.get('symbol'), data.get('exchange'), data.get('buy_date'),
-         data.get('buy_price', 0), data.get('quantity', 0),
-         data.get('current_price', 0), data.get('memo'))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO crypto (name, symbol, exchange, buy_date, buy_price, quantity, current_price, memo) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+    (data.get('name'), data.get('symbol'), data.get('exchange'), data.get('buy_date'),
+    data.get('buy_price', 0), data.get('quantity', 0),
+    data.get('current_price', 0), data.get('memo'))
     )
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True}), 201
@@ -557,16 +656,20 @@ def api_crypto_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
-        db.execute(
-            "UPDATE crypto SET name=?, symbol=?, exchange=?, buy_date=?, buy_price=?, quantity=?, current_price=?, memo=? WHERE id=?",
-            (data.get('name'), data.get('symbol'), data.get('exchange'), data.get('buy_date'),
-             data.get('buy_price', 0), data.get('quantity', 0),
-             data.get('current_price', 0), data.get('memo'), rid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE crypto SET name=%s, symbol=%s, exchange=%s, buy_date=%s, buy_price=%s, quantity=%s, current_price=%s, memo=%s WHERE id=%s",
+        (data.get('name'), data.get('symbol'), data.get('exchange'), data.get('buy_date'),
+        data.get('buy_price', 0), data.get('quantity', 0),
+        data.get('current_price', 0), data.get('memo'), rid)
         )
+        cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM crypto WHERE id = ?", (rid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM crypto WHERE id = %s", (rid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -577,16 +680,21 @@ def api_crypto_detail(rid):
 def api_residence():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute("SELECT * FROM residence ORDER BY id DESC").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT * FROM residence ORDER BY id DESC")
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
 
     data = request.json
-    db.execute(
-        "INSERT INTO residence (address, deposit, monthly_rent, maintenance, start_date, end_date) VALUES (?,?,?,?,?,?)",
-        (data.get('address'), data.get('deposit', 0), data.get('monthly_rent', 0),
-         data.get('maintenance', 0), data.get('start_date'), data.get('end_date'))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO residence (address, deposit, monthly_rent, maintenance, start_date, end_date) VALUES (%s,%s,%s,%s,%s,%s)",
+    (data.get('address'), data.get('deposit', 0), data.get('monthly_rent', 0),
+    data.get('maintenance', 0), data.get('start_date'), data.get('end_date'))
     )
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True}), 201
@@ -597,15 +705,19 @@ def api_residence_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
-        db.execute(
-            "UPDATE residence SET address=?, deposit=?, monthly_rent=?, maintenance=?, start_date=?, end_date=? WHERE id=?",
-            (data.get('address'), data.get('deposit', 0), data.get('monthly_rent', 0),
-             data.get('maintenance', 0), data.get('start_date'), data.get('end_date'), rid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE residence SET address=%s, deposit=%s, monthly_rent=%s, maintenance=%s, start_date=%s, end_date=%s WHERE id=%s",
+        (data.get('address'), data.get('deposit', 0), data.get('monthly_rent', 0),
+        data.get('maintenance', 0), data.get('start_date'), data.get('end_date'), rid)
         )
+        cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM residence WHERE id = ?", (rid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM residence WHERE id = %s", (rid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -618,19 +730,28 @@ def _re_enrich(db, rows):
     for r in rows:
         rid = r['id']
         # 현재 유효 계약 (end_date 가장 최근)
-        contract = db.execute(
-            "SELECT * FROM tenant_contracts WHERE real_estate_id=? ORDER BY end_date DESC LIMIT 1", (rid,)
-        ).fetchone()
+        cur = db.cursor()
+        cur.execute(
+        "SELECT * FROM tenant_contracts WHERE real_estate_id=%s ORDER BY end_date DESC LIMIT 1", (rid,)
+        )
+        contract = cur.fetchone()
+        cur.close()
         # 취득비용 합계
-        acq_cost = db.execute(
-            "SELECT COALESCE(SUM(amount),0) as v FROM property_costs "
-            "WHERE real_estate_id=? AND cost_type='취득비용'", (rid,)
-        ).fetchone()['v']
+        cur = db.cursor()
+        cur.execute(
+        "SELECT COALESCE(SUM(amount),0) as v FROM property_costs "
+        "WHERE real_estate_id=%s AND cost_type='취득비용'", (rid,)
+        )
+        acq_cost = cur.fetchone()['v']
+        cur.close()
         # 순손익에 반영될 비용/수익 합계 (amount: 수익=양수, 비용=음수)
-        net_extra = db.execute(
-            "SELECT COALESCE(SUM(CASE WHEN cost_type='임대수익' THEN amount ELSE -amount END),0) as v "
-            "FROM property_costs WHERE real_estate_id=?", (rid,)
-        ).fetchone()['v']
+        cur = db.cursor()
+        cur.execute(
+        "SELECT COALESCE(SUM(CASE WHEN cost_type='임대수익' THEN amount ELSE -amount END),0) as v "
+        "FROM property_costs WHERE real_estate_id=%s", (rid,)
+        )
+        net_extra = cur.fetchone()['v']
+        cur.close()
 
         deposit = contract['deposit'] if contract else 0
         purchase = r['purchase_price']
@@ -655,17 +776,22 @@ def _re_enrich(db, rows):
 def api_real_estate():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute("SELECT * FROM real_estate ORDER BY name").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT * FROM real_estate ORDER BY name")
+        rows = cur.fetchall()
+        cur.close()
         result = _re_enrich(db, rows)
         db.close()
         return jsonify(result)
 
     data = request.json
-    db.execute(
-        "INSERT INTO real_estate (name, re_type, purchase_date, purchase_price, current_price, memo) VALUES (?,?,?,?,?,?)",
-        (data.get('name'), data.get('re_type'), data.get('purchase_date'),
-         data.get('purchase_price', 0), data.get('current_price', 0), data.get('memo'))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO real_estate (name, re_type, purchase_date, purchase_price, current_price, memo) VALUES (%s,%s,%s,%s,%s,%s)",
+    (data.get('name'), data.get('re_type'), data.get('purchase_date'),
+    data.get('purchase_price', 0), data.get('current_price', 0), data.get('memo'))
     )
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True}), 201
@@ -676,15 +802,19 @@ def api_real_estate_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
-        db.execute(
-            "UPDATE real_estate SET name=?, re_type=?, purchase_date=?, purchase_price=?, current_price=?, memo=? WHERE id=?",
-            (data.get('name'), data.get('re_type'), data.get('purchase_date'),
-             data.get('purchase_price', 0), data.get('current_price', 0), data.get('memo'), rid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE real_estate SET name=%s, re_type=%s, purchase_date=%s, purchase_price=%s, current_price=%s, memo=%s WHERE id=%s",
+        (data.get('name'), data.get('re_type'), data.get('purchase_date'),
+        data.get('purchase_price', 0), data.get('current_price', 0), data.get('memo'), rid)
         )
+        cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM real_estate WHERE id = ?", (rid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM real_estate WHERE id = %s", (rid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -693,7 +823,10 @@ def api_real_estate_detail(rid):
 @app.route('/api/re-summary')
 def api_re_summary():
     db = get_db()
-    rows = db.execute("SELECT * FROM real_estate").fetchall()
+    cur = db.cursor()
+    cur.execute("SELECT * FROM real_estate")
+    rows = cur.fetchall()
+    cur.close()
     enriched = _re_enrich(db, rows)
     db.close()
     total_purchase = sum(r['purchase_price'] for r in enriched)
@@ -715,15 +848,18 @@ def api_re_summary():
 def api_re_expiring():
     """3개월 이내 만료 계약 목록"""
     db = get_db()
-    rows = db.execute("""
-        SELECT c.*, r.name as re_name
-        FROM tenant_contracts c
-        JOIN real_estate r ON c.real_estate_id = r.id
-        WHERE c.end_date IS NOT NULL
-          AND c.end_date >= date('now')
-          AND c.end_date <= date('now', '+3 months')
-        ORDER BY c.end_date
-    """).fetchall()
+    cur = db.cursor()
+    cur.execute("""
+    SELECT c.*, r.name as re_name
+    FROM tenant_contracts c
+    JOIN real_estate r ON c.real_estate_id = r.id
+    WHERE c.end_date IS NOT NULL
+    AND c.end_date >= date('now')
+    AND c.end_date <= date('now', '+3 months')
+    ORDER BY c.end_date
+    """)
+    rows = cur.fetchall()
+    cur.close()
     db.close()
     return jsonify(rows_to_list(rows))
 
@@ -733,18 +869,23 @@ def api_tenant_contracts():
     db = get_db()
     if request.method == 'GET':
         rid = request.args.get('real_estate_id')
-        rows = db.execute(
-            "SELECT * FROM tenant_contracts WHERE real_estate_id=? ORDER BY end_date DESC", (rid,)
-        ).fetchall()
+        cur = db.cursor()
+        cur.execute(
+        "SELECT * FROM tenant_contracts WHERE real_estate_id=%s ORDER BY end_date DESC", (rid,)
+        )
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
     d = request.json or {}
-    db.execute(
-        "INSERT INTO tenant_contracts (real_estate_id, contract_type, deposit, monthly_rent, start_date, end_date, memo)"
-        " VALUES (?,?,?,?,?,?,?)",
-        (d.get('real_estate_id'), d.get('contract_type'), d.get('deposit', 0),
-         d.get('monthly_rent', 0), d.get('start_date'), d.get('end_date'), d.get('memo'))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO tenant_contracts (real_estate_id, contract_type, deposit, monthly_rent, start_date, end_date, memo)"
+    " VALUES (%s,%s,%s,%s,%s,%s,%s)",
+    (d.get('real_estate_id'), d.get('contract_type'), d.get('deposit', 0),
+    d.get('monthly_rent', 0), d.get('start_date'), d.get('end_date'), d.get('memo'))
     )
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True}), 201
 
@@ -753,15 +894,19 @@ def api_tenant_contracts():
 def api_tenant_contracts_detail(rid):
     db = get_db()
     if request.method == 'DELETE':
-        db.execute("DELETE FROM tenant_contracts WHERE id=?", (rid,))
+        cur = db.cursor()
+        cur.execute("DELETE FROM tenant_contracts WHERE id=%s", (rid,))
+        cur.close()
         db.commit(); db.close()
         return jsonify({'ok': True})
     d = request.json or {}
-    db.execute(
-        "UPDATE tenant_contracts SET contract_type=?, deposit=?, monthly_rent=?, start_date=?, end_date=?, memo=? WHERE id=?",
-        (d.get('contract_type'), d.get('deposit', 0), d.get('monthly_rent', 0),
-         d.get('start_date'), d.get('end_date'), d.get('memo'), rid)
+    cur = db.cursor()
+    cur.execute(
+    "UPDATE tenant_contracts SET contract_type=%s, deposit=%s, monthly_rent=%s, start_date=%s, end_date=%s, memo=%s WHERE id=%s",
+    (d.get('contract_type'), d.get('deposit', 0), d.get('monthly_rent', 0),
+    d.get('start_date'), d.get('end_date'), d.get('memo'), rid)
     )
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True})
 
@@ -771,17 +916,22 @@ def api_property_costs():
     db = get_db()
     if request.method == 'GET':
         rid = request.args.get('real_estate_id')
-        rows = db.execute(
-            "SELECT * FROM property_costs WHERE real_estate_id=? ORDER BY date DESC", (rid,)
-        ).fetchall()
+        cur = db.cursor()
+        cur.execute(
+        "SELECT * FROM property_costs WHERE real_estate_id=%s ORDER BY date DESC", (rid,)
+        )
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
     d = request.json or {}
-    db.execute(
-        "INSERT INTO property_costs (real_estate_id, cost_type, name, amount, date, memo) VALUES (?,?,?,?,?,?)",
-        (d.get('real_estate_id'), d.get('cost_type'), d.get('name'),
-         d.get('amount', 0), d.get('date'), d.get('memo'))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO property_costs (real_estate_id, cost_type, name, amount, date, memo) VALUES (%s,%s,%s,%s,%s,%s)",
+    (d.get('real_estate_id'), d.get('cost_type'), d.get('name'),
+    d.get('amount', 0), d.get('date'), d.get('memo'))
     )
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True}), 201
 
@@ -790,15 +940,19 @@ def api_property_costs():
 def api_property_costs_detail(rid):
     db = get_db()
     if request.method == 'DELETE':
-        db.execute("DELETE FROM property_costs WHERE id=?", (rid,))
+        cur = db.cursor()
+        cur.execute("DELETE FROM property_costs WHERE id=%s", (rid,))
+        cur.close()
         db.commit(); db.close()
         return jsonify({'ok': True})
     d = request.json or {}
-    db.execute(
-        "UPDATE property_costs SET cost_type=?, name=?, amount=?, date=?, memo=? WHERE id=?",
-        (d.get('cost_type'), d.get('name'), d.get('amount', 0),
-         d.get('date'), d.get('memo'), rid)
+    cur = db.cursor()
+    cur.execute(
+    "UPDATE property_costs SET cost_type=%s, name=%s, amount=%s, date=%s, memo=%s WHERE id=%s",
+    (d.get('cost_type'), d.get('name'), d.get('amount', 0),
+    d.get('date'), d.get('memo'), rid)
     )
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True})
 
@@ -808,17 +962,22 @@ def api_property_costs_detail(rid):
 def api_loans():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute("SELECT * FROM loans ORDER BY name").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT * FROM loans ORDER BY name")
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
 
     data = request.json
-    db.execute(
-        "INSERT INTO loans (name, institution, principal, remaining, monthly_payment, interest_rate, loan_date, end_date, memo) VALUES (?,?,?,?,?,?,?,?,?)",
-        (data.get('name'), data.get('institution'), data.get('principal', 0),
-         data.get('remaining', 0), data.get('monthly_payment', 0),
-         data.get('interest_rate', 0), data.get('loan_date'), data.get('end_date'), data.get('memo'))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO loans (name, institution, principal, remaining, monthly_payment, interest_rate, loan_date, end_date, memo) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+    (data.get('name'), data.get('institution'), data.get('principal', 0),
+    data.get('remaining', 0), data.get('monthly_payment', 0),
+    data.get('interest_rate', 0), data.get('loan_date'), data.get('end_date'), data.get('memo'))
     )
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True}), 201
@@ -829,16 +988,20 @@ def api_loans_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
-        db.execute(
-            "UPDATE loans SET name=?, institution=?, principal=?, remaining=?, monthly_payment=?, interest_rate=?, loan_date=?, end_date=?, memo=? WHERE id=?",
-            (data.get('name'), data.get('institution'), data.get('principal', 0),
-             data.get('remaining', 0), data.get('monthly_payment', 0),
-             data.get('interest_rate', 0), data.get('loan_date'), data.get('end_date'), data.get('memo'), rid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE loans SET name=%s, institution=%s, principal=%s, remaining=%s, monthly_payment=%s, interest_rate=%s, loan_date=%s, end_date=%s, memo=%s WHERE id=%s",
+        (data.get('name'), data.get('institution'), data.get('principal', 0),
+        data.get('remaining', 0), data.get('monthly_payment', 0),
+        data.get('interest_rate', 0), data.get('loan_date'), data.get('end_date'), data.get('memo'), rid)
         )
+        cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM loans WHERE id = ?", (rid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM loans WHERE id = %s", (rid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -849,17 +1012,22 @@ def api_loans_detail(rid):
 def api_pension():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute("SELECT * FROM pension ORDER BY pension_type, name").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT * FROM pension ORDER BY pension_type, name")
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
 
     data = request.json
-    db.execute(
-        "INSERT INTO pension (pension_type, name, institution, monthly_payment, accumulated, return_rate, memo) VALUES (?,?,?,?,?,?,?)",
-        (data.get('pension_type'), data.get('name'), data.get('institution'),
-         data.get('monthly_payment', 0), data.get('accumulated', 0),
-         data.get('return_rate', 0), data.get('memo'))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO pension (pension_type, name, institution, monthly_payment, accumulated, return_rate, memo) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+    (data.get('pension_type'), data.get('name'), data.get('institution'),
+    data.get('monthly_payment', 0), data.get('accumulated', 0),
+    data.get('return_rate', 0), data.get('memo'))
     )
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True}), 201
@@ -870,16 +1038,20 @@ def api_pension_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
-        db.execute(
-            "UPDATE pension SET pension_type=?, name=?, institution=?, monthly_payment=?, accumulated=?, return_rate=?, memo=? WHERE id=?",
-            (data.get('pension_type'), data.get('name'), data.get('institution'),
-             data.get('monthly_payment', 0), data.get('accumulated', 0),
-             data.get('return_rate', 0), data.get('memo'), rid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE pension SET pension_type=%s, name=%s, institution=%s, monthly_payment=%s, accumulated=%s, return_rate=%s, memo=%s WHERE id=%s",
+        (data.get('pension_type'), data.get('name'), data.get('institution'),
+        data.get('monthly_payment', 0), data.get('accumulated', 0),
+        data.get('return_rate', 0), data.get('memo'), rid)
         )
+        cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM pension WHERE id = ?", (rid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM pension WHERE id = %s", (rid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -890,16 +1062,21 @@ def api_pension_detail(rid):
 def api_goals():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute("SELECT * FROM goals ORDER BY target_date").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT * FROM goals ORDER BY target_date")
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
 
     data = request.json
-    db.execute(
-        "INSERT INTO goals (name, target_amount, current_amount, monthly_saving, target_date, memo) VALUES (?,?,?,?,?,?)",
-        (data.get('name'), data.get('target_amount', 0), data.get('current_amount', 0),
-         data.get('monthly_saving', 0), data.get('target_date'), data.get('memo'))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO goals (name, target_amount, current_amount, monthly_saving, target_date, memo) VALUES (%s,%s,%s,%s,%s,%s)",
+    (data.get('name'), data.get('target_amount', 0), data.get('current_amount', 0),
+    data.get('monthly_saving', 0), data.get('target_date'), data.get('memo'))
     )
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True}), 201
@@ -910,15 +1087,19 @@ def api_goals_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
-        db.execute(
-            "UPDATE goals SET name=?, target_amount=?, current_amount=?, monthly_saving=?, target_date=?, memo=? WHERE id=?",
-            (data.get('name'), data.get('target_amount', 0), data.get('current_amount', 0),
-             data.get('monthly_saving', 0), data.get('target_date'), data.get('memo'), rid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE goals SET name=%s, target_amount=%s, current_amount=%s, monthly_saving=%s, target_date=%s, memo=%s WHERE id=%s",
+        (data.get('name'), data.get('target_amount', 0), data.get('current_amount', 0),
+        data.get('monthly_saving', 0), data.get('target_date'), data.get('memo'), rid)
         )
+        cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM goals WHERE id = ?", (rid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM goals WHERE id = %s", (rid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -929,16 +1110,21 @@ def api_goals_detail(rid):
 def api_cash_deposits():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute("SELECT * FROM cash_deposits ORDER BY name").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT * FROM cash_deposits ORDER BY name")
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
 
     data = request.json
     today = date.today().isoformat()
-    db.execute(
-        "INSERT INTO cash_deposits (name, amount, memo, updated_date) VALUES (?,?,?,?)",
-        (data.get('name'), data.get('amount', 0), data.get('memo'), today)
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO cash_deposits (name, amount, memo, updated_date) VALUES (%s,%s,%s,%s)",
+    (data.get('name'), data.get('amount', 0), data.get('memo'), today)
     )
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True}), 201
@@ -950,14 +1136,18 @@ def api_cash_deposits_detail(rid):
     if request.method == 'PUT':
         data = request.json
         today = date.today().isoformat()
-        db.execute(
-            "UPDATE cash_deposits SET name=?, amount=?, memo=?, updated_date=? WHERE id=?",
-            (data.get('name'), data.get('amount', 0), data.get('memo'), today, rid)
+        cur = db.cursor()
+        cur.execute(
+        "UPDATE cash_deposits SET name=%s, amount=%s, memo=%s, updated_date=%s WHERE id=%s",
+        (data.get('name'), data.get('amount', 0), data.get('memo'), today, rid)
         )
+        cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
-    db.execute("DELETE FROM cash_deposits WHERE id = ?", (rid,))
+    cur = db.cursor()
+    cur.execute("DELETE FROM cash_deposits WHERE id = %s", (rid,))
+    cur.close()
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -973,107 +1163,170 @@ def api_dashboard():
 
     # 소득 현황 (오늘 이후 날짜의 반복 수입 등은 제외)
     # 근로소득: 급여, 사업소득
-    labor_inc = db.execute(
-        "SELECT COALESCE(SUM(amount),0) FROM income "
-        "WHERE strftime('%Y-%m', date) = ? AND category IN ('급여', '사업소득') AND date <= date('now')",
-        (ym,)
-    ).fetchone()[0]
+    cur = db.cursor()
+    cur.execute(
+    "SELECT COALESCE(SUM(amount),0) FROM income "
+    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= date('now')",
+    (ym,)
+    )
+    labor_inc = cur.fetchone()[0]
+    cur.close()
 
     # 자생소득: 그 외 모든 수입
-    passive_inc = db.execute(
-        "SELECT COALESCE(SUM(amount),0) FROM income "
-        "WHERE strftime('%Y-%m', date) = ? AND category NOT IN ('급여', '사업소득') AND date <= date('now')",
-        (ym,)
-    ).fetchone()[0]
+    cur = db.cursor()
+    cur.execute(
+    "SELECT COALESCE(SUM(amount),0) FROM income "
+    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= date('now')",
+    (ym,)
+    )
+    passive_inc = cur.fetchone()[0]
+    cur.close()
 
     # 이번달 수입 합계
-    income_total = db.execute(
-        "SELECT COALESCE(SUM(amount),0) as total FROM income WHERE strftime('%Y-%m', date) = ? AND date <= date('now')", (ym,)
-    ).fetchone()['total']
+    cur = db.cursor()
+    cur.execute(
+    "SELECT COALESCE(SUM(amount),0) as total FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= date('now')", (ym,)
+    )
+    income_total = cur.fetchone()['total']
+    cur.close()
 
     # 이번달 지출 합계
-    expense_total = db.execute(
-        "SELECT COALESCE(SUM(amount),0) as total FROM budget WHERE strftime('%Y-%m', date) = ? AND date <= date('now')", (ym,)
-    ).fetchone()['total']
+    cur = db.cursor()
+    cur.execute(
+    "SELECT COALESCE(SUM(amount),0) as total FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= date('now')", (ym,)
+    )
+    expense_total = cur.fetchone()['total']
+    cur.close()
 
     # 이번달 카드 지출
-    card_total = db.execute(
-        "SELECT COALESCE(SUM(amount),0) as total FROM card_tx WHERE strftime('%Y-%m', date) = ? AND date <= date('now')", (ym,)
-    ).fetchone()['total']
+    cur = db.cursor()
+    cur.execute(
+    "SELECT COALESCE(SUM(amount),0) as total FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= date('now')", (ym,)
+    )
+    card_total = cur.fetchone()['total']
+    cur.close()
 
     # 주식 평가액 (stock_tx 기반)
-    stocks_val = db.execute("""
-        SELECT COALESCE(SUM(s.current_price * (
-            SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0)
-            FROM stock_tx WHERE stock_id = s.id
-        )), 0) AS val FROM stocks s
-    """).fetchone()['val']
+    cur = db.cursor()
+    cur.execute("""
+    SELECT COALESCE(SUM(s.current_price * (
+    SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0)
+    FROM stock_tx WHERE stock_id = s.id
+    )), 0) AS val FROM stocks s
+    """)
+    stocks_val = cur.fetchone()['val']
+    cur.close()
 
     # ETF 평가액
-    etf_val = db.execute(
-        "SELECT COALESCE(SUM(current_price * quantity),0) as val FROM etf"
-    ).fetchone()['val']
+    cur = db.cursor()
+    cur.execute(
+    "SELECT COALESCE(SUM(current_price * quantity),0) as val FROM etf"
+    )
+    etf_val = cur.fetchone()['val']
+    cur.close()
 
     # 코인 평가액
-    crypto_val = db.execute(
-        "SELECT COALESCE(SUM(current_price * quantity),0) as val FROM crypto"
-    ).fetchone()['val']
+    cur = db.cursor()
+    cur.execute(
+    "SELECT COALESCE(SUM(current_price * quantity),0) as val FROM crypto"
+    )
+    crypto_val = cur.fetchone()['val']
+    cur.close()
 
     # 부동산 현재가 (시세 - 임대보증금 + 거주보증금)
-    re_total_price = db.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate").fetchone()[0]
-    re_total_deposit = db.execute("""
-        SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts 
-        WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
-    """).fetchone()[0]
-    residence_deposit = db.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence").fetchone()[0]
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
+    re_total_price = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("""
+    SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts 
+    WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+    """)
+    re_total_deposit = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
+    residence_deposit = cur.fetchone()[0]
+    cur.close()
     re_val = re_total_price - re_total_deposit + residence_deposit
 
     # 연금 누적액
-    pension_val = db.execute(
-        "SELECT COALESCE(SUM(accumulated),0) as val FROM pension"
-    ).fetchone()['val']
+    cur = db.cursor()
+    cur.execute(
+    "SELECT COALESCE(SUM(accumulated),0) as val FROM pension"
+    )
+    pension_val = cur.fetchone()['val']
+    cur.close()
 
     # 현금/예금
-    cash_val = db.execute(
-        "SELECT COALESCE(SUM(amount),0) as val FROM cash_deposits"
-    ).fetchone()['val']
+    cur = db.cursor()
+    cur.execute(
+    "SELECT COALESCE(SUM(amount),0) as val FROM cash_deposits"
+    )
+    cash_val = cur.fetchone()['val']
+    cur.close()
 
     # 대출 잔액
-    loan_total = db.execute(
-        "SELECT COALESCE(SUM(remaining),0) as total FROM loans"
-    ).fetchone()['total']
+    cur = db.cursor()
+    cur.execute(
+    "SELECT COALESCE(SUM(remaining),0) as total FROM loans"
+    )
+    loan_total = cur.fetchone()['total']
+    cur.close()
 
     total_assets = stocks_val + etf_val + crypto_val + re_val + pension_val + cash_val
     net_worth = total_assets - loan_total
 
     # 이번달 수입 카테고리별
-    income_by_cat = db.execute(
-        "SELECT category, SUM(amount) as total FROM income WHERE strftime('%Y-%m', date) = ? GROUP BY category",
-        (ym,)
-    ).fetchall()
+    cur = db.cursor()
+    cur.execute(
+    "SELECT category, SUM(amount) as total FROM income WHERE to_char(date::date, 'YYYY-MM') = %s GROUP BY category",
+    (ym,)
+    )
+    income_by_cat = cur.fetchall()
+    cur.close()
 
     # 이번달 지출 카테고리별
-    expense_by_cat = db.execute(
-        "SELECT category, SUM(amount) as total FROM budget WHERE strftime('%Y-%m', date) = ? GROUP BY category",
-        (ym,)
-    ).fetchall()
+    cur = db.cursor()
+    cur.execute(
+    "SELECT category, SUM(amount) as total FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s GROUP BY category",
+    (ym,)
+    )
+    expense_by_cat = cur.fetchall()
+    cur.close()
 
     # 대출 목록
-    loans_list = db.execute(
-        "SELECT name, remaining FROM loans ORDER BY remaining DESC"
-    ).fetchall()
+    cur = db.cursor()
+    cur.execute(
+    "SELECT name, remaining FROM loans ORDER BY remaining DESC"
+    )
+    loans_list = cur.fetchall()
+    cur.close()
 
     # 목표저축 목록
-    goals_list = db.execute(
-        "SELECT name, target_amount, current_amount FROM goals ORDER BY target_date"
-    ).fetchall()
+    cur = db.cursor()
+    cur.execute(
+    "SELECT name, target_amount, current_amount FROM goals ORDER BY target_date"
+    )
+    goals_list = cur.fetchall()
+    cur.close()
 
     # 투자 수익률
-    stocks_cost = db.execute(
-        "SELECT COALESCE(SUM(price * quantity + fee),0) AS c FROM stock_tx WHERE tx_type='buy'"
-    ).fetchone()['c']
-    etf_cost    = db.execute("SELECT COALESCE(SUM(buy_price * quantity),0) as c FROM etf").fetchone()['c']
-    crypto_cost = db.execute("SELECT COALESCE(SUM(buy_price * quantity),0) as c FROM crypto").fetchone()['c']
+    cur = db.cursor()
+    cur.execute(
+    "SELECT COALESCE(SUM(price * quantity + fee),0) AS c FROM stock_tx WHERE tx_type='buy'"
+    )
+    stocks_cost = cur.fetchone()['c']
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(buy_price * quantity),0) as c FROM etf")
+    etf_cost = cur.fetchone()['c']
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(buy_price * quantity),0) as c FROM crypto")
+    crypto_cost = cur.fetchone()['c']
+    cur.close()
 
     db.close()
 
@@ -1107,80 +1360,131 @@ def api_dashboard():
 def api_tech_tree_data():
     db = get_db()
     # 자산 현황
-    stocks_val = db.execute("SELECT COALESCE(SUM(s.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id)), 0) FROM stocks s").fetchone()[0]
-    etf_val = db.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM etf").fetchone()[0]
-    crypto_val = db.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto").fetchone()[0]
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(s.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id)), 0) FROM stocks s")
+    stocks_val = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM etf")
+    etf_val = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
+    crypto_val = cur.fetchone()[0]
+    cur.close()
     # 부동산 가치 계산 (현재 시세 총합 - 임대 보증금 총합)
-    re_total_price = db.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate").fetchone()[0]
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
+    re_total_price = cur.fetchone()[0]
+    cur.close()
     # 각 부동산별 가장 최근 계약의 보증금 합계
-    re_total_deposit = db.execute("""
-        SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts 
-        WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
-    """).fetchone()[0]
+    cur = db.cursor()
+    cur.execute("""
+    SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts 
+    WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+    """)
+    re_total_deposit = cur.fetchone()[0]
+    cur.close()
     
     # 거주지 보증금 (본인이 돌려받을 돈이므로 자산에 포함)
-    residence_deposit = db.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence").fetchone()[0]
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
+    residence_deposit = cur.fetchone()[0]
+    cur.close()
     
     re_val = re_total_price - re_total_deposit + residence_deposit
     
-    cash_val = db.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits").fetchone()[0]
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
+    cash_val = cur.fetchone()[0]
+    cur.close()
     # 목표저축 누계액 포함 (총 목표 설정용 제외)
-    goal_savings = db.execute("SELECT COALESCE(SUM(current_amount), 0) FROM goals WHERE name != '자본주의테크트리'").fetchone()[0]
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_amount), 0) FROM goals WHERE name != '자본주의테크트리'")
+    goal_savings = cur.fetchone()[0]
+    cur.close()
     cash_val += goal_savings
     
     # 연금 자산 추가
-    pension_val = db.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension").fetchone()[0]
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
+    pension_val = cur.fetchone()[0]
+    cur.close()
     
     # 소득 현황 (이번달 기준, 오늘 이후 날짜의 반복 수입 등은 제외)
     today = date.today()
     ym = today.strftime('%Y-%m')
     # 근로소득: 급여, 사업소득(자영업) - 수입관리 데이터에서 직접 집계
-    labor_inc = db.execute(
-        "SELECT COALESCE(SUM(amount),0) FROM income "
-        "WHERE strftime('%Y-%m', date) = ? AND category IN ('급여', '사업소득') AND date <= date('now')", 
-        (ym,)
-    ).fetchone()[0]
+    cur = db.cursor()
+    cur.execute(
+    "SELECT COALESCE(SUM(amount),0) FROM income "
+    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= date('now')", 
+    (ym,)
+    )
+    labor_inc = cur.fetchone()[0]
+    cur.close()
     
     # 자생소득: 그 외 모든 수입
-    passive_inc = db.execute(
-        "SELECT COALESCE(SUM(amount),0) FROM income "
-        "WHERE strftime('%Y-%m', date) = ? AND category NOT IN ('급여', '사업소득') AND date <= date('now')", 
-        (ym,)
-    ).fetchone()[0]
+    cur = db.cursor()
+    cur.execute(
+    "SELECT COALESCE(SUM(amount),0) FROM income "
+    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= date('now')", 
+    (ym,)
+    )
+    passive_inc = cur.fetchone()[0]
+    cur.close()
 
     # 부동산 월세(임대료) 자동 합산
-    rental_inc = db.execute("""
-        SELECT COALESCE(SUM(monthly_rent), 0) 
-        FROM tenant_contracts 
-        WHERE contract_type = '월세' 
-          AND id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
-    """).fetchone()[0]
+    cur = db.cursor()
+    cur.execute("""
+    SELECT COALESCE(SUM(monthly_rent), 0) 
+    FROM tenant_contracts 
+    WHERE contract_type = '월세' 
+    AND id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+    """)
+    rental_inc = cur.fetchone()[0]
+    cur.close()
     
     # 전세 보증금 사적 레버리지 수익 계산 (보증금 * 4% / 12개월)
-    leverage_inc = db.execute("""
-        SELECT COALESCE(SUM(deposit * 0.04 / 12), 0)
-        FROM tenant_contracts 
-        WHERE contract_type = '전세' 
-          AND id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
-    """).fetchone()[0]
+    cur = db.cursor()
+    cur.execute("""
+    SELECT COALESCE(SUM(deposit * 0.04 / 12), 0)
+    FROM tenant_contracts 
+    WHERE contract_type = '전세' 
+    AND id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+    """)
+    leverage_inc = cur.fetchone()[0]
+    cur.close()
     
     passive_inc += (rental_inc + leverage_inc)
 
     # 고정비(빨대) 합계 계산 (최근 3개월 내 2회 이상 발생한 동일 이름/금액 지출)
-    straws = db.execute("""
-        SELECT name, amount, COUNT(*) as cnt, SUM(amount) as total
-        FROM budget 
-        WHERE date >= date('now', '-3 months')
-        GROUP BY name, amount
-        HAVING cnt >= 2
-        ORDER BY total DESC
-    """).fetchall()
+    cur = db.cursor()
+    cur.execute("""
+    SELECT name, amount, COUNT(*) as cnt, SUM(amount) as total
+    FROM budget 
+    WHERE date >= date('now', '-3 months')
+    GROUP BY name, amount
+    HAVING cnt >= 2
+    ORDER BY total DESC
+    """)
+    straws = cur.fetchall()
+    cur.close()
     straw_total = sum(r['total'] / r['cnt'] for r in straws) # 월평균 고정비
 
     # 이번달 지출 합계 (가계부 + 카드 + 대출 상환액)
-    expense_total = db.execute("SELECT COALESCE(SUM(amount),0) FROM budget WHERE strftime('%Y-%m', date) = ?", (ym,)).fetchone()[0]
-    card_total = db.execute("SELECT COALESCE(SUM(amount),0) FROM card_tx WHERE strftime('%Y-%m', date) = ?", (ym,)).fetchone()[0]
-    loan_repayment = db.execute("SELECT COALESCE(SUM(monthly_payment), 0) FROM loans").fetchone()[0]
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(amount),0) FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
+    expense_total = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(amount),0) FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
+    card_total = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(monthly_payment), 0) FROM loans")
+    loan_repayment = cur.fetchone()[0]
+    cur.close()
     total_exp = expense_total + card_total + loan_repayment
 
     # [신규] 월간 변동성 계산 (이번달 순유입액 기준)
@@ -1192,11 +1496,20 @@ def api_tech_tree_data():
         'crypto': {'change': 0, 'percent': 0}
     }
     # 주식/코인 이번달 매수액 집계
-    s_buy = db.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE strftime('%Y-%m', tx_date) = ? AND tx_type='buy'", (ym,)).fetchone()[0]
-    s_sell = db.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE strftime('%Y-%m', tx_date) = ? AND tx_type='sell'", (ym,)).fetchone()[0]
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE to_char(tx_date::date, 'YYYY-MM') = %s AND tx_type='buy'", (ym,))
+    s_buy = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE to_char(tx_date::date, 'YYYY-MM') = %s AND tx_type='sell'", (ym,))
+    s_sell = cur.fetchone()[0]
+    cur.close()
     monthly_stats['stocks']['change'] = s_buy - s_sell
     
-    c_buy = db.execute("SELECT COALESCE(SUM(buy_price*quantity),0) FROM crypto WHERE strftime('%Y-%m', buy_date) = ?", (ym,)).fetchone()[0]
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(buy_price*quantity),0) FROM crypto WHERE to_char(buy_date::date, 'YYYY-MM') = %s", (ym,))
+    c_buy = cur.fetchone()[0]
+    cur.close()
     monthly_stats['crypto']['change'] = c_buy
 
     # 변동률 계산 (현재값 대비)
@@ -1209,19 +1522,24 @@ def api_tech_tree_data():
     monthly_stats['crypto']['percent'] = calc_pct(crypto_val, monthly_stats['crypto']['change'])
 
     # 목표 자산
-    goal = db.execute("SELECT target_amount FROM goals WHERE name = '자본주의테크트리'").fetchone()
+    cur = db.cursor()
+    cur.execute("SELECT target_amount FROM goals WHERE name = '자본주의테크트리'")
+    goal = cur.fetchone()
+    cur.close()
     target_amount = goal[0] if goal else 1000000000 # 기본 10억
 
     # [신규] 월별 자산 스냅샷 자동 저장/업데이트
-    db.execute("""
-        INSERT INTO asset_snapshots (month, cash, stocks, real_estate, crypto, pension, total, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        ON CONFLICT(month) DO UPDATE SET
-            cash=excluded.cash, stocks=excluded.stocks, real_estate=excluded.real_estate,
-            crypto=excluded.crypto, pension=excluded.pension, total=excluded.total,
-            updated_at=excluded.updated_at
+    cur = db.cursor()
+    cur.execute("""
+    INSERT INTO asset_snapshots (month, cash, stocks, real_estate, crypto, pension, total, updated_at)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, datetime('now'))
+    ON CONFLICT(month) DO UPDATE SET
+    cash=excluded.cash, stocks=excluded.stocks, real_estate=excluded.real_estate,
+    crypto=excluded.crypto, pension=excluded.pension, total=excluded.total,
+    updated_at=excluded.updated_at
     """, (ym, cash_val, stocks_val + etf_val, re_val, crypto_val, pension_val, 
-          cash_val + stocks_val + etf_val + re_val + crypto_val + pension_val))
+    cash_val + stocks_val + etf_val + re_val + crypto_val + pension_val))
+    cur.close()
     db.commit()
 
     db.close()
@@ -1247,13 +1565,16 @@ def api_tech_tree_data():
 def api_straws():
     """지출 중 매달 반복되는 '빨대'(고정비) 목록을 찾아 반환"""
     db = get_db()
-    rows = db.execute("""
-        SELECT name, amount, category, COUNT(*) as cnt, MAX(date) as last_date
-        FROM budget 
-        GROUP BY name, amount
-        HAVING cnt >= 2
-        ORDER BY amount DESC
-    """).fetchall()
+    cur = db.cursor()
+    cur.execute("""
+    SELECT name, amount, category, COUNT(*) as cnt, MAX(date) as last_date
+    FROM budget 
+    GROUP BY name, amount
+    HAVING cnt >= 2
+    ORDER BY amount DESC
+    """)
+    rows = cur.fetchall()
+    cur.close()
     db.close()
     return jsonify(rows_to_list(rows))
 
@@ -1263,11 +1584,18 @@ def api_tech_tree_goal():
     data = request.json
     target = data.get('target_amount', 1000000000)
     
-    exists = db.execute("SELECT id FROM goals WHERE name = '자본주의테크트리'").fetchone()
+    cur = db.cursor()
+    cur.execute("SELECT id FROM goals WHERE name = '자본주의테크트리'")
+    exists = cur.fetchone()
+    cur.close()
     if exists:
-        db.execute("UPDATE goals SET target_amount = ? WHERE name = '자본주의테크트리'", (target,))
+        cur = db.cursor()
+        cur.execute("UPDATE goals SET target_amount = %s WHERE name = '자본주의테크트리'", (target,))
+        cur.close()
     else:
-        db.execute("INSERT INTO goals (name, target_amount) VALUES ('자본주의테크트리', ?)", (target,))
+        cur = db.cursor()
+        cur.execute("INSERT INTO goals (name, target_amount) VALUES ('자본주의테크트리', %s)", (target,))
+        cur.close()
     
     db.commit()
     db.close()
@@ -1281,19 +1609,52 @@ def api_asset_history():
     history = []
     
     # 1. DB에 저장된 스냅샷 불러오기
-    snapshots = {r['month']: r for r in db.execute("SELECT * FROM asset_snapshots ORDER BY month DESC").fetchall()}
+    cur = db.cursor()
+    cur.execute("SELECT * FROM asset_snapshots ORDER BY month DESC")
+    snapshots = cur.fetchall()}
+    cur.close()
 
     # 현재 실시간 자산 상태 (역산용 기준점)
-    curr_cash = db.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits").fetchone()[0]
-    curr_cash += db.execute("SELECT COALESCE(SUM(current_amount), 0) FROM goals WHERE name != '자본주의테크트리'").fetchone()[0]
-    curr_pension = db.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension").fetchone()[0]
-    p_monthly = db.execute("SELECT COALESCE(SUM(monthly_payment),0) FROM pension").fetchone()[0]
-    curr_stocks = db.execute("SELECT COALESCE(SUM(s.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id)), 0) FROM stocks s").fetchone()[0]
-    curr_stocks += db.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM etf").fetchone()[0]
-    curr_crypto = db.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto").fetchone()[0]
-    re_price = db.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate").fetchone()[0]
-    re_dep = db.execute("SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)").fetchone()[0]
-    res_dep = db.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence").fetchone()[0]
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
+    curr_cash = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_amount), 0) FROM goals WHERE name != '자본주의테크트리'")
+    curr_cash + = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
+    curr_pension = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(monthly_payment),0) FROM pension")
+    p_monthly = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(s.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id)), 0) FROM stocks s")
+    curr_stocks = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM etf")
+    curr_stocks + = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
+    curr_crypto = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
+    re_price = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)")
+    re_dep = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
+    res_dep = cur.fetchone()[0]
+    cur.close()
     curr_re = re_price - re_dep + res_dep
 
     # 거꾸로 12개월치 데이터 생성
@@ -1325,12 +1686,30 @@ def api_asset_history():
             })
         
         # 이전 달로 되돌리기 위한 변동분 집계 (역산)
-        inc = db.execute("SELECT COALESCE(SUM(amount),0) FROM income WHERE strftime('%Y-%m', date) = ?", (ym,)).fetchone()[0]
-        exp = db.execute("SELECT COALESCE(SUM(amount),0) FROM budget WHERE strftime('%Y-%m', date) = ?", (ym,)).fetchone()[0]
-        card = db.execute("SELECT COALESCE(SUM(amount),0) FROM card_tx WHERE strftime('%Y-%m', date) = ?", (ym,)).fetchone()[0]
-        s_buy = db.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE strftime('%Y-%m', tx_date) = ? AND tx_type='buy'", (ym,)).fetchone()[0]
-        s_sell = db.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE strftime('%Y-%m', tx_date) = ? AND tx_type='sell'", (ym,)).fetchone()[0]
-        c_buy = db.execute("SELECT COALESCE(SUM(buy_price*quantity),0) FROM crypto WHERE strftime('%Y-%m', buy_date) = ?", (ym,)).fetchone()[0]
+        cur = db.cursor()
+        cur.execute("SELECT COALESCE(SUM(amount),0) FROM income WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
+        inc = cur.fetchone()[0]
+        cur.close()
+        cur = db.cursor()
+        cur.execute("SELECT COALESCE(SUM(amount),0) FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
+        exp = cur.fetchone()[0]
+        cur.close()
+        cur = db.cursor()
+        cur.execute("SELECT COALESCE(SUM(amount),0) FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
+        card = cur.fetchone()[0]
+        cur.close()
+        cur = db.cursor()
+        cur.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE to_char(tx_date::date, 'YYYY-MM') = %s AND tx_type='buy'", (ym,))
+        s_buy = cur.fetchone()[0]
+        cur.close()
+        cur = db.cursor()
+        cur.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE to_char(tx_date::date, 'YYYY-MM') = %s AND tx_type='sell'", (ym,))
+        s_sell = cur.fetchone()[0]
+        cur.close()
+        cur = db.cursor()
+        cur.execute("SELECT COALESCE(SUM(buy_price*quantity),0) FROM crypto WHERE to_char(buy_date::date, 'YYYY-MM') = %s", (ym,))
+        c_buy = cur.fetchone()[0]
+        cur.close()
         
         curr_cash -= (inc - (exp + card) - (s_buy + c_buy) + s_sell)
         curr_stocks -= (s_buy - s_sell)
@@ -1352,65 +1731,110 @@ def api_tech_tree_detail():
     
     res = []
     if ttype == 'labor':
-        rows = db.execute("SELECT date, name, amount, category FROM income WHERE strftime('%Y-%m', date) = ? AND category IN ('급여', '사업소득') AND date <= date('now')", (ym,)).fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT date, name, amount, category FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= date('now')", (ym,))
+        rows = cur.fetchall()
+        cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in rows]
     elif ttype == 'passive':
-        rows = db.execute("SELECT date, name, amount, category FROM income WHERE strftime('%Y-%m', date) = ? AND category NOT IN ('급여', '사업소득') AND date <= date('now')", (ym,)).fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT date, name, amount, category FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= date('now')", (ym,))
+        rows = cur.fetchall()
+        cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in rows]
         # 부동산 월세 수입 추가
-        rentals = db.execute("""
-            SELECT r.name, tc.monthly_rent 
-            FROM tenant_contracts tc
-            JOIN real_estate r ON tc.real_estate_id = r.id
-            WHERE tc.contract_type = '월세' 
-              AND tc.id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
-        """).fetchall()
+        cur = db.cursor()
+        cur.execute("""
+        SELECT r.name, tc.monthly_rent 
+        FROM tenant_contracts tc
+        JOIN real_estate r ON tc.real_estate_id = r.id
+        WHERE tc.contract_type = '월세' 
+        AND tc.id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+        """)
+        rentals = cur.fetchall()
+        cur.close()
         for rent in rentals:
             if rent[1] > 0:
                 res.append({'date': '임대료', 'name': rent[0], 'amount': rent[1], 'memo': '부동산 월세'})
         
         # 전세 사적 레버리지 추가
-        leverages = db.execute("""
-            SELECT r.name, tc.deposit * 0.04 / 12 as amount
-            FROM tenant_contracts tc
-            JOIN real_estate r ON tc.real_estate_id = r.id
-            WHERE tc.contract_type = '전세' 
-              AND tc.id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
-        """).fetchall()
+        cur = db.cursor()
+        cur.execute("""
+        SELECT r.name, tc.deposit * 0.04 / 12 as amount
+        FROM tenant_contracts tc
+        JOIN real_estate r ON tc.real_estate_id = r.id
+        WHERE tc.contract_type = '전세' 
+        AND tc.id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+        """)
+        leverages = cur.fetchall()
+        cur.close()
         for lev in leverages:
             if lev[1] > 0:
                 res.append({'date': '레버리지', 'name': f"{lev[0]} (사적레버리지)", 'amount': int(lev[1]), 'memo': '전세금 기회비용(4%)'})
     elif ttype == 'expense':
-        b = db.execute("SELECT date, name, amount, category FROM budget WHERE strftime('%Y-%m', date) = ?", (ym,)).fetchall()
-        c = db.execute("SELECT date, name, amount, category FROM card_tx WHERE strftime('%Y-%m', date) = ?", (ym,)).fetchall()
-        l = db.execute("SELECT '매월' as date, name, monthly_payment as amount, institution as category FROM loans").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT date, name, amount, category FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
+        b = cur.fetchall()
+        cur.close()
+        cur = db.cursor()
+        cur.execute("SELECT date, name, amount, category FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
+        c = cur.fetchall()
+        cur.close()
+        cur = db.cursor()
+        cur.execute("SELECT '매월' as date, name, monthly_payment as amount, institution as category FROM loans")
+        l = cur.fetchall()
+        cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in b + c + l]
     elif ttype == 'cash':
-        c = db.execute("SELECT '현금' as date, name, amount, memo FROM cash_deposits").fetchall()
-        g = db.execute("SELECT '목표' as date, name, current_amount as amount, memo FROM goals WHERE name != '자본주의테크트리'").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT '현금' as date, name, amount, memo FROM cash_deposits")
+        c = cur.fetchall()
+        cur.close()
+        cur = db.cursor()
+        cur.execute("SELECT '목표' as date, name, current_amount as amount, memo FROM goals WHERE name != '자본주의테크트리'")
+        g = cur.fetchall()
+        cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in c + g]
     elif ttype == 'stocks':
-        s = db.execute("SELECT '주식' as date, name, (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id) * current_price as amount, ticker as memo FROM stocks s").fetchall()
-        e = db.execute("SELECT 'ETF' as date, name, quantity * current_price as amount, ticker as memo FROM etf").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT '주식' as date, name, (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id) * current_price as amount, ticker as memo FROM stocks s")
+        s = cur.fetchall()
+        cur.close()
+        cur = db.cursor()
+        cur.execute("SELECT 'ETF' as date, name, quantity * current_price as amount, ticker as memo FROM etf")
+        e = cur.fetchall()
+        cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in s + e if r[2] > 0]
     elif ttype == 'real_estate':
         # 각 매물별 시세 - 최신 보증금(부채) 계산
-        rows = db.execute("""
-            SELECT r.name, r.current_price, 
-                   COALESCE((SELECT deposit FROM tenant_contracts WHERE real_estate_id = r.id ORDER BY id DESC LIMIT 1), 0) as tenant_dep,
-                   r.memo
-            FROM real_estate r
-        """).fetchall()
+        cur = db.cursor()
+        cur.execute("""
+        SELECT r.name, r.current_price, 
+        COALESCE((SELECT deposit FROM tenant_contracts WHERE real_estate_id = r.id ORDER BY id DESC LIMIT 1), 0) as tenant_dep,
+        r.memo
+        FROM real_estate r
+        """)
+        rows = cur.fetchall()
+        cur.close()
         res = [{'date': '부동산', 'name': r[0], 'amount': r[1] - r[2], 'memo': f"시세:{r[1]:,} / 보증금:-{r[2]:,}"} for r in rows]
         # 거주 보증금 추가 (내가 낸 돈이므로 자산)
-        res_dep = db.execute("SELECT address, deposit FROM residence").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT address, deposit FROM residence")
+        res_dep = cur.fetchall()
+        cur.close()
         for rd in res_dep:
             res.append({'date': '거주보증금', 'name': rd[0], 'amount': rd[1], 'memo': '내가 낸 보증금'})
     elif ttype == 'crypto':
-        rows = db.execute("SELECT '코인' as date, name, quantity * current_price as amount, symbol as memo FROM crypto").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT '코인' as date, name, quantity * current_price as amount, symbol as memo FROM crypto")
+        rows = cur.fetchall()
+        cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in rows]
     elif ttype == 'pension':
-        rows = db.execute("SELECT pension_type as date, name, accumulated as amount, institution as memo FROM pension").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT pension_type as date, name, accumulated as amount, institution as memo FROM pension")
+        rows = cur.fetchall()
+        cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in rows]
 
     db.close()
@@ -1427,16 +1851,25 @@ def api_monthly_summary():
     for m in range(1, 13):
         ym = f"{year}-{m:02d}"
         # 미래 날짜의 수입(반복 수입 사전 등록분)은 해당 날짜가 돼야만 집계
-        inc = db.execute(
-            "SELECT COALESCE(SUM(amount),0) as t FROM income"
-            " WHERE strftime('%Y-%m', date) = ? AND date <= date('now')", (ym,)
-        ).fetchone()['t']
-        exp = db.execute(
-            "SELECT COALESCE(SUM(amount),0) as t FROM budget WHERE strftime('%Y-%m', date) = ?", (ym,)
-        ).fetchone()['t']
-        card = db.execute(
-            "SELECT COALESCE(SUM(amount),0) as t FROM card_tx WHERE strftime('%Y-%m', date) = ?", (ym,)
-        ).fetchone()['t']
+        cur = db.cursor()
+        cur.execute(
+        "SELECT COALESCE(SUM(amount),0) as t FROM income"
+        " WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= date('now')", (ym,)
+        )
+        inc = cur.fetchone()['t']
+        cur.close()
+        cur = db.cursor()
+        cur.execute(
+        "SELECT COALESCE(SUM(amount),0) as t FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,)
+        )
+        exp = cur.fetchone()['t']
+        cur.close()
+        cur = db.cursor()
+        cur.execute(
+        "SELECT COALESCE(SUM(amount),0) as t FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,)
+        )
+        card = cur.fetchone()['t']
+        cur.close()
         months.append({
             'month':   ym,
             'income':  inc,
@@ -1563,11 +1996,16 @@ def api_card_excel_preview():
 def api_card_excel_mapping(card_id):
     db = get_db()
     if request.method == 'GET':
-        row = db.execute("SELECT mapping FROM card_mappings WHERE card_id=?", (card_id,)).fetchone()
+        cur = db.cursor()
+        cur.execute("SELECT mapping FROM card_mappings WHERE card_id=%s", (card_id,))
+        row = cur.fetchone()
+        cur.close()
         db.close()
         return jsonify(json.loads(row['mapping']) if row else {})
-    db.execute("INSERT OR REPLACE INTO card_mappings (card_id, mapping) VALUES (?,?)",
-               (card_id, json.dumps(request.json or {})))
+    cur = db.cursor()
+    cur.execute("INSERT OR REPLACE INTO card_mappings (card_id, mapping) VALUES (%s,%s)",
+    (card_id, json.dumps(request.json or {})))
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True})
 
@@ -1594,14 +2032,19 @@ def api_card_excel_import():
         inst     = _parse_amount(get(row, mapping.get('installment', ''))) or 1
         category = str(get(row, mapping.get('category', '')) or '').strip()
         if not date_str or amount <= 0: skipped += 1; continue
-        if db.execute("SELECT id FROM card_tx WHERE card_id=? AND date=? AND name=? AND amount=?",
-                      (card_id, date_str, name, amount)).fetchone():
+        tmp_cur = db.cursor()
+        tmp_cur.execute("SELECT id FROM card_tx WHERE card_id=%s AND date=%s AND name=%s AND amount=%s",
+        (card_id, date_str, name, amount))
+        if tmp_cur.fetchone():
+        tmp_cur.close()
             duplicate += 1; continue
         # 카테고리가 없으면 힌트 자동 적용
         if not category and name:
             category = _get_category_hint(db, name)
-        db.execute("INSERT INTO card_tx (card_id,date,name,category,amount,installment) VALUES (?,?,?,?,?,?)",
-                   (card_id, date_str, name, category, amount, inst))
+        cur = db.cursor()
+        cur.execute("INSERT INTO card_tx (card_id,date,name,category,amount,installment) VALUES (%s,%s,%s,%s,%s,%s)",
+        (card_id, date_str, name, category, amount, inst))
+        cur.close()
         inserted += 1
     db.commit(); db.close()
     return jsonify({'ok': True, 'inserted': inserted, 'skipped': skipped, 'duplicate': duplicate})
@@ -1614,16 +2057,22 @@ def _get_category_hint(db, name):
     if not name:
         return ''
     # 1. 히스토리: 동일 가맹점의 가장 최근 카테고리
-    row = db.execute(
-        "SELECT category FROM card_tx WHERE name=? AND category IS NOT NULL AND category!='' "
-        "ORDER BY date DESC LIMIT 1", (name,)
-    ).fetchone()
+    cur = db.cursor()
+    cur.execute(
+    "SELECT category FROM card_tx WHERE name=%s AND category IS NOT NULL AND category!='' "
+    "ORDER BY date DESC LIMIT 1", (name,)
+    )
+    row = cur.fetchone()
+    cur.close()
     if row:
         return row['category']
     # 2. 키워드 규칙 (긴 키워드 우선)
-    rules = db.execute(
-        "SELECT keyword, category FROM card_category_rules ORDER BY LENGTH(keyword) DESC"
-    ).fetchall()
+    cur = db.cursor()
+    cur.execute(
+    "SELECT keyword, category FROM card_category_rules ORDER BY LENGTH(keyword) DESC"
+    )
+    rules = cur.fetchall()
+    cur.close()
     name_lower = name.lower()
     for rule in rules:
         if rule['keyword'].lower() in name_lower:
@@ -1646,12 +2095,17 @@ def api_card_category_hint():
 def api_card_category_rules():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute("SELECT * FROM card_category_rules ORDER BY keyword").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT * FROM card_category_rules ORDER BY keyword")
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
     d = request.json or {}
-    db.execute("INSERT INTO card_category_rules (keyword, category) VALUES (?, ?)",
-               (d.get('keyword', ''), d.get('category', '')))
+    cur = db.cursor()
+    cur.execute("INSERT INTO card_category_rules (keyword, category) VALUES (%s, %s)",
+    (d.get('keyword', ''), d.get('category', '')))
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True})
 
@@ -1660,13 +2114,21 @@ def api_card_category_rules():
 def api_categories():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute("SELECT * FROM categories ORDER BY sort_order, name").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT * FROM categories ORDER BY sort_order, name")
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
     d = request.json or {}
-    max_order = db.execute("SELECT COALESCE(MAX(sort_order), -1) FROM categories").fetchone()[0]
-    db.execute("INSERT OR IGNORE INTO categories (name, sort_order) VALUES (?, ?)",
-               (d.get('name', '').strip(), max_order + 1))
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(MAX(sort_order), -1) FROM categories")
+    max_order = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("INSERT OR IGNORE INTO categories (name, sort_order) VALUES (%s, %s)",
+    (d.get('name', '').strip(), max_order + 1))
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True}), 201
 
@@ -1675,11 +2137,15 @@ def api_categories():
 def api_categories_detail(rid):
     db = get_db()
     if request.method == 'DELETE':
-        db.execute("DELETE FROM categories WHERE id=?", (rid,))
+        cur = db.cursor()
+        cur.execute("DELETE FROM categories WHERE id=%s", (rid,))
+        cur.close()
         db.commit(); db.close()
         return jsonify({'ok': True})
     d = request.json or {}
-    db.execute("UPDATE categories SET name=? WHERE id=?", (d.get('name', '').strip(), rid))
+    cur = db.cursor()
+    cur.execute("UPDATE categories SET name=%s WHERE id=%s", (d.get('name', '').strip(), rid))
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True})
 
@@ -1688,12 +2154,16 @@ def api_categories_detail(rid):
 def api_card_category_rules_detail(rid):
     db = get_db()
     if request.method == 'DELETE':
-        db.execute("DELETE FROM card_category_rules WHERE id=?", (rid,))
+        cur = db.cursor()
+        cur.execute("DELETE FROM card_category_rules WHERE id=%s", (rid,))
+        cur.close()
         db.commit(); db.close()
         return jsonify({'ok': True})
     d = request.json or {}
-    db.execute("UPDATE card_category_rules SET keyword=?, category=? WHERE id=?",
-               (d.get('keyword', ''), d.get('category', ''), rid))
+    cur = db.cursor()
+    cur.execute("UPDATE card_category_rules SET keyword=%s, category=%s WHERE id=%s",
+    (d.get('keyword', ''), d.get('category', ''), rid))
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True})
 
@@ -1705,16 +2175,22 @@ def _get_fund_group_hint(db, name):
     if not name:
         return None
     # 1. 히스토리: 동일 가맹점의 가장 최근 자금 그룹
-    row = db.execute(
-        "SELECT fund_group_id FROM card_tx WHERE name=? AND fund_group_id IS NOT NULL "
-        "ORDER BY date DESC LIMIT 1", (name,)
-    ).fetchone()
+    cur = db.cursor()
+    cur.execute(
+    "SELECT fund_group_id FROM card_tx WHERE name=%s AND fund_group_id IS NOT NULL "
+    "ORDER BY date DESC LIMIT 1", (name,)
+    )
+    row = cur.fetchone()
+    cur.close()
     if row:
         return row['fund_group_id']
     # 2. 키워드 규칙 (긴 키워드 우선)
-    rules = db.execute(
-        "SELECT keyword, fund_group_id FROM fund_group_rules ORDER BY LENGTH(keyword) DESC"
-    ).fetchall()
+    cur = db.cursor()
+    cur.execute(
+    "SELECT keyword, fund_group_id FROM fund_group_rules ORDER BY LENGTH(keyword) DESC"
+    )
+    rules = cur.fetchall()
+    cur.close()
     name_lower = name.lower()
     for rule in rules:
         if rule['keyword'].lower() in name_lower:
@@ -1731,13 +2207,21 @@ def fund_management():
 def api_fund_groups():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute("SELECT * FROM fund_groups ORDER BY sort_order, name").fetchall()
+        cur = db.cursor()
+        cur.execute("SELECT * FROM fund_groups ORDER BY sort_order, name")
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
     d = request.json or {}
-    max_order = db.execute("SELECT COALESCE(MAX(sort_order), -1) FROM fund_groups").fetchone()[0]
-    db.execute("INSERT OR IGNORE INTO fund_groups (name, sort_order) VALUES (?, ?)",
-               (d.get('name', '').strip(), max_order + 1))
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(MAX(sort_order), -1) FROM fund_groups")
+    max_order = cur.fetchone()[0]
+    cur.close()
+    cur = db.cursor()
+    cur.execute("INSERT OR IGNORE INTO fund_groups (name, sort_order) VALUES (%s, %s)",
+    (d.get('name', '').strip(), max_order + 1))
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True}), 201
 
@@ -1746,11 +2230,15 @@ def api_fund_groups():
 def api_fund_groups_detail(rid):
     db = get_db()
     if request.method == 'DELETE':
-        db.execute("DELETE FROM fund_groups WHERE id=?", (rid,))
+        cur = db.cursor()
+        cur.execute("DELETE FROM fund_groups WHERE id=%s", (rid,))
+        cur.close()
         db.commit(); db.close()
         return jsonify({'ok': True})
     d = request.json or {}
-    db.execute("UPDATE fund_groups SET name=? WHERE id=?", (d.get('name', '').strip(), rid))
+    cur = db.cursor()
+    cur.execute("UPDATE fund_groups SET name=%s WHERE id=%s", (d.get('name', '').strip(), rid))
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True})
 
@@ -1759,15 +2247,20 @@ def api_fund_groups_detail(rid):
 def api_fund_group_rules():
     db = get_db()
     if request.method == 'GET':
-        rows = db.execute(
-            "SELECT r.*, g.name as fund_group_name FROM fund_group_rules r "
-            "LEFT JOIN fund_groups g ON r.fund_group_id = g.id ORDER BY r.keyword"
-        ).fetchall()
+        cur = db.cursor()
+        cur.execute(
+        "SELECT r.*, g.name as fund_group_name FROM fund_group_rules r "
+        "LEFT JOIN fund_groups g ON r.fund_group_id = g.id ORDER BY r.keyword"
+        )
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
     d = request.json or {}
-    db.execute("INSERT INTO fund_group_rules (keyword, fund_group_id) VALUES (?, ?)",
-               (d.get('keyword', ''), d.get('fund_group_id')))
+    cur = db.cursor()
+    cur.execute("INSERT INTO fund_group_rules (keyword, fund_group_id) VALUES (%s, %s)",
+    (d.get('keyword', ''), d.get('fund_group_id')))
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True}), 201
 
@@ -1776,12 +2269,16 @@ def api_fund_group_rules():
 def api_fund_group_rules_detail(rid):
     db = get_db()
     if request.method == 'DELETE':
-        db.execute("DELETE FROM fund_group_rules WHERE id=?", (rid,))
+        cur = db.cursor()
+        cur.execute("DELETE FROM fund_group_rules WHERE id=%s", (rid,))
+        cur.close()
         db.commit(); db.close()
         return jsonify({'ok': True})
     d = request.json or {}
-    db.execute("UPDATE fund_group_rules SET keyword=?, fund_group_id=? WHERE id=?",
-               (d.get('keyword', ''), d.get('fund_group_id'), rid))
+    cur = db.cursor()
+    cur.execute("UPDATE fund_group_rules SET keyword=%s, fund_group_id=%s WHERE id=%s",
+    (d.get('keyword', ''), d.get('fund_group_id'), rid))
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True})
 
@@ -1792,20 +2289,25 @@ def api_monthly_fund_budgets():
     if request.method == 'GET':
         year  = request.args.get('year')
         month = request.args.get('month')
-        rows = db.execute(
-            "SELECT b.*, g.name as fund_group_name FROM monthly_fund_budgets b "
-            "LEFT JOIN fund_groups g ON b.fund_group_id = g.id "
-            "WHERE b.year=? AND b.month=? ORDER BY g.sort_order, g.name",
-            (year, int(month))
-        ).fetchall()
+        cur = db.cursor()
+        cur.execute(
+        "SELECT b.*, g.name as fund_group_name FROM monthly_fund_budgets b "
+        "LEFT JOIN fund_groups g ON b.fund_group_id = g.id "
+        "WHERE b.year=%s AND b.month=%s ORDER BY g.sort_order, g.name",
+        (year, int(month))
+        )
+        rows = cur.fetchall()
+        cur.close()
         db.close()
         return jsonify(rows_to_list(rows))
     d = request.json or {}
-    db.execute(
-        "INSERT INTO monthly_fund_budgets (fund_group_id, year, month, budget_amount) VALUES (?,?,?,?) "
-        "ON CONFLICT(fund_group_id, year, month) DO UPDATE SET budget_amount=excluded.budget_amount",
-        (d.get('fund_group_id'), d.get('year'), d.get('month'), d.get('budget_amount', 0))
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO monthly_fund_budgets (fund_group_id, year, month, budget_amount) VALUES (%s,%s,%s,%s) "
+    "ON CONFLICT(fund_group_id, year, month) DO UPDATE SET budget_amount=excluded.budget_amount",
+    (d.get('fund_group_id'), d.get('year'), d.get('month'), d.get('budget_amount', 0))
     )
+    cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True}), 201
 
@@ -1816,19 +2318,25 @@ def api_fund_summary():
     month = request.args.get('month')
     db = get_db()
     # 자금 그룹별 실제 지출 집계
-    actuals = db.execute(
-        "SELECT g.id, g.name, g.sort_order, COALESCE(SUM(t.amount), 0) as actual "
-        "FROM fund_groups g "
-        "LEFT JOIN card_tx t ON t.fund_group_id = g.id "
-        "  AND strftime('%Y', t.date) = ? AND strftime('%m', t.date) = ? "
-        "GROUP BY g.id ORDER BY g.sort_order, g.name",
-        (year, month.zfill(2))
-    ).fetchall()
+    cur = db.cursor()
+    cur.execute(
+    "SELECT g.id, g.name, g.sort_order, COALESCE(SUM(t.amount), 0) as actual "
+    "FROM fund_groups g "
+    "LEFT JOIN card_tx t ON t.fund_group_id = g.id "
+    "  AND to_char(t.date::date, 'YYYY') = %s AND to_char(t.date::date, 'MM') = %s "
+    "GROUP BY g.id ORDER BY g.sort_order, g.name",
+    (year, month.zfill(2))
+    )
+    actuals = cur.fetchall()
+    cur.close()
     # 월별 예산 조회
-    budgets = {r['fund_group_id']: r['budget_amount'] for r in db.execute(
-        "SELECT fund_group_id, budget_amount FROM monthly_fund_budgets WHERE year=? AND month=?",
-        (year, int(month))
-    ).fetchall()}
+    cur = db.cursor()
+    cur.execute(
+    "SELECT fund_group_id, budget_amount FROM monthly_fund_budgets WHERE year=%s AND month=%s",
+    (year, int(month))
+    )
+    budgets = cur.fetchall()}
+    cur.close()
     db.close()
     result = []
     for row in actuals:
@@ -1852,17 +2360,22 @@ def api_card_tx_auto_fund_group():
     query  = "SELECT id, name FROM card_tx WHERE fund_group_locked = 0"
     params = []
     if card_id:
-        query += " AND card_id = ?"; params.append(card_id)
+        query += " AND card_id = %s"; params.append(card_id)
     if year and month:
-        query += " AND strftime('%Y', date) = ? AND strftime('%m', date) = ?"
+        query += " AND to_char(date::date, 'YYYY') = %s AND to_char(date::date, 'MM') = %s"
         params += [year, month.zfill(2)]
 
-    rows = db.execute(query, params).fetchall()
+    cur = db.cursor()
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    cur.close()
     updated = 0
     for row in rows:
         hint = _get_fund_group_hint(db, row['name'])
         if hint:
-            db.execute("UPDATE card_tx SET fund_group_id=? WHERE id=?", (hint, row['id']))
+            cur = db.cursor()
+            cur.execute("UPDATE card_tx SET fund_group_id=%s WHERE id=%s", (hint, row['id']))
+            cur.close()
             updated += 1
     db.commit()
     db.close()
@@ -1949,30 +2462,12 @@ def api_import_source():
 
 @app.route('/api/export-text')
 def api_export_text():
-    conn = sqlite3.connect(DB_PATH)
-    sql  = '\n'.join(conn.iterdump())
-    conn.close()
-    return jsonify({'sql': sql})
+    return jsonify({'error': 'PostgreSQL 환경에서는 텍스트 백업 기능을 지원하지 않습니다.'}), 501
 
 
 @app.route('/api/import-text', methods=['POST'])
 def api_import_text():
-    sql = (request.json or {}).get('sql', '').strip()
-    if not sql:
-        return jsonify({'error': '내용이 없습니다'}), 400
-
-    tmp = DB_PATH + '.tmp'
-    try:
-        conn = sqlite3.connect(tmp)
-        conn.executescript(sql)
-        conn.close()
-    except Exception as e:
-        if os.path.exists(tmp): os.remove(tmp)
-        return jsonify({'error': str(e)}), 400
-
-    shutil.copy2(DB_PATH, DB_PATH + '.bak')
-    os.replace(tmp, DB_PATH)
-    return jsonify({'ok': True})
+    return jsonify({'error': 'PostgreSQL 환경에서는 텍스트 복구 기능을 지원하지 않습니다.'}), 501
 
 
 if __name__ == '__main__':
