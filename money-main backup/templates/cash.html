@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}현금 관리{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="fw-bold mb-0"><i class="bi bi-wallet2 me-2 text-primary"></i>현금 관리</h2>
+    <div class="d-flex gap-2">
+        <label class="btn btn-outline-info">
+            <i class="bi bi-camera me-1"></i>새 통장 사진 인식
+            <input type="file" id="ocrInput" accept="image/*" capture="environment" style="display: none;" onchange="handleOCR(this)">
+        </label>
+        <button class="btn btn-primary" onclick="grid.addRow()"><i class="bi bi-plus-lg me-1"></i>통장 추가</button>
+    </div>
+</div>
+
+<div class="alert alert-light border shadow-sm mb-4">
+    <i class="bi bi-info-circle me-2 text-info"></i>
+    <strong>팁:</strong> 은행 앱 화면 캡처 파일을 원하는 통장 줄 위로 <strong>드래그 앤 드롭</strong>하면 금액을 자동으로 업데이트할 수 있습니다.
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" id="cashTable">
+                <thead class="table-light">
+                    <tr>
+                        <th>통장/기관명</th>
+                        <th class="text-end">잔액</th>
+                        <th>메모</th>
+                        <th>최종 수정일</th>
+                        <th class="text-center">작업</th>
+                    </tr>
+                </thead>
+                <tbody id="cashTbody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="mt-3 text-end">
+    <h4 class="fw-bold">총 현금 합계: <span id="totalCash" class="text-primary">0</span>원</h4>
+</div>
+
+<!-- OCR 진행 상태 표시 모달 -->
+<div class="modal fade" id="ocrModal" data-bs-backdrop="static" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body text-center py-5">
+                <div class="spinner-border text-primary mb-3" role="status"></div>
+                <h5 class="fw-bold">사진 분석 중...</h5>
+                <p class="text-muted mb-0" id="ocrStatus">텍스트를 인식하고 있습니다.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- OCR 결과 선택 모달 -->
+<div class="modal fade" id="ocrResultModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold">인식된 금액 선택</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted">사진에서 발견된 숫자들입니다. 업데이트할 금액을 선택해주세요.</p>
+                <div id="ocrResultList" class="list-group"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+let grid;
+let ocrModal;
+let ocrResultModal;
+let targetRowId = null;
+
+grid = new GridTable({
+    tableId: 'cashTable',
+    apiUrl: '/api/cash-deposits',
+    columns: [
+        { key: 'name', type: 'text' },
+        { key: 'amount', type: 'number', align: 'end', 
+          render: (v) => fmt(v) + ' 원' },
+        { key: 'memo', type: 'text' },
+        { key: 'updated_date', type: 'text', readonly: true }
+    ],
+    onLoad: (data) => {
+        const total = data.reduce((sum, r) => sum + (parseInt(r.amount) || 0), 0);
+        document.getElementById('totalCash').textContent = fmt(total);
+    }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    ocrModal = new bootstrap.Modal(document.getElementById('ocrModal'));
+    ocrResultModal = new bootstrap.Modal(document.getElementById('ocrResultModal'));
+    grid.load();
+
+    // 드래그 앤 드롭 이벤트 바인딩
+    const tbody = document.getElementById('cashTbody');
+    
+    tbody.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const tr = e.target.closest('tr[data-id]');
+        if (tr) tr.classList.add('table-primary');
+    });
+
+    tbody.addEventListener('dragleave', (e) => {
+        const tr = e.target.closest('tr[data-id]');
+        if (tr) tr.classList.remove('table-primary');
+    });
+
+    tbody.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const tr = e.target.closest('tr[data-id]');
+        if (tr) {
+            tr.classList.remove('table-primary');
+            const files = e.dataTransfer.files;
+            if (files.length > 0 && files[0].type.startsWith('image/')) {
+                targetRowId = tr.dataset.id;
+                processOCR(files[0]);
+            }
+        }
+    });
+});
+
+function handleOCR(input) {
+    if (!input.files || !input.files[0]) return;
+    targetRowId = 'new';
+    processOCR(input.files[0]);
+    input.value = '';
+}
+
+async function processOCR(file) {
+    ocrModal.show();
+    document.getElementById('ocrStatus').textContent = '이미지 처리 중...';
+
+    try {
+        const result = await Tesseract.recognize(file, 'kor+eng', {
+            logger: m => {
+                if (m.status === 'recognizing text') {
+                    document.getElementById('ocrStatus').textContent = `인식 중: ${Math.round(m.progress * 100)}%`;
+                }
+            }
+        });
+
+        const text = result.data.text;
+        const matches = text.match(/[\d,]{4,}/g) || [];
+        const candidates = [...new Set(matches)]
+            .map(m => parseInt(m.replace(/,/g, '')))
+            .filter(n => n > 0)
+            .sort((a, b) => b - a);
+
+        ocrModal.hide();
+
+        if (candidates.length === 0) {
+            alert('사진에서 금액을 찾지 못했습니다. 직접 입력해주세요.');
+            return;
+        }
+
+        const list = document.getElementById('ocrResultList');
+        list.innerHTML = candidates.map(n => `
+            <button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" onclick="applyOCR(${n})">
+                <span class="fs-5 fw-bold text-primary">${fmt(n)}원</span>
+                <i class="bi bi-chevron-right text-muted"></i>
+            </button>
+        `).join('');
+
+        ocrResultModal.show();
+    } catch (e) {
+        console.error(e);
+        ocrModal.hide();
+        alert('인식 중 오류가 발생했습니다.');
+    }
+}
+
+function applyOCR(amount) {
+    ocrResultModal.hide();
+    
+    if (targetRowId === 'new') {
+        grid.addRow();
+    } else {
+        const tr = document.querySelector(`tr[data-id="${targetRowId}"]`);
+        if (tr) grid.startEdit(tr);
+    }
+    
+    setTimeout(() => {
+        const amountInput = document.querySelector('tr.grid-editing input[data-numeric="true"]');
+        if (amountInput) {
+            amountInput.value = fmt(amount);
+            amountInput.focus();
+        }
+    }, 150);
+}
+</script>
+
+<style>
+#ocrResultList .list-group-item:hover {
+    background-color: #f8f9fa;
+}
+.grid-editing td { background-color: #fff9db !important; }
+tr.table-primary td { transition: background-color 0.2s; }
+</style>
+{% endblock %}

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}가계부{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="fw-bold mb-0"><i class="bi bi-receipt me-2 text-danger"></i>가계부</h2>
+  <button class="btn btn-danger" onclick="grid.addRow()">
+    <i class="bi bi-plus-lg me-1"></i>행 추가
+  </button>
+</div>
+
+<!-- 필터 -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-center">
+      <div class="col-auto">
+        <select id="filterYear" class="form-select form-select-sm"></select>
+      </div>
+      <div class="col-auto">
+        <select id="filterMonth" class="form-select form-select-sm"></select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-primary" onclick="grid.load()">조회</button>
+      </div>
+      <div class="col-auto ms-auto">
+        <span class="text-muted small">합계: <strong class="text-danger" id="totalAmount">0원</strong></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 그리드 -->
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="dataTable">
+        <thead class="table-light">
+          <tr>
+            <th>날짜</th>
+            <th>카테고리</th>
+            <th>항목명</th>
+            <th>유형</th>
+            <th>결제수단</th>
+            <th>카드</th>
+            <th class="text-end">금액</th>
+            <th>메모</th>
+            <th class="text-center">삭제</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const today = new Date();
+let allCards = [];
+
+initYearMonthFilters('filterYear', 'filterMonth', today.getFullYear(), today.getMonth() + 1);
+
+const grid = new GridTable({
+  tableId: 'dataTable',
+  columns: [
+    { key: 'date',           type: 'date' },
+    { key: 'category',       type: 'select',
+      options: ['식비','교통비','주거비','의료비','교육비','문화/여가','쇼핑','통신비','보험','기타'],
+      render: v => v ? `<span class="badge bg-danger-subtle text-danger">${v}</span>` : '-' },
+    { key: 'name',           type: 'text' },
+    { key: 'type',           type: 'select', options: ['고정지출','변동지출'],
+      render: v => v ? `<span class="badge bg-secondary-subtle text-secondary">${v}</span>` : '-' },
+    { key: 'payment_method', type: 'select', options: ['현금','체크카드','신용카드','계좌이체','기타'] },
+    { key: 'card_id',        type: 'select',
+      options: () => allCards.map(c => ({ value: String(c.id), label: c.card_name || '카드' + c.card_num })),
+      render: (v, row) => row.card_name
+        ? `<span class="badge bg-info-subtle text-info"><i class="bi bi-credit-card me-1"></i>${row.card_name}</span>`
+        : '-' },
+    { key: 'amount',         type: 'number', align: 'end',
+      render: v => `<span class="fw-semibold text-danger">${fmt(v)}원</span>` },
+    { key: 'memo',           type: 'text' },
+  ],
+  apiUrl: '/api/budget',
+  getQueryParams: () => {
+    const y = document.getElementById('filterYear').value;
+    const m = document.getElementById('filterMonth').value;
+    return `year=${y}&month=${m}`;
+  },
+  onLoad: rows => {
+    const total = rows.reduce((s, r) => s + r.amount, 0);
+    document.getElementById('totalAmount').textContent = fmt(total) + '원';
+  },
+});
+
+async function init() {
+  allCards = await fetchJSON('/api/cards') || [];
+  grid.load();
+}
+
+init();
+</script>
+{% endblock %}

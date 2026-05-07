@@ -1,0 +1,637 @@
+{% extends "base.html" %}
+{% block title %}카드 관리{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="fw-bold mb-0"><i class="bi bi-credit-card me-2 text-info"></i>카드 관리</h2>
+</div>
+
+<ul class="nav nav-tabs mb-3" id="cardTabs">
+  <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-info">카드 정보</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-tx">거래 내역</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-excel">엑셀 가져오기</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-rules">카테고리 규칙</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-categories">카테고리 관리</a></li>
+</ul>
+
+<div class="tab-content">
+  <!-- 카드 정보 탭 -->
+  <div class="tab-pane fade show active" id="tab-info">
+    <div class="d-flex justify-content-end mb-3">
+      <button class="btn btn-info text-white" onclick="cardGrid.addRow()">
+        <i class="bi bi-plus-lg me-1"></i>카드 추가
+      </button>
+    </div>
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="cardTable">
+            <thead class="table-light">
+              <tr>
+                <th>번호</th><th>카드명</th>
+                <th class="text-end">한도</th>
+                <th>결제일</th><th>청구일</th><th>혜택</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 엑셀 가져오기 탭 -->
+  <div class="tab-pane fade" id="tab-excel">
+
+    <!-- Step 1: 카드 선택 + 파일 업로드 -->
+    <div id="xl-step1">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">1. 어느 카드 명세서인가요?</label>
+            <select id="xlCardSel" class="form-select" style="max-width:300px">
+              <option value="">카드를 선택하세요</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">2. 카드사 엑셀/CSV 파일을 올려주세요</label>
+            <div id="xlDropZone" class="border-2 border-dashed rounded p-5 text-center text-muted"
+                 style="border-style:dashed!important;cursor:pointer"
+                 onclick="document.getElementById('xlFileInput').click()"
+                 ondragover="event.preventDefault();this.classList.add('bg-light')"
+                 ondragleave="this.classList.remove('bg-light')"
+                 ondrop="event.preventDefault();this.classList.remove('bg-light');handleFile(event.dataTransfer.files[0])">
+              <i class="bi bi-file-earmark-spreadsheet fs-1 d-block mb-2 text-success"></i>
+              파일을 끌어다 놓거나 클릭하여 선택<br>
+              <small class="text-muted">.xlsx .xls .csv 지원</small>
+              <input type="file" id="xlFileInput" accept=".xlsx,.xls,.csv" style="display:none"
+                     onchange="handleFile(this.files[0])">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: 컬럼 매핑 + 미리보기 -->
+    <div id="xl-step2" style="display:none">
+      <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header bg-white border-0 pt-3 fw-semibold d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-table me-2 text-primary"></i>컬럼 매핑 확인</span>
+          <button class="btn btn-sm btn-outline-secondary" onclick="resetUpload()">
+            <i class="bi bi-arrow-left me-1"></i>다시 선택
+          </button>
+        </div>
+        <div class="card-body">
+          <p class="text-muted small mb-3">자동 감지 결과입니다. 잘못된 항목은 드롭다운으로 수정하세요.</p>
+          <div class="row g-3 mb-4" id="xlMappingForm"></div>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="xlSaveMapping" checked>
+            <label class="form-check-label small" for="xlSaveMapping">이 매핑을 카드에 저장 (다음번에 자동 적용)</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header bg-white border-0 pt-3 fw-semibold">
+          <i class="bi bi-eye me-2 text-secondary"></i>미리보기 (상위 5행)
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-sm mb-0" id="xlPreviewTable">
+              <thead class="table-light"><tr></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary px-4" onclick="doImport()">
+          <i class="bi bi-download me-1"></i>가져오기
+        </button>
+        <span class="text-muted small align-self-center" id="xlTotalInfo"></span>
+      </div>
+    </div>
+
+    <!-- Step 3: 결과 -->
+    <div id="xl-step3" style="display:none">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body text-center py-5">
+          <i class="bi bi-check-circle-fill fs-1 text-success mb-3 d-block"></i>
+          <h5 class="fw-bold mb-3">가져오기 완료</h5>
+          <div id="xlResult" class="mb-4"></div>
+          <div class="d-flex gap-2 justify-content-center">
+            <button class="btn btn-outline-secondary" onclick="resetUpload()">
+              <i class="bi bi-upload me-1"></i>다른 파일 가져오기
+            </button>
+            <button class="btn btn-primary" onclick="document.querySelector('[href=\'#tab-tx\']').click();txGrid.load()">
+              <i class="bi bi-list-ul me-1"></i>거래내역 확인
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 카테고리 규칙 탭 -->
+  <div class="tab-pane fade" id="tab-rules">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <p class="text-muted small mb-0">가맹점명에 키워드가 포함되면 카테고리를 자동 지정합니다.<br>같은 가맹점의 이전 기록이 있으면 히스토리가 우선 적용됩니다.</p>
+      <button class="btn btn-sm btn-outline-primary" onclick="rulesGrid.addRow()">
+        <i class="bi bi-plus-lg me-1"></i>규칙 추가
+      </button>
+    </div>
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="rulesTable">
+            <thead class="table-light">
+              <tr>
+                <th>키워드</th>
+                <th>카테고리</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 카테고리 관리 탭 -->
+  <div class="tab-pane fade" id="tab-categories">
+    <div class="row justify-content-center">
+      <div class="col-md-5">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <p class="text-muted small mb-0">거래 내역과 카테고리 규칙에서 사용할 카테고리 목록입니다.</p>
+          <button class="btn btn-sm btn-outline-primary" onclick="catGrid.addRow()">
+            <i class="bi bi-plus-lg me-1"></i>추가
+          </button>
+        </div>
+        <div class="card border-0 shadow-sm">
+          <div class="card-body p-0">
+            <table class="table table-hover mb-0" id="catTable">
+              <thead class="table-light">
+                <tr><th>카테고리명</th><th class="text-center">삭제</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 거래내역 탭 -->
+  <div class="tab-pane fade" id="tab-tx">
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body py-2">
+        <div class="row g-2 align-items-center">
+          <div class="col-auto">
+            <select id="txCardFilter" class="form-select form-select-sm">
+              <option value="">전체 카드</option>
+            </select>
+          </div>
+          <div class="col-auto">
+            <select id="txYear" class="form-select form-select-sm"></select>
+          </div>
+          <div class="col-auto">
+            <select id="txMonth" class="form-select form-select-sm"></select>
+          </div>
+          <div class="col-auto">
+            <button class="btn btn-sm btn-primary" onclick="txGrid.load()">조회</button>
+          </div>
+          <div class="col-auto ms-auto d-flex gap-2 align-items-center">
+            <span id="autoCatMsg" class="text-success small" style="display:none"></span>
+            <span id="selectionInfo" class="text-muted small" style="display:none"></span>
+            <button id="btnBulkDelete" class="btn btn-sm btn-danger" style="display:none" onclick="bulkDelete()">
+              <i class="bi bi-trash me-1"></i>선택 삭제
+            </button>
+            <button class="btn btn-sm btn-outline-success" onclick="autoCategorizeTx()" title="잠금되지 않은 거래에 카테고리 자동 적용">
+              <i class="bi bi-magic me-1"></i>카테고리 자동매핑
+            </button>
+            <button class="btn btn-sm btn-outline-warning" onclick="autoFundGroupTx()" title="잠금되지 않은 거래에 자금 그룹 자동 적용">
+              <i class="bi bi-magic me-1"></i>자금 그룹 자동매핑
+            </button>
+            <button class="btn btn-sm btn-outline-info" onclick="txGrid.addRow()">
+              <i class="bi bi-plus-lg me-1"></i>거래 추가
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="row g-3">
+      <!-- 거래 목록 -->
+      <div class="col-lg-8">
+        <div class="card border-0 shadow-sm">
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0" id="txTable">
+                <thead class="table-light">
+                  <tr>
+                    <th class="text-center"><input type="checkbox" class="form-check-input cb-all" onchange="txGrid.selectAll(this.checked)"></th>
+                    <th>날짜</th><th>카드</th><th>가맹점</th><th>카테고리</th><th>자금 그룹</th>
+                    <th class="text-end">금액</th><th>할부</th><th>메모</th>
+                    <th class="text-center">삭제</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card-footer bg-white border-top d-flex justify-content-end align-items-center gap-3 py-2">
+            <span class="text-muted small" id="txCount"></span>
+            <span class="fw-bold" id="txTotal"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 우측 패널 -->
+      <div class="col-lg-4 d-flex flex-column gap-3">
+        <!-- 자금 그룹별 지출 -->
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-white border-0 pt-3 pb-0 fw-semibold">
+            <i class="bi bi-wallet2 me-2 text-warning"></i>자금 그룹별 지출
+          </div>
+          <div class="card-body" id="fundBreakdown">
+            <p class="text-muted text-center small mt-3">조회 후 표시됩니다.</p>
+          </div>
+        </div>
+        <!-- 카테고리별 지출 -->
+        <div class="card border-0 shadow-sm">
+          <div class="card-header bg-white border-0 pt-3 pb-0 fw-semibold">
+            <i class="bi bi-pie-chart me-2 text-info"></i>카테고리별 지출
+          </div>
+          <div class="card-body" id="catBreakdown">
+            <p class="text-muted text-center small mt-3">조회 후 표시됩니다.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const today = new Date();
+let allCards = [];
+
+initYearMonthFilters('txYear', 'txMonth', today.getFullYear(), today.getMonth() + 1);
+
+const cardGrid = new GridTable({
+  tableId: 'cardTable',
+  columns: [
+    { key: 'card_num',      type: 'number' },
+    { key: 'card_name',     type: 'text' },
+    { key: 'limit_amount',  type: 'number', align: 'end',
+      render: v => fmt(v) + '원' },
+    { key: 'payment_day',   type: 'number' },
+    { key: 'billing_day',   type: 'number' },
+    { key: 'benefit',       type: 'text' },
+  ],
+  apiUrl: '/api/cards',
+  onLoad: rows => {
+    allCards = rows;
+    // 카드 필터 갱신
+    const filter = document.getElementById('txCardFilter');
+    const prevVal = filter.value;
+    filter.innerHTML = '<option value="">전체 카드</option>';
+    rows.forEach(c => {
+      const label = c.card_name || '카드' + c.card_num;
+      filter.innerHTML += `<option value="${c.id}">${label}</option>`;
+      document.getElementById('xlCardSel').innerHTML +=
+        `<option value="${c.id}">${label}</option>`;
+    });
+    filter.value = prevVal;
+    // txGrid의 options 갱신은 동적 함수로 처리됨
+  },
+});
+
+let allCategories = [];
+let allFundGroups = [];
+
+const catGrid = new GridTable({
+  tableId: 'catTable',
+  columns: [
+    { key: 'name', type: 'text' },
+  ],
+  apiUrl: '/api/categories',
+  onLoad: rows => { allCategories = rows.map(r => r.name); },
+});
+
+// 자금 그룹 목록 로드 (txGrid 편집 시 사용)
+async function loadFundGroups() {
+  allFundGroups = await fetchJSON('/api/fund-groups') || [];
+}
+
+document.querySelector('[href="#tab-categories"]').addEventListener('shown.bs.tab', () => catGrid.load());
+
+const txGrid = new GridTable({
+  tableId: 'txTable',
+  columns: [
+    { key: 'date',        type: 'date' },
+    { key: 'card_id',     type: 'select',
+      options: () => allCards.map(c => ({ value: String(c.id), label: c.card_name || '카드' + c.card_num })),
+      render: (v, row) => row.card_name || '-' },
+    { key: 'name',        type: 'text' },
+    { key: 'category',    type: 'select', options: () => allCategories,
+      render: v => v ? `<span class="badge bg-info-subtle text-info">${v}</span>` : '-' },
+    { key: 'fund_group_id', type: 'select',
+      options: () => allFundGroups.map(g => ({ value: String(g.id), label: g.name })),
+      render: (v, row) => {
+        const g = allFundGroups.find(g => g.id === v);
+        return g ? `<span class="badge bg-warning-subtle text-warning-emphasis">${g.name}</span>` : '-';
+      }},
+    { key: 'amount',      type: 'number', align: 'end',
+      render: v => `<span class="fw-semibold">${fmt(v)}원</span>` },
+    { key: 'installment', type: 'number',
+      render: v => v > 1 ? v + '개월' : '일시불' },
+    { key: 'memo',        type: 'text' },
+  ],
+  apiUrl: '/api/card-tx',
+  getQueryParams: () => {
+    const cardId = document.getElementById('txCardFilter').value;
+    const y      = document.getElementById('txYear').value;
+    const m      = document.getElementById('txMonth').value;
+    return `year=${y}&month=${m}` + (cardId ? `&card_id=${cardId}` : '');
+  },
+  selectable: true,
+  onLoad: (rows, meta) => {
+    document.getElementById('txCount').textContent = `${rows.length}건`;
+    document.getElementById('txTotal').textContent = `합계 ${fmt(meta.total ?? 0)}원`;
+    renderFundBreakdown(meta.by_fund_group ?? [], meta.total ?? 0);
+    renderCatBreakdown(meta.by_category ?? [], meta.total ?? 0);
+    updateSelectionUI(new Set());
+  },
+  onSelectChange: selected => updateSelectionUI(selected),
+  onStartEdit: (tr, row) => {
+    const nameInput    = tr.querySelector('[data-key="name"]');
+    const catSelect    = tr.querySelector('[data-key="category"]');
+    const fundSelect   = tr.querySelector('[data-key="fund_group_id"]');
+    if (!nameInput) return;
+    nameInput.addEventListener('change', async () => {
+      const name = nameInput.value;
+      if (catSelect && !catSelect.value) {
+        const res = await fetchJSON('/api/card-category-hint?name=' + encodeURIComponent(name));
+        if (res?.category) catSelect.value = res.category;
+      }
+      if (fundSelect && !fundSelect.value) {
+        const res = await fetchJSON('/api/fund-group-hint?name=' + encodeURIComponent(name));
+        if (res?.fund_group_id) fundSelect.value = String(res.fund_group_id);
+      }
+    });
+  },
+});
+
+const rulesGrid = new GridTable({
+  tableId: 'rulesTable',
+  columns: [
+    { key: 'keyword',  type: 'text' },
+    { key: 'category', type: 'select', options: () => allCategories,
+      render: v => v ? `<span class="badge bg-info-subtle text-info">${v}</span>` : '-' },
+  ],
+  apiUrl: '/api/card-category-rules',
+});
+
+// 규칙 탭 클릭 시 로드
+document.querySelector('[href="#tab-rules"]').addEventListener('shown.bs.tab', () => rulesGrid.load());
+
+async function init() {
+  await catGrid.load();       // 카테고리 먼저 로드 (txGrid 편집 시 사용)
+  await loadFundGroups();     // 자금 그룹 로드
+  await cardGrid.load();
+  await txGrid.load();
+}
+
+init();
+
+// ── 일괄 선택 삭제 ────────────────────────────────────────────
+function updateSelectionUI(selected) {
+  const info    = document.getElementById('selectionInfo');
+  const btn     = document.getElementById('btnBulkDelete');
+  const count   = selected.size;
+  if (count > 0) {
+    info.textContent = `${count}건 선택됨`;
+    info.style.display = '';
+    btn.style.display  = '';
+  } else {
+    info.style.display = 'none';
+    btn.style.display  = 'none';
+  }
+}
+
+async function bulkDelete() {
+  const ids = [...txGrid.selected].map(Number);
+  if (!ids.length) return;
+  if (!confirm(`선택한 ${ids.length}건을 삭제하시겠습니까?`)) return;
+
+  const res = await fetchJSON('/api/card-tx/bulk', {
+    method: 'DELETE',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ids}),
+  });
+  if (!res?.ok) { alert('삭제 중 오류가 발생했습니다.'); return; }
+  await txGrid.load();
+}
+
+// ── 자금 그룹별 지출 사이드패널 ──────────────────────────────
+const FUND_COLORS = ['#E65100','#BF360C','#F57F17','#E64A19','#FF6F00','#6D4C41','#4E342E','#37474F'];
+
+function renderFundBreakdown(byFundGroup, total) {
+  const el = document.getElementById('fundBreakdown');
+  if (!byFundGroup.length) {
+    el.innerHTML = '<p class="text-muted text-center small mt-3">거래 내역이 없습니다.</p>';
+    return;
+  }
+  el.innerHTML = byFundGroup.map((item, i) => {
+    const pct   = total ? Math.round(item.total / total * 100) : 0;
+    const color = FUND_COLORS[i % FUND_COLORS.length];
+    return `
+      <div class="mb-3">
+        <div class="d-flex justify-content-between mb-1">
+          <span class="small fw-semibold">${item.name}</span>
+          <span class="small text-muted">${fmt(item.total)}원 <span class="text-secondary">(${pct}%)</span></span>
+        </div>
+        <div class="progress" style="height:8px">
+          <div class="progress-bar" style="width:${pct}%;background-color:${color}" role="progressbar"></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── 카테고리별 지출 사이드패널 ────────────────────────────────
+const CAT_COLORS = ['#1565C0','#2E7D32','#F57F17','#6A1B9A','#00838F','#C62828','#4E342E','#37474F'];
+
+function renderCatBreakdown(byCategory, total) {
+  const el = document.getElementById('catBreakdown');
+  if (!byCategory.length) {
+    el.innerHTML = '<p class="text-muted text-center small mt-3">거래 내역이 없습니다.</p>';
+    return;
+  }
+  el.innerHTML = byCategory.map((item, i) => {
+    const pct   = total ? Math.round(item.total / total * 100) : 0;
+    const color = CAT_COLORS[i % CAT_COLORS.length];
+    return `
+      <div class="mb-3">
+        <div class="d-flex justify-content-between mb-1">
+          <span class="small fw-semibold">${item.category}</span>
+          <span class="small text-muted">${fmt(item.total)}원 <span class="text-secondary">(${pct}%)</span></span>
+        </div>
+        <div class="progress" style="height:8px">
+          <div class="progress-bar" style="width:${pct}%;background-color:${color}" role="progressbar"></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── 자금 그룹 자동 매핑 ──────────────────────────────────────
+async function autoFundGroupTx() {
+  const cardId = document.getElementById('txCardFilter').value;
+  const year   = document.getElementById('txYear').value;
+  const month  = document.getElementById('txMonth').value;
+
+  const res = await fetchJSON('/api/card-tx/auto-fund-group', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ card_id: cardId || null, year, month }),
+  });
+  if (!res?.ok) { alert('오류가 발생했습니다.'); return; }
+
+  await txGrid.load();
+
+  const msg = document.getElementById('autoCatMsg');
+  msg.textContent = `자금 그룹 ${res.updated}건 자동 매핑됨`;
+  msg.style.display = '';
+  setTimeout(() => { msg.style.display = 'none'; }, 3000);
+}
+
+// ── 카테고리 자동 매핑 ────────────────────────────────────────
+async function autoCategorizeTx() {
+  const cardId = document.getElementById('txCardFilter').value;
+  const year   = document.getElementById('txYear').value;
+  const month  = document.getElementById('txMonth').value;
+
+  const res = await fetchJSON('/api/card-tx/auto-categorize', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ card_id: cardId || null, year, month }),
+  });
+  if (!res?.ok) { alert('오류가 발생했습니다.'); return; }
+
+  await txGrid.load();
+
+  const msg = document.getElementById('autoCatMsg');
+  msg.textContent = `${res.updated}건 자동 매핑됨`;
+  msg.style.display = '';
+  setTimeout(() => { msg.style.display = 'none'; }, 3000);
+}
+
+// ── 엑셀 가져오기 ──────────────────────────────────────────
+let xlHeaders = [], xlAllRows = [], xlSample = [];
+const FIELD_LABELS = { date:'날짜 (필수)', name:'가맹점명', amount:'금액 (필수)', installment:'할부개월', category:'카테고리' };
+
+async function handleFile(file) {
+  if (!file) return;
+  const cardId = document.getElementById('xlCardSel').value;
+  if (!cardId) { alert('먼저 카드를 선택해주세요.'); return; }
+
+  const fd = new FormData();
+  fd.append('file', file);
+  document.getElementById('xlDropZone').innerHTML =
+    '<div class="spinner-border text-primary"></div><p class="mt-2">파일 분석 중...</p>';
+
+  const res = await fetchJSON('/api/card-excel/preview', { method: 'POST', body: fd });
+  if (!res || res.error) { alert(res?.error || '파일 파싱 실패'); resetUpload(); return; }
+
+  xlHeaders = res.headers;
+  xlAllRows = res.all_rows;
+  xlSample  = res.sample;
+
+  // 저장된 매핑 불러오기 (없으면 자동감지 결과 사용)
+  const saved = await fetchJSON(`/api/card-excel/mapping/${cardId}`);
+  const mapping = (saved && Object.keys(saved).length) ? saved : res.mapping;
+
+  renderMappingForm(mapping);
+  renderPreview(mapping);
+  document.getElementById('xlTotalInfo').textContent = `총 ${res.total.toLocaleString()}건`;
+  document.getElementById('xl-step1').style.display = 'none';
+  document.getElementById('xl-step2').style.display = '';
+}
+
+function renderMappingForm(mapping) {
+  const options = xlHeaders.map(h => `<option value="${h}">${h}</option>`).join('');
+  document.getElementById('xlMappingForm').innerHTML = Object.entries(FIELD_LABELS).map(([field, label]) => `
+    <div class="col-md-4 col-6">
+      <label class="form-label small fw-semibold">${label}</label>
+      <select class="form-select form-select-sm" id="map_${field}" onchange="renderPreview(getMapping())">
+        <option value="">— 없음 —</option>${options}
+      </select>
+    </div>`).join('');
+  // 선택값 적용
+  Object.entries(mapping).forEach(([field, col]) => {
+    const el = document.getElementById(`map_${field}`);
+    if (el) el.value = col;
+  });
+}
+
+function getMapping() {
+  return Object.fromEntries(
+    Object.keys(FIELD_LABELS).map(f => [f, document.getElementById(`map_${f}`)?.value || ''])
+  );
+}
+
+function renderPreview(mapping) {
+  const fields = ['date','name','amount','installment','category'];
+  const thead = document.querySelector('#xlPreviewTable thead tr');
+  const tbody = document.querySelector('#xlPreviewTable tbody');
+  thead.innerHTML = fields.map(f => `<th>${FIELD_LABELS[f].replace(' (필수)','')}</th>`).join('');
+  tbody.innerHTML = xlSample.map(row => `<tr>${
+    fields.map(f => {
+      const val = mapping[f] ? (row[mapping[f]] || '-') : '-';
+      return `<td class="small">${val}</td>`;
+    }).join('')
+  }</tr>`).join('') || '<tr><td colspan="5" class="text-muted text-center">미리보기 없음</td></tr>';
+}
+
+async function doImport() {
+  const cardId  = document.getElementById('xlCardSel').value;
+  const mapping = getMapping();
+  if (!mapping.date || !mapping.amount) { alert('날짜와 금액 컬럼은 필수입니다.'); return; }
+
+  if (document.getElementById('xlSaveMapping').checked) {
+    await fetchJSON(`/api/card-excel/mapping/${cardId}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(mapping)
+    });
+  }
+
+  const res = await fetchJSON('/api/card-excel/import', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ card_id: cardId, mapping, headers: xlHeaders, all_rows: xlAllRows })
+  });
+  if (!res?.ok) { alert('오류: ' + (res?.error || '알 수 없는 오류')); return; }
+
+  document.getElementById('xlResult').innerHTML = `
+    <div class="d-flex gap-4 justify-content-center flex-wrap">
+      <div><span class="fs-3 fw-bold text-success">${res.inserted}</span><br><small>신규 등록</small></div>
+      <div><span class="fs-3 fw-bold text-warning">${res.duplicate}</span><br><small>중복 건너뜀</small></div>
+      <div><span class="fs-3 fw-bold text-muted">${res.skipped}</span><br><small>파싱 불가</small></div>
+    </div>`;
+  document.getElementById('xl-step2').style.display = 'none';
+  document.getElementById('xl-step3').style.display = '';
+}
+
+function resetUpload() {
+  xlHeaders = []; xlAllRows = []; xlSample = [];
+  document.getElementById('xlDropZone').innerHTML = `
+    <i class="bi bi-file-earmark-spreadsheet fs-1 d-block mb-2 text-success"></i>
+    파일을 끌어다 놓거나 클릭하여 선택<br>
+    <small class="text-muted">.xlsx .xls .csv 지원</small>`;
+  document.getElementById('xl-step2').style.display = 'none';
+  document.getElementById('xl-step3').style.display = 'none';
+  document.getElementById('xl-step1').style.display = '';
+}
+</script>
+{% endblock %}

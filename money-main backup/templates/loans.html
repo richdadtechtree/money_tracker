@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}대출{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="fw-bold mb-0"><i class="bi bi-bank me-2 text-warning"></i>대출 관리</h2>
+  <button class="btn btn-warning" onclick="grid.addRow()">
+    <i class="bi bi-plus-lg me-1"></i>행 추가
+  </button>
+</div>
+
+<!-- 요약 통계 -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-muted small mb-1">총 대출원금</div>
+      <div class="fs-4 fw-bold text-warning" id="sum-principal">-</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-muted small mb-1">총 잔액</div>
+      <div class="fs-4 fw-bold text-danger" id="sum-remaining">-</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-muted small mb-1">월 상환액 합계</div>
+      <div class="fs-4 fw-bold text-primary" id="sum-monthly">-</div>
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0" id="dataTable">
+        <thead class="table-light">
+          <tr>
+            <th>대출명</th><th>금융기관</th>
+            <th class="text-end">원금</th><th class="text-end">잔액</th>
+            <th class="text-end">월상환</th><th class="text-end">금리</th>
+            <th>대출일</th><th>만기일</th><th>메모</th>
+            <th class="text-center">삭제</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const grid = new GridTable({
+  tableId: 'dataTable',
+  columns: [
+    { key: 'name',            type: 'text' },
+    { key: 'institution',     type: 'text' },
+    { key: 'principal',       type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'remaining',       type: 'number', align: 'end',
+      render: v => `<span class="fw-semibold text-danger">${fmt(v)}원</span>` },
+    { key: 'monthly_payment', type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'interest_rate',   type: 'number', align: 'end', step: 0.01,
+      render: v => v + '%' },
+    { key: 'loan_date',       type: 'date' },
+    { key: 'end_date',        type: 'date' },
+    { key: 'memo',            type: 'text' },
+  ],
+  apiUrl: '/api/loans',
+  onLoad: rows => {
+    let sumP = 0, sumR = 0, sumM = 0;
+    rows.forEach(r => { sumP += r.principal; sumR += r.remaining; sumM += r.monthly_payment; });
+    document.getElementById('sum-principal').textContent = fmt(sumP) + '원';
+    document.getElementById('sum-remaining').textContent = fmt(sumR) + '원';
+    document.getElementById('sum-monthly').textContent   = fmt(sumM) + '원';
+  },
+});
+
+grid.load();
+</script>
+{% endblock %}

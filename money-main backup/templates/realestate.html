@@ -1,0 +1,364 @@
+{% extends "base.html" %}
+{% block title %}부동산{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="fw-bold mb-0"><i class="bi bi-house-door me-2 text-success"></i>부동산</h2>
+</div>
+
+<!-- 만료 임박 배너 -->
+<div id="expiringBanner" style="display:none" class="mb-3"></div>
+
+<!-- 요약 카드 -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-muted small mb-1">전체 물건</div>
+      <div class="fs-4 fw-bold" id="s-count">-</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-muted small mb-1">총 실투자금</div>
+      <div class="fs-5 fw-bold text-primary" id="s-realinv">-</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-muted small mb-1">총 순손익</div>
+      <div class="fs-5 fw-bold" id="s-netgain">-</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3">
+      <div class="text-muted small mb-1">평균 실수익률</div>
+      <div class="fs-4 fw-bold" id="s-roi">-</div>
+    </div>
+  </div>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-re">보유 부동산</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-residence">거주지 (전/월세)</a></li>
+</ul>
+
+<div class="tab-content">
+
+  <!-- 보유 부동산 탭 -->
+  <div class="tab-pane fade show active" id="tab-re">
+    <div class="d-flex justify-content-end mb-3">
+      <button class="btn btn-success btn-sm" onclick="reGrid.addRow()">
+        <i class="bi bi-plus-lg me-1"></i>부동산 추가
+      </button>
+    </div>
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="reTable">
+            <thead class="table-light">
+              <tr>
+                <th>이름</th><th>유형</th><th>취득일</th>
+                <th class="text-end">취득가</th><th class="text-end">현재가</th>
+                <th>계약</th><th class="text-end">보증금</th>
+                <th>만료일</th>
+                <th class="text-end">실투자금</th>
+                <th class="text-end">실수익률</th>
+                <th class="text-end">평가손익</th>
+                <th class="text-center">상세</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 상세 패널 -->
+    <div id="detailPanel" style="display:none">
+      <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white border-0 pt-3 d-flex justify-content-between align-items-center">
+          <span class="fw-semibold" id="detailTitle"></span>
+          <button class="btn btn-sm btn-outline-secondary" onclick="closeDetail()">
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </div>
+        <div class="card-body">
+          <ul class="nav nav-tabs mb-3">
+            <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#dtab-contracts">임대 계약 이력</a></li>
+            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#dtab-costs">비용 / 수익 내역</a></li>
+          </ul>
+          <div class="tab-content">
+
+            <!-- 계약 이력 탭 -->
+            <div class="tab-pane fade show active" id="dtab-contracts">
+              <div class="d-flex justify-content-end mb-2">
+                <button class="btn btn-sm btn-outline-success" onclick="contractGrid.addRow()">
+                  <i class="bi bi-plus-lg me-1"></i>계약 추가
+                </button>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0" id="contractTable">
+                  <thead class="table-light">
+                    <tr>
+                      <th>유형</th><th class="text-end">보증금</th><th class="text-end">월세</th>
+                      <th>시작일</th><th>종료일</th><th>메모</th><th class="text-center">삭제</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- 비용/수익 탭 -->
+            <div class="tab-pane fade" id="dtab-costs">
+              <div class="d-flex justify-content-end mb-2">
+                <button class="btn btn-sm btn-outline-primary" onclick="costGrid.addRow()">
+                  <i class="bi bi-plus-lg me-1"></i>항목 추가
+                </button>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0" id="costTable">
+                  <thead class="table-light">
+                    <tr>
+                      <th>유형</th><th>항목명</th>
+                      <th class="text-end">금액</th><th>일자</th><th>메모</th>
+                      <th class="text-center">삭제</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="d-flex justify-content-end mt-2 pe-1">
+                <span class="small text-muted me-2">순합계</span>
+                <span class="fw-bold small" id="costTotal">-</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 거주지 탭 -->
+  <div class="tab-pane fade" id="tab-residence">
+    <div class="d-flex justify-content-end mb-3">
+      <button class="btn btn-success btn-sm" onclick="resGrid.addRow()">
+        <i class="bi bi-plus-lg me-1"></i>거주지 추가
+      </button>
+    </div>
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="resTable">
+            <thead class="table-light">
+              <tr>
+                <th>주소</th>
+                <th class="text-end">보증금</th><th class="text-end">월세</th>
+                <th class="text-end">관리비</th>
+                <th>시작일</th><th>종료일</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CONTRACT_TYPES = ['전세','월세','반전세'];
+const COST_TYPES     = ['취득비용','보유비용','임대수익','역월세','매각비용'];
+const INCOME_TYPES   = new Set(['임대수익']);
+
+let currentReId   = null;
+let currentReName = null;
+
+// ── 요약 & 배너 ──────────────────────────────────────────
+async function loadSummary() {
+  const [summary, expiring] = await Promise.all([
+    fetchJSON('/api/re-summary'),
+    fetchJSON('/api/re-expiring'),
+  ]);
+  if (summary) {
+    document.getElementById('s-count').textContent   = summary.count + '개';
+    document.getElementById('s-realinv').textContent = fmt(summary.total_real_inv) + '원';
+    const gainEl = document.getElementById('s-netgain');
+    gainEl.textContent = (summary.total_net_gain >= 0 ? '+' : '') + fmt(summary.total_net_gain) + '원';
+    gainEl.className   = 'fs-5 fw-bold ' + (summary.total_net_gain >= 0 ? 'text-danger' : 'text-primary');
+    const roiEl = document.getElementById('s-roi');
+    roiEl.textContent = summary.avg_roi != null ? (summary.avg_roi >= 0 ? '+' : '') + summary.avg_roi + '%' : '-';
+    roiEl.className   = 'fs-4 fw-bold ' + ((summary.avg_roi ?? 0) >= 0 ? 'text-danger' : 'text-primary');
+  }
+  renderExpiringBanner(expiring || []);
+}
+
+function renderExpiringBanner(list) {
+  const el = document.getElementById('expiringBanner');
+  if (!list.length) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  el.innerHTML = `
+    <div class="alert alert-warning border-0 mb-0">
+      <div class="fw-semibold mb-2"><i class="bi bi-exclamation-triangle-fill me-2"></i>만료 임박 계약 (3개월 이내)</div>
+      ${list.map(c => {
+        const days = Math.ceil((new Date(c.end_date) - today) / 86400000);
+        const cls  = days <= 30 ? 'text-danger fw-bold' : 'text-warning fw-semibold';
+        return `<div class="small">${c.re_name} — <span class="${cls}">${c.end_date} (${days}일 후)</span>
+          &nbsp;${c.contract_type} ${fmt(c.deposit)}원</div>`;
+      }).join('')}
+    </div>`;
+}
+
+// ── 보유 부동산 GridTable ─────────────────────────────────
+const today = new Date();
+
+const reGrid = new GridTable({
+  tableId: 'reTable',
+  columns: [
+    { key: 'name',          type: 'text' },
+    { key: 're_type',       type: 'select', options: ['아파트','빌라','오피스텔','상가','토지','기타'],
+      render: v => v ? `<span class="badge bg-success-subtle text-success">${v}</span>` : '-' },
+    { key: 'purchase_date', type: 'date' },
+    { key: 'purchase_price', type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'current_price',  type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'contract_type', type: 'computed',
+      compute: r => r.contract_type ? `<span class="badge bg-info-subtle text-info">${r.contract_type}</span>` : '-' },
+    { key: 'deposit',   type: 'computed', align: 'end',
+      compute: r => r.deposit ? fmt(r.deposit) + '원' : '-' },
+    { key: 'contract_end', type: 'computed',
+      compute: r => {
+        if (!r.contract_end) return '-';
+        const days = Math.ceil((new Date(r.contract_end) - today) / 86400000);
+        const cls  = days <= 30 ? 'text-danger fw-bold' : days <= 90 ? 'text-warning fw-semibold' : '';
+        return `<span class="${cls}">${r.contract_end}</span>`;
+      }},
+    { key: 'real_inv', type: 'computed', align: 'end',
+      compute: r => fmt(r.real_inv) + '원' },
+    { key: 'real_roi', type: 'computed', align: 'end',
+      compute: r => {
+        if (r.real_roi == null) return '-';
+        const cls = r.real_roi >= 0 ? 'text-danger fw-semibold' : 'text-primary fw-semibold';
+        return `<span class="${cls}">${r.real_roi >= 0 ? '+' : ''}${r.real_roi}%</span>`;
+      }},
+    { key: '_gain', type: 'computed', align: 'end',
+      compute: r => {
+        const gain = r.current_price - r.purchase_price;
+        const pct  = r.purchase_price ? (gain / r.purchase_price * 100).toFixed(1) : 0;
+        const cls  = gain >= 0 ? 'text-danger' : 'text-primary';
+        return `<span class="${cls} fw-semibold">${gain >= 0 ? '+' : ''}${fmt(gain)}원<br><small>(${gain >= 0 ? '+' : ''}${pct}%)</small></span>`;
+      }},
+    { key: '_detail', type: 'computed',
+      compute: r => `<button class="btn btn-sm btn-outline-success py-0"
+        onclick="event.stopPropagation();selectRE(${r.id},'${(r.name||'').replace(/'/g,"\\'")}')">
+        <i class="bi bi-layout-sidebar-reverse"></i></button>` },
+  ],
+  apiUrl: '/api/real-estate',
+  onSave:   () => loadSummary(),
+  onDelete: () => loadSummary(),
+  onLoad:   () => loadSummary(),
+});
+
+// ── 상세 패널 ────────────────────────────────────────────
+function selectRE(id, name) {
+  currentReId   = id;
+  currentReName = name;
+  document.getElementById('detailTitle').textContent = name + ' — 상세';
+  document.getElementById('detailPanel').style.display = '';
+  document.getElementById('detailPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  contractGrid.load();
+  costGrid.load();
+}
+
+function closeDetail() {
+  currentReId = null;
+  document.getElementById('detailPanel').style.display = 'none';
+}
+
+// ── 계약 이력 GridTable ───────────────────────────────────
+const contractGrid = new GridTable({
+  tableId: 'contractTable',
+  columns: [
+    { key: 'contract_type', type: 'select', options: CONTRACT_TYPES,
+      render: v => v ? `<span class="badge bg-info-subtle text-info">${v}</span>` : '-' },
+    { key: 'deposit',      type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'monthly_rent', type: 'number', align: 'end',
+      render: v => v ? fmt(v) + '원' : '-' },
+    { key: 'start_date',   type: 'date' },
+    { key: 'end_date',     type: 'date' },
+    { key: 'memo',         type: 'text' },
+  ],
+  apiUrl: '/api/tenant-contracts',
+  getQueryParams: () => `real_estate_id=${currentReId}`,
+  getExtraData:   () => ({ real_estate_id: currentReId }),
+  onSave:   () => { reGrid.load(); loadSummary(); },
+  onDelete: () => { reGrid.load(); loadSummary(); },
+});
+
+// ── 비용/수익 GridTable ───────────────────────────────────
+const costGrid = new GridTable({
+  tableId: 'costTable',
+  columns: [
+    { key: 'cost_type', type: 'select', options: COST_TYPES,
+      render: v => v ? `<span class="badge ${costTypeBadge(v)}">${v}</span>` : '-' },
+    { key: 'name',   type: 'text' },
+    { key: 'amount', type: 'number', align: 'end',
+      render: (v, r) => {
+        const isIncome = INCOME_TYPES.has(r.cost_type);
+        const cls = isIncome ? 'text-success' : 'text-danger';
+        return `<span class="${cls} fw-semibold">${isIncome ? '+' : '-'}${fmt(v)}원</span>`;
+      }},
+    { key: 'date', type: 'date' },
+    { key: 'memo', type: 'text' },
+  ],
+  apiUrl: '/api/property-costs',
+  getQueryParams: () => `real_estate_id=${currentReId}`,
+  getExtraData:   () => ({ real_estate_id: currentReId }),
+  onLoad: (rows) => {
+    const net = rows.reduce((s, r) => s + (INCOME_TYPES.has(r.cost_type) ? r.amount : -r.amount), 0);
+    const el  = document.getElementById('costTotal');
+    el.textContent = (net >= 0 ? '+' : '') + fmt(net) + '원';
+    el.className   = 'fw-bold small ' + (net >= 0 ? 'text-success' : 'text-danger');
+  },
+  onSave:   () => { reGrid.load(); loadSummary(); },
+  onDelete: () => { reGrid.load(); loadSummary(); },
+});
+
+function costTypeBadge(t) {
+  const map = {
+    '취득비용': 'bg-secondary-subtle text-secondary',
+    '보유비용': 'bg-warning-subtle text-warning-emphasis',
+    '임대수익': 'bg-success-subtle text-success',
+    '역월세':   'bg-danger-subtle text-danger',
+    '매각비용': 'bg-dark-subtle text-dark',
+  };
+  return map[t] || 'bg-light text-muted';
+}
+
+// ── 거주지 GridTable ──────────────────────────────────────
+const resGrid = new GridTable({
+  tableId: 'resTable',
+  columns: [
+    { key: 'address',      type: 'text' },
+    { key: 'deposit',      type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'monthly_rent', type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'maintenance',  type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'start_date',   type: 'date' },
+    { key: 'end_date',     type: 'date' },
+  ],
+  apiUrl: '/api/residence',
+});
+
+document.querySelector('[href="#tab-residence"]').addEventListener('shown.bs.tab', () => resGrid.load());
+
+async function init() {
+  await reGrid.load();
+}
+init();
+</script>
+{% endblock %}
