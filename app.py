@@ -336,7 +336,7 @@ def api_card_tx():
         # 자금 그룹별 집계
         cur = db.cursor()
         cur.execute("SELECT id, name FROM fund_groups")
-        fund_group_names = cur.fetchall()}
+        fund_group_names = {r['id']: r['name'] for r in cur.fetchall()}
         cur.close()
         fund_map = {}
         for r in rows:
@@ -1611,7 +1611,7 @@ def api_asset_history():
     # 1. DB에 저장된 스냅샷 불러오기
     cur = db.cursor()
     cur.execute("SELECT * FROM asset_snapshots ORDER BY month DESC")
-    snapshots = cur.fetchall()}
+    snapshots = {r['month']: r for r in cur.fetchall()}
     cur.close()
 
     # 현재 실시간 자산 상태 (역산용 기준점)
@@ -1621,7 +1621,7 @@ def api_asset_history():
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_amount), 0) FROM goals WHERE name != '자본주의테크트리'")
-    curr_cash + = cur.fetchone()[0]
+    curr_cash += cur.fetchone()[0]
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
@@ -1637,7 +1637,7 @@ def api_asset_history():
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM etf")
-    curr_stocks + = cur.fetchone()[0]
+    curr_stocks += cur.fetchone()[0]
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
@@ -2035,8 +2035,9 @@ def api_card_excel_import():
         tmp_cur = db.cursor()
         tmp_cur.execute("SELECT id FROM card_tx WHERE card_id=%s AND date=%s AND name=%s AND amount=%s",
         (card_id, date_str, name, amount))
-        if tmp_cur.fetchone():
+        exists = tmp_cur.fetchone()
         tmp_cur.close()
+        if exists:
             duplicate += 1; continue
         # 카테고리가 없으면 힌트 자동 적용
         if not category and name:
@@ -2329,13 +2330,12 @@ def api_fund_summary():
     )
     actuals = cur.fetchall()
     cur.close()
-    # 월별 예산 조회
     cur = db.cursor()
     cur.execute(
     "SELECT fund_group_id, budget_amount FROM monthly_fund_budgets WHERE year=%s AND month=%s",
     (year, int(month))
     )
-    budgets = cur.fetchall()}
+    budgets = {r['fund_group_id']: r['budget_amount'] for r in cur.fetchall()}
     cur.close()
     db.close()
     result = []
