@@ -19,6 +19,14 @@ except ImportError:
 app = Flask(__name__)
 CORS(app)
 
+from flask.json.provider import DefaultJSONProvider
+class CustomJSONProvider(DefaultJSONProvider):
+    def default(self, obj):
+        if isinstance(obj, (date, datetime)):
+            return obj.isoformat()
+        return super().default(obj)
+app.json = CustomJSONProvider(app)
+
 # ── 페이지 라우터 ────────────────────────────────────────────
 @app.route('/')
 def dashboard():
@@ -71,7 +79,14 @@ def tech_tree():
 
 # ── 공통 헬퍼 ────────────────────────────────────────────────
 def rows_to_list(rows):
-    return [dict(r) for r in rows]
+    res = []
+    for r in rows:
+        d = dict(r)
+        for k, v in d.items():
+            if isinstance(v, (date, datetime)):
+                d[k] = v.isoformat()
+        res.append(d)
+    return res
 
 
 # ── API: 수입 ────────────────────────────────────────────────
