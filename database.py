@@ -2,6 +2,23 @@ import os
 import psycopg2
 from psycopg2.extras import DictCursor
 
+def load_dotenv():
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_path):
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    if '=' in line:
+                        key, val = line.split('=', 1)
+                        val = val.strip()
+                        if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                            val = val[1:-1]
+                        os.environ[key.strip()] = val
+
+# 로컬 .env 파일 자동 로드
+load_dotenv()
+
 def get_db():
     db_url = os.environ.get('DATABASE_URL')
     if not db_url:
