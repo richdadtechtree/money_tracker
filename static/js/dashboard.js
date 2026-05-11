@@ -40,13 +40,27 @@ async function loadExpiringBanner() {
   const el   = document.getElementById('dashExpiringBanner');
   if (!el || !list.length) return;
   const today = new Date();
+  const formatKoreanDate = (dateStr) => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const y = parseInt(parts[0]);
+      const m = parseInt(parts[1]);
+      const d = parseInt(parts[2]);
+      const dateObj = new Date(y, m - 1, d);
+      const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+      const w = weekdays[dateObj.getDay()];
+      return `${y}년 ${m}월 ${d}일 (${w})`;
+    }
+    return dateStr;
+  };
   el.innerHTML = `
     <div class="alert alert-warning border-0 mb-0">
       <div class="fw-semibold mb-2"><i class="bi bi-exclamation-triangle-fill me-2"></i>전세 만료 임박 (3개월 이내)</div>
       ${list.map(c => {
         const days = Math.ceil((new Date(c.end_date) - today) / 86400000);
         const cls  = days <= 30 ? 'text-danger fw-bold' : 'text-warning fw-semibold';
-        return `<div class="small">${c.re_name} — <span class="${cls}">${c.end_date} (${days}일 후)</span>
+        return `<div class="small">${c.re_name} — <span class="${cls}">${formatKoreanDate(c.end_date)} (${days}일 후)</span>
           &nbsp;${c.contract_type} ${fmt(c.deposit)}원</div>`;
       }).join('')}
     </div>`;

@@ -133,7 +133,20 @@ class GridTable {
         content = col.compute(r) ?? '';
       } else {
         const v = r[col.key] ?? '';
-        content = col.render ? col.render(v, r) : v;
+        let renderedVal = col.render ? col.render(v, r) : v;
+        if (col.type === 'date' && !col.render && v) {
+          const parts = String(v).split('-');
+          if (parts.length === 3) {
+            const y = parseInt(parts[0]);
+            const m = parseInt(parts[1]);
+            const d = parseInt(parts[2]);
+            const dateObj = new Date(y, m - 1, d);
+            const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+            const w = weekdays[dateObj.getDay()];
+            renderedVal = `${y}년 ${m}월 ${d}일 (${w})`;
+          }
+        }
+        content = renderedVal;
       }
       return `<td${cls}>${content}</td>`;
     });

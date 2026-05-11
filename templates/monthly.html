@@ -63,13 +63,15 @@ async function loadData() {
   tbody.innerHTML = rows.map(r => {
     totalInc += r.income; totalExp += r.expense; totalSav += r.saving;
     const savRate = r.income ? Math.round(r.saving / r.income * 100) : 0;
-    const month = r.month.split('-')[1] + '월';
-    labels.push(month);
+    const monthParts = r.month.split('-');
+    const monthLabel = monthParts.length === 2 ? `${monthParts[0]}년 ${parseInt(monthParts[1])}월` : r.month;
+    const monthChartLabel = monthParts.length === 2 ? parseInt(monthParts[1]) + '월' : r.month;
+    labels.push(monthChartLabel);
     incData.push(r.income);
     expData.push(r.expense);
     savData.push(r.saving);
     return `<tr class="${r.income === 0 && r.expense === 0 ? 'text-muted' : ''}">
-      <td class="fw-semibold">${r.month}</td>
+      <td class="fw-semibold">${monthLabel}</td>
       <td class="text-end text-success">${fmt(r.income)}원</td>
       <td class="text-end text-danger">${fmt(r.expense)}원</td>
       <td class="text-end ${r.saving >= 0 ? 'text-primary' : 'text-danger'} fw-semibold">${fmt(r.saving)}원</td>
