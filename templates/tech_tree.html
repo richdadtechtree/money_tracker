@@ -687,9 +687,12 @@ function showMiniTankDetails(data) {
 
 document.addEventListener('DOMContentLoaded', () => {
   detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
-  loadTechTree();
-  loadHistoryChart();
-  loadYearlyStats(); // [신규] 연도별 자산 통계 로드
+  // 세 가지 자산 데이터 API를 동시에 비동기 병렬 호출하여 로딩 성능 극대화
+  Promise.all([
+    loadTechTree(),
+    loadHistoryChart(),
+    loadYearlyStats()
+  ]).catch(err => console.error("테크트리 데이터 로딩 에러:", err));
 });
 </script>
 {% endblock %}

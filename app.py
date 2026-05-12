@@ -2099,7 +2099,68 @@ def api_asset_history():
     cur.close()
     curr_re = re_price - re_dep + res_dep
 
-    # 거꾸로 12개월치 데이터 생성
+    # 12개월 범위의 연월 리스트 미리 구성
+    months_list = []
+    y, m = today.year, today.month
+    for _ in range(12):
+        months_list.append(f"{y}-{m:02d}")
+        m -= 1
+        if m == 0: m = 12; y -= 1
+
+    # 최근 12개월간의 수입, 지출, 카드, 주식 거래, 코인 거래 일괄 집계 (루프 밖으로 쿼리 통합)
+    cur = db.cursor()
+    cur.execute("""
+        SELECT to_char(date::date, 'YYYY-MM') as ym, COALESCE(SUM(amount), 0)
+        FROM income
+        WHERE to_char(date::date, 'YYYY-MM') IN %s
+        GROUP BY ym
+    """, (tuple(months_list),))
+    inc_map = {r[0]: r[1] for r in cur.fetchall()}
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("""
+        SELECT to_char(date::date, 'YYYY-MM') as ym, COALESCE(SUM(amount), 0)
+        FROM budget
+        WHERE to_char(date::date, 'YYYY-MM') IN %s
+        GROUP BY ym
+    """, (tuple(months_list),))
+    exp_map = {r[0]: r[1] for r in cur.fetchall()}
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("""
+        SELECT to_char(date::date, 'YYYY-MM') as ym, COALESCE(SUM(amount), 0)
+        FROM card_tx
+        WHERE to_char(date::date, 'YYYY-MM') IN %s
+        GROUP BY ym
+    """, (tuple(months_list),))
+    card_map = {r[0]: r[1] for r in cur.fetchall()}
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("""
+        SELECT to_char(tx_date::date, 'YYYY-MM') as ym, 
+               COALESCE(SUM(CASE WHEN tx_type='buy' THEN price*quantity ELSE 0 END), 0) as s_buy,
+               COALESCE(SUM(CASE WHEN tx_type='sell' THEN price*quantity ELSE 0 END), 0) as s_sell
+        FROM stock_tx
+        WHERE to_char(tx_date::date, 'YYYY-MM') IN %s
+        GROUP BY ym
+    """, (tuple(months_list),))
+    stock_tx_map = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("""
+        SELECT to_char(buy_date::date, 'YYYY-MM') as ym, COALESCE(SUM(buy_price*quantity), 0)
+        FROM crypto
+        WHERE to_char(buy_date::date, 'YYYY-MM') IN %s
+        GROUP BY ym
+    """, (tuple(months_list),))
+    crypto_map = {r[0]: r[1] for r in cur.fetchall()}
+    cur.close()
+
+    # 거꾸로 12개월치 데이터 생성 (메모리 맵 참조 방식으로 대기시간 격감)
     y, m = today.year, today.month
     for i in range(12):
         ym = f"{y}-{m:02d}"
@@ -2115,7 +2176,6 @@ def api_asset_history():
                 'crypto': s['crypto'],
                 'pension': s['pension']
             })
-            # 역산 기준점도 해당 스냅샷으로 업데이트 (더 정확한 과거 추정을 위해)
             curr_cash, curr_stocks, curr_re, curr_crypto, curr_pension = s['cash'], s['stocks'], s['real_estate'], s['crypto'], s['pension']
         else:
             history.append({
@@ -2127,31 +2187,12 @@ def api_asset_history():
                 'pension': curr_pension
             })
         
-        # 이전 달로 되돌리기 위한 변동분 집계 (역산)
-        cur = db.cursor()
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM income WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
-        inc = cur.fetchone()[0]
-        cur.close()
-        cur = db.cursor()
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
-        exp = cur.fetchone()[0]
-        cur.close()
-        cur = db.cursor()
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
-        card = cur.fetchone()[0]
-        cur.close()
-        cur = db.cursor()
-        cur.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE to_char(tx_date::date, 'YYYY-MM') = %s AND tx_type='buy'", (ym,))
-        s_buy = cur.fetchone()[0]
-        cur.close()
-        cur = db.cursor()
-        cur.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE to_char(tx_date::date, 'YYYY-MM') = %s AND tx_type='sell'", (ym,))
-        s_sell = cur.fetchone()[0]
-        cur.close()
-        cur = db.cursor()
-        cur.execute("SELECT COALESCE(SUM(buy_price*quantity),0) FROM crypto WHERE to_char(buy_date::date, 'YYYY-MM') = %s", (ym,))
-        c_buy = cur.fetchone()[0]
-        cur.close()
+        # 미리 수집된 메모리 해시맵에서 값 읽기 (속도 혁명!)
+        inc = inc_map.get(ym, 0)
+        exp = exp_map.get(ym, 0)
+        card = card_map.get(ym, 0)
+        s_buy, s_sell = stock_tx_map.get(ym, (0, 0))
+        c_buy = crypto_map.get(ym, 0)
         
         curr_cash -= (inc - (exp + card) - (s_buy + c_buy) + s_sell)
         curr_stocks -= (s_buy - s_sell)
