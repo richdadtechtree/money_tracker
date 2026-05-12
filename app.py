@@ -1515,13 +1515,27 @@ def api_dashboard():
     loans_list = cur.fetchall()
     cur.close()
 
-    # 목표저축 목록
+    # 목표 자산 목록 (자본주의테크트리인 경우 실시간 순자산 가치로 덮어쓰기)
     cur = db.cursor()
     cur.execute(
     "SELECT name, target_amount, current_amount FROM goals ORDER BY target_date"
     )
-    goals_list = cur.fetchall()
+    raw_goals = cur.fetchall()
     cur.close()
+
+    goals_list = []
+    for g in raw_goals:
+        name = g['name']
+        target_amount = g['target_amount']
+        # '자본주의테크트리' 목표인 경우, 정적 컬럼 대신 실시간 순자산(net_worth)을 동적으로 반영해 데이터 부정합 차단
+        current_amount = int(net_worth) if name == '자본주의테크트리' else g['current_amount']
+        display_name = '자본주의테크트리 (목표 자산)' if name == '자본주의테크트리' else name
+        
+        goals_list.append({
+            'name': display_name,
+            'target_amount': target_amount,
+            'current_amount': current_amount
+        })
 
     # 투자 수익률
     cur = db.cursor()
@@ -1558,7 +1572,7 @@ def api_dashboard():
         'income_by_cat':  rows_to_list(income_by_cat),
         'expense_by_cat': rows_to_list(expense_by_cat),
         'loans':          rows_to_list(loans_list),
-        'goals':          rows_to_list(goals_list),
+        'goals':          goals_list,
         'investment_returns': {
             'stocks':  {'cost': stocks_cost, 'value': stocks_val},
             'etf':     {'cost': etf_cost,    'value': etf_val},

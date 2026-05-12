@@ -246,7 +246,7 @@ function renderLoansChart(loans) {
 function renderGoalsProgress(goals) {
   const el = document.getElementById('goals-progress');
   if (!goals || !goals.length) {
-    el.innerHTML = '<p class="text-center text-muted">목표저축 데이터가 없습니다.</p>';
+    el.innerHTML = '<p class="text-center text-muted">목표 자산 데이터가 없습니다.</p>';
     return;
   }
   el.innerHTML = goals.map(g => {
