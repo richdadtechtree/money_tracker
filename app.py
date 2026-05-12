@@ -1817,6 +1817,232 @@ def api_tech_tree_goal():
     db.close()
     return jsonify({'ok': True})
 
+
+# ── API: 자산별 연도별 성장 통계 (Flow Rate & Milestone) ─────────
+@app.route('/api/tech-tree-yearly-stats')
+def api_tech_tree_yearly_stats():
+    db = get_db()
+    today = date.today()
+    
+    # 1. 목표 자산 가져오기
+    cur = db.cursor()
+    cur.execute("SELECT target_amount FROM goals WHERE name = '자본주의테크트리'")
+    goal = cur.fetchone()
+    cur.close()
+    target_amount = goal[0] if goal else 1000000000
+    
+    # 2. 실시간 현재 자산 가져오기
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(s.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id)), 0) FROM stocks s")
+    stocks_val = cur.fetchone()[0] or 0
+    cur.close()
+    
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM etf")
+    etf_val = cur.fetchone()[0] or 0
+    cur.close()
+    
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
+    crypto_val = cur.fetchone()[0] or 0
+    cur.close()
+    
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
+    re_total_price = cur.fetchone()[0] or 0
+    cur.close()
+    
+    cur = db.cursor()
+    cur.execute("""
+    SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts 
+    WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+    """)
+    re_total_deposit = cur.fetchone()[0] or 0
+    cur.close()
+    
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
+    residence_deposit = cur.fetchone()[0] or 0
+    cur.close()
+    re_val = re_total_price - re_total_deposit + residence_deposit
+    
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
+    cash_val = cur.fetchone()[0] or 0
+    cur.close()
+    
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_amount), 0) FROM goals WHERE name != '자본주의테크트리'")
+    goal_savings = cur.fetchone()[0] or 0
+    cur.close()
+    cash_val += goal_savings
+    
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
+    pension_val = cur.fetchone()[0] or 0
+    cur.close()
+    
+    current_total = int(cash_val + stocks_val + etf_val + re_val + crypto_val + pension_val)
+    current_percent = round((current_total / target_amount) * 100, 1) if target_amount > 0 else 0
+    
+    # 3. 스냅샷 데이터 조회하여 연도별 마지막 스냅샷 추출
+    cur = db.cursor()
+    cur.execute("SELECT month, cash, stocks, real_estate, crypto, pension, total FROM asset_snapshots ORDER BY month ASC")
+    all_snapshots = cur.fetchall()
+    cur.close()
+    
+    yearly_map = {}
+    for s in all_snapshots:
+        m = s['month']
+        year = m[:4]
+        yearly_map[year] = {
+            'year': year,
+            'month': m,
+            'total': s['total'],
+            'breakdown': {
+                'cash': s['cash'],
+                'stocks': s['stocks'],
+                'real_estate': s['real_estate'],
+                'crypto': s['crypto'],
+                'pension': s['pension']
+            }
+        }
+    
+    # 올해 실시간 데이터 반영
+    curr_year_str = str(today.year)
+    curr_month_str = today.strftime('%Y-%m')
+    
+    yearly_map[curr_year_str] = {
+        'year': curr_year_str,
+        'month': curr_month_str,
+        'total': current_total,
+        'breakdown': {
+            'cash': int(cash_val),
+            'stocks': int(stocks_val + etf_val),
+            'real_estate': int(re_val),
+            'crypto': int(crypto_val),
+            'pension': int(pension_val)
+        }
+    }
+    
+    # 맵 정렬 및 증감액 연산
+    sorted_years = sorted(yearly_map.keys())
+    yearly_history = []
+    
+    for idx, yr in enumerate(sorted_years):
+        item = yearly_map[yr]
+        total_assets = item['total']
+        item['percent'] = round((total_assets / target_amount) * 100, 1) if target_amount > 0 else 0
+        
+        if idx == 0:
+            item['change_amount'] = 0
+            item['change_percent'] = 0.0
+        else:
+            prev_total = yearly_map[sorted_years[idx - 1]]['total']
+            item['change_amount'] = total_assets - prev_total
+            item['change_percent'] = round((total_assets - prev_total) / prev_total * 100, 1) if prev_total > 0 else 0.0
+            
+        yearly_history.append(item)
+        
+    # 4. 연간 유입 속도 (Flow Rate) 연산
+    flow_rate_amount = 0
+    changes = [h['change_amount'] for h in yearly_history if h['change_amount'] > 0]
+    if len(changes) > 0:
+        flow_rate_amount = sum(changes) / len(changes)
+    else:
+        # 과거 데이터가 없는 경우 이번달 소득/지출 기준 추정
+        ym = today.strftime('%Y-%m')
+        cur = db.cursor()
+        cur.execute("SELECT COALESCE(SUM(amount),0) FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= CURRENT_DATE", (ym,))
+        labor_inc = cur.fetchone()[0] or 0
+        cur.close()
+        
+        cur = db.cursor()
+        cur.execute("SELECT COALESCE(SUM(amount),0) FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= CURRENT_DATE", (ym,))
+        passive_inc = cur.fetchone()[0] or 0
+        cur.close()
+        
+        cur = db.cursor()
+        cur.execute("""
+        SELECT COALESCE(SUM(monthly_rent), 0) FROM tenant_contracts 
+        WHERE contract_type = '월세' AND id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+        """)
+        rental_inc = cur.fetchone()[0] or 0
+        cur.close()
+        
+        cur = db.cursor()
+        cur.execute("""
+        SELECT COALESCE(SUM(deposit * 0.04 / 12), 0) FROM tenant_contracts 
+        WHERE contract_type = '전세' AND id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+        """)
+        leverage_inc = cur.fetchone()[0] or 0
+        cur.close()
+        
+        total_income = labor_inc + passive_inc + rental_inc + leverage_inc
+        
+        cur = db.cursor()
+        cur.execute("SELECT COALESCE(SUM(amount),0) FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
+        expense_total = cur.fetchone()[0] or 0
+        cur.close()
+        
+        cur = db.cursor()
+        cur.execute("SELECT COALESCE(SUM(amount),0) FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
+        card_total = cur.fetchone()[0] or 0
+        cur.close()
+        
+        cur = db.cursor()
+        cur.execute("SELECT COALESCE(SUM(monthly_payment), 0) FROM loans")
+        loan_repayment = cur.fetchone()[0] or 0
+        cur.close()
+        
+        total_expense = expense_total + card_total + loan_repayment
+        monthly_net_savings = total_income - total_expense
+        flow_rate_amount = max(monthly_net_savings * 12, 0)
+        
+    if flow_rate_amount == 0:
+        flow_rate_amount = 12000000 # 기본 연 1200만 원 (월 100만 원)
+        
+    flow_rate_percent = round((flow_rate_amount / target_amount) * 100, 1) if target_amount > 0 else 0
+    
+    # 5. 목표 완충 예상 기간 연산
+    remaining_amount = max(target_amount - current_total, 0)
+    remaining_years = 0
+    remaining_months = 0
+    expected_completion_ym = "완충 달성 완료!"
+    
+    if remaining_amount > 0:
+        if flow_rate_amount > 0:
+            total_months_needed = (remaining_amount / flow_rate_amount) * 12
+            remaining_years = int(total_months_needed // 12)
+            remaining_months = int(round(total_months_needed % 12))
+            if remaining_months == 12:
+                remaining_years += 1
+                remaining_months = 0
+                
+            total_add_months = remaining_years * 12 + remaining_months
+            expected_year = today.year
+            expected_month = today.month + total_add_months
+            while expected_month > 12:
+                expected_year += 1
+                expected_month -= 12
+            expected_completion_ym = f"{expected_year}년 {expected_month}월"
+        else:
+            expected_completion_ym = "예측 불가 (자산 정체)"
+            
+    db.close()
+    return jsonify({
+        'target_amount': target_amount,
+        'current_total': current_total,
+        'current_percent': current_percent,
+        'flow_rate_amount': int(flow_rate_amount),
+        'flow_rate_percent': flow_rate_percent,
+        'remaining_years': remaining_years,
+        'remaining_months': remaining_months,
+        'expected_completion_ym': expected_completion_ym,
+        'yearly_history': yearly_history
+    })
+
+
 # ── API: 자산별 히스토리 (최근 12개월) ──────────────────────────
 @app.route('/api/asset-history')
 def api_asset_history():

@@ -93,7 +93,43 @@
             <div class="layer layer-cash" title="현금" onclick="openDetailModal('cash', '현금 상세')"></div>
           </div>
           <div class="tank-percentage" id="tankPercentLabel">0%</div>
+          
+          <!-- [신규] 물탱크 툴팁 엘리먼트 -->
+          <div class="milestone-tooltip" id="milestoneTooltip">
+            <div class="d-flex justify-content-between align-items-center border-bottom pb-1 mb-1 fw-bold">
+              <span id="tooltipYear" class="text-primary">2025년말</span>
+              <span id="tooltipTotal" class="text-dark">0원</span>
+            </div>
+            <div id="tooltipBreakdown" class="small text-muted d-flex flex-column gap-1">
+              <!-- 종류별 자산 비중 -->
+            </div>
+          </div>
         </div>
+
+        <!-- [신규] 물탱크 충전 및 유입 속도 (Flow Rate) 대시보드 카드 -->
+        <div class="card bg-light border-0 w-100 p-3 mt-3 rounded-4">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="fw-bold text-dark small"><i class="bi bi-speedometer2 me-1 text-primary"></i>물탱크 유입 속도</span>
+            <div class="water-tap-container">
+              <div class="water-tap-icon">
+                <i class="bi bi-water"></i>
+                <div class="water-drip" id="waterDrip"></div>
+              </div>
+            </div>
+          </div>
+          <div class="d-flex align-items-baseline mb-1">
+            <h4 class="fw-extrabold text-primary mb-0" id="flowRatePercent">+0%</h4>
+            <span class="text-muted small ms-2">/ 년</span>
+          </div>
+          <div class="small text-muted mb-2" id="flowRateAmount">연 평균 +0원 유입 중</div>
+          <div class="border-top pt-2 mt-1">
+            <div class="d-flex justify-content-between align-items-center text-muted" style="font-size: 0.75rem;">
+              <span>완충 예상 시기</span>
+              <span class="fw-bold text-primary" id="flowRateCompletion">-</span>
+            </div>
+          </div>
+        </div>
+
         <div class="mt-4 w-100 small">
           <div class="d-flex justify-content-between mb-1"><span class="text-muted">현재 자산</span><span class="fw-bold" id="currentTotalAssets">0원</span></div>
           <div class="d-flex justify-content-between mb-3 border-bottom pb-2"><span class="text-muted">목표 자산</span><span class="text-warning fw-bold" id="targetTotalAssets">0원</span></div>
@@ -103,6 +139,15 @@
           <div class="col-12 d-flex align-items-center mb-1 clickable-item" onclick="openDetailModal('crypto', '코인 상세')"><span class="asset-dot bg-crypto me-2"></span> 코인: <span class="ms-auto" id="valCrypto">0</span></div>
           <div class="col-12 d-flex align-items-center mb-1 clickable-item" onclick="openDetailModal('pension', '연금 상세')"><span class="asset-dot bg-pension me-2"></span> 연금: <span class="ms-auto" id="valPension">0</span></div>
         </div>
+
+        <!-- [신규] 연도별 미니 자산 물탱크 변천사 갤러리 -->
+        <div class="mt-4 w-100 border-top pt-3">
+          <div class="fw-bold text-dark small mb-3"><i class="bi bi-clock-history me-1 text-secondary"></i>연도별 물탱크 변천사</div>
+          <div class="d-flex justify-content-between gap-2" id="miniTanksContainer">
+            <!-- 미니 물탱크가 동적으로 추가될 공간 -->
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -190,6 +235,133 @@
 .clickable-node:hover { transform: scale(1.05); box-shadow: 0 10px 20px rgba(0,0,0,0.1) !important; }
 .clickable-item { cursor: pointer; border-radius: 6px; padding: 4px 8px; margin: 0 -8px; transition: background 0.2s; }
 .clickable-item:hover { background: #f1f3f5; }
+
+/* [신규] 자산 물탱크 고도화 CSS 스타일 */
+.tank-milestone-line {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  border-bottom: 2px dashed rgba(255, 255, 255, 0.7);
+  z-index: 15;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: border-bottom-color 0.2s;
+}
+.tank-milestone-line:hover {
+  border-bottom: 2px solid #ffffff;
+}
+.tank-milestone-label {
+  position: absolute;
+  right: 12px;
+  transform: translateY(-50%);
+  background: rgba(33, 37, 41, 0.85);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 0.65rem;
+  font-weight: bold;
+  z-index: 16;
+  pointer-events: none;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  transition: opacity 0.2s;
+}
+.milestone-tooltip {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(5px);
+  border: 1px solid #edf2f7;
+  border-radius: 14px;
+  padding: 12px;
+  z-index: 30;
+  font-size: 0.75rem;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+  display: none;
+  animation: fadeIn 0.2s ease-out;
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
+/* 수도꼭지 & 물방울 애니메이션 */
+.water-tap-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.water-tap-icon {
+  font-size: 1.3rem;
+  color: #339af0;
+  position: relative;
+  animation: tap-shake 3s ease-in-out infinite alternate;
+}
+.water-drip {
+  position: absolute;
+  left: 10px;
+  top: 15px;
+  width: 5px;
+  height: 8px;
+  background: #339af0;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  animation: drip 1.2s infinite linear;
+}
+@keyframes tap-shake {
+  0% { transform: rotate(0); }
+  100% { transform: rotate(4deg); }
+}
+@keyframes drip {
+  0% { transform: scale(1) translateY(0); opacity: 1; }
+  80% { transform: scale(0.8) translateY(18px); opacity: 0.8; }
+  100% { transform: scale(0.5) translateY(24px); opacity: 0; }
+}
+
+/* 미니 물탱크 */
+.mini-tank-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 31%;
+}
+.mini-tank-container {
+  width: 100%;
+  height: 85px;
+  border: 3px solid #f1f3f5;
+  border-radius: 12px 12px 25px 25px;
+  position: relative;
+  overflow: hidden;
+  background: #fafbfc;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+}
+.mini-tank-water {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 0%;
+  transition: height 1s;
+  display: flex;
+  flex-direction: column-reverse;
+}
+.mini-tank-percentage {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #495057;
+  text-shadow: 0 0 5px white;
+  z-index: 10;
+  pointer-events: none;
+}
+.mini-tank-year {
+  font-size: 0.75rem;
+  font-weight: bold;
+  color: #6c757d;
+  margin-top: 6px;
+}
 </style>
 {% endblock %}
 
@@ -321,16 +493,198 @@ async function saveTarget() {
   const amount = parseInt(document.getElementById('targetAmountInput').value.replace(/,/g, '')) || 0;
   await fetchJSON('/api/tech-tree-goal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target_amount: amount }) });
   loadTechTree();
+  loadYearlyStats(); // 목표 자산 변경 시 연도별 수위 및 속도 재계산
 }
 
 document.getElementById('targetAmountInput').addEventListener('input', function() {
   this.value = this.value.replace(/[^\d]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 });
 
+/* [신규] 연도별 자산 물탱크 성장 분석 & 미니 갤러리 로직 */
+async function loadYearlyStats() {
+  const data = await fetchJSON('/api/tech-tree-yearly-stats');
+  if (!data) return;
+  
+  const { flow_rate_amount, flow_rate_percent, remaining_years, remaining_months, expected_completion_ym, yearly_history } = data;
+  
+  // 1. 유입 속도 대시보드 업데이트
+  document.getElementById('flowRatePercent').textContent = `+${flow_rate_percent}%`;
+  document.getElementById('flowRateAmount').textContent = `연 평균 +${fmt(flow_rate_amount)}원 유입 중`;
+  
+  const compEl = document.getElementById('flowRateCompletion');
+  if (remaining_years === 0 && remaining_months === 0) {
+    compEl.textContent = '목표 100% 완충 완료!';
+    compEl.className = 'fw-bold text-success';
+    document.getElementById('waterDrip').style.display = 'none';
+  } else {
+    let durationText = '';
+    if (remaining_years > 0) durationText += `${remaining_years}년 `;
+    if (remaining_months > 0) durationText += `${remaining_months}개월`;
+    compEl.textContent = `${durationText} 후 (${expected_completion_ym})`;
+    compEl.className = 'fw-bold text-primary';
+    document.getElementById('waterDrip').style.display = 'block';
+  }
+  
+  // 2. 메인 물탱크 내부 수위 점선(Milestone Line) 생성
+  const tankContainer = document.querySelector('.tank-container');
+  // 기존 동적 마일스톤 요소 삭제
+  document.querySelectorAll('.tank-milestone-line, .tank-milestone-label').forEach(el => el.remove());
+  
+  yearly_history.forEach(h => {
+    // 올해는 수위 점선 표시에서 제외
+    if (h.year === new Date().getFullYear().toString()) return;
+    
+    const percent = h.percent;
+    const bottomPos = Math.min(Math.max(percent, 0), 100);
+    
+    // 수위선 생성
+    const line = document.createElement('div');
+    line.className = 'tank-milestone-line';
+    line.style.bottom = `${bottomPos}%`;
+    
+    // 수위 라벨 생성
+    const label = document.createElement('div');
+    label.className = 'tank-milestone-label';
+    label.style.bottom = `${bottomPos}%`;
+    label.textContent = `'${h.year.substring(2)}말 (${percent}%)`;
+    
+    line.addEventListener('mouseenter', () => showMilestoneTooltip(h, bottomPos));
+    line.addEventListener('mouseleave', hideMilestoneTooltip);
+    
+    tankContainer.appendChild(line);
+    tankContainer.appendChild(label);
+  });
+  
+  // 3. 연도별 미니 물탱크 갤러리 렌더링
+  const miniContainer = document.getElementById('miniTanksContainer');
+  miniContainer.innerHTML = '';
+  
+  yearly_history.forEach(h => {
+    const isCurrent = h.year === new Date().getFullYear().toString();
+    const displayName = isCurrent ? '현재' : `${h.year}년`;
+    const totalVal = h.total;
+    
+    const wrapper = document.createElement('div');
+    wrapper.className = 'mini-tank-wrapper';
+    
+    let layersHtml = '';
+    if (totalVal > 0) {
+      const breakdown = h.breakdown;
+      const getLayerHeight = (v) => `${(v / totalVal) * 100}%`;
+      layersHtml = `
+        <div class="layer layer-pension" style="height: ${getLayerHeight(breakdown.pension)}" title="연금"></div>
+        <div class="layer layer-crypto" style="height: ${getLayerHeight(breakdown.crypto)}" title="코인"></div>
+        <div class="layer layer-re" style="height: ${getLayerHeight(breakdown.real_estate)}" title="부동산"></div>
+        <div class="layer layer-stocks" style="height: ${getLayerHeight(breakdown.stocks)}" title="주식"></div>
+        <div class="layer layer-cash" style="height: ${getLayerHeight(breakdown.cash)}" title="현금"></div>
+      `;
+    }
+    
+    wrapper.innerHTML = `
+      <div class="mini-tank-container shadow-sm position-relative clickable-node" onclick="showMiniTankDetails(${JSON.stringify(h).replace(/"/g, '&quot;')})">
+        <div class="mini-tank-water" style="height: ${h.percent}%">
+          ${layersHtml}
+        </div>
+        <div class="mini-tank-percentage">${h.percent}%</div>
+      </div>
+      <div class="mini-tank-year text-center text-truncate w-100">${displayName}</div>
+    `;
+    
+    miniContainer.appendChild(wrapper);
+  });
+}
+
+function showMilestoneTooltip(data, bottomPos) {
+  const tooltip = document.getElementById('milestoneTooltip');
+  document.getElementById('tooltipYear').textContent = `'${data.year.substring(2)}년 말 최종`;
+  document.getElementById('tooltipTotal').textContent = `${fmt(data.total)}원`;
+  
+  const b = data.breakdown;
+  const list = [
+    { name: '현금', val: b.cash, color: 'bg-cash' },
+    { name: '주식', val: b.stocks, color: 'bg-stocks' },
+    { name: '부동산', val: b.real_estate, color: 'bg-re' },
+    { name: '코인', val: b.crypto, color: 'bg-crypto' },
+    { name: '연금', val: b.pension, color: 'bg-pension' }
+  ];
+  
+  const breakdownHtml = list.map(item => `
+    <div class="d-flex align-items-center mb-1">
+      <span class="asset-dot ${item.color} me-1" style="width: 6px; height: 6px;"></span>
+      <span>${item.name}:</span>
+      <span class="ms-auto fw-bold">${fmt(item.val)}원</span>
+    </div>
+  `).join('');
+  
+  document.getElementById('tooltipBreakdown').innerHTML = breakdownHtml;
+  
+  tooltip.style.display = 'block';
+  if (bottomPos > 60) {
+    tooltip.style.top = 'auto';
+    tooltip.style.bottom = '10px';
+  } else {
+    tooltip.style.top = '10px';
+    tooltip.style.bottom = 'auto';
+  }
+}
+
+function hideMilestoneTooltip() {
+  document.getElementById('milestoneTooltip').style.display = 'none';
+}
+
+function showMiniTankDetails(data) {
+  const b = data.breakdown;
+  const isCurrent = data.year === new Date().getFullYear().toString();
+  const title = isCurrent ? '현재 자산 구성 정보' : `${data.year}년 말 최종 자산 구성`;
+  
+  let infoContent = `
+    <div class="p-1">
+      <h6 class="fw-bold mb-3 text-primary"><i class="bi bi-wallet2 me-2"></i>총 자산: ${fmt(data.total)}원 (${data.percent}%)</h6>
+      <div class="d-flex flex-column gap-2">
+        <div class="d-flex justify-content-between border-bottom pb-1"><span>현금</span><span class="fw-bold text-primary">${fmt(b.cash)}원</span></div>
+        <div class="d-flex justify-content-between border-bottom pb-1"><span>주식/ETF</span><span class="fw-bold text-success">${fmt(b.stocks)}원</span></div>
+        <div class="d-flex justify-content-between border-bottom pb-1"><span>부동산</span><span class="fw-bold text-warning">${fmt(b.real_estate)}원</span></div>
+        <div class="d-flex justify-content-between border-bottom pb-1"><span>코인</span><span class="fw-bold text-info">${fmt(b.crypto)}원</span></div>
+        <div class="d-flex justify-content-between border-bottom pb-1"><span>연금</span><span class="fw-bold text-secondary">${fmt(b.pension)}원</span></div>
+      </div>
+      ${data.change_amount !== 0 ? `
+        <div class="mt-3 pt-2 border-top text-end text-muted small">
+          전년비: <span class="fw-bold ${data.change_amount > 0 ? 'text-primary' : 'text-danger'}">${data.change_amount > 0 ? '+' : ''}${fmt(data.change_amount)}원 (${data.change_percent}%)</span>
+        </div>
+      ` : ''}
+    </div>
+  `;
+  
+  const alertModal = document.createElement('div');
+  alertModal.className = 'modal fade';
+  alertModal.id = 'miniTankDetailModal';
+  alertModal.tabIndex = -1;
+  alertModal.innerHTML = `
+    <div class="modal-dialog modal-dialog-centered modal-sm" style="max-width: 320px;">
+      <div class="modal-content border-0 shadow-lg" style="border-radius: 16px;">
+        <div class="modal-header border-0 pb-0">
+          <h5 class="modal-title fw-bold small text-muted">${title}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          ${infoContent}
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(alertModal);
+  const m = new bootstrap.Modal(alertModal);
+  m.show();
+  alertModal.addEventListener('hidden.bs.modal', () => {
+    alertModal.remove();
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
   loadTechTree();
   loadHistoryChart();
+  loadYearlyStats(); // [신규] 연도별 자산 통계 로드
 });
 </script>
 {% endblock %}
