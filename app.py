@@ -725,18 +725,37 @@ def _fetch_yf_price(ticker: str) -> float | None:
     if not HAS_YFINANCE:
         return None
     yf_sym = (ticker + '.KS') if _is_krx_ticker(ticker) else ticker
+    
+    import requests
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    })
+    
     for attempt in range(2):
         try:
-            info = yf.Ticker(yf_sym).fast_info
+            t_obj = yf.Ticker(yf_sym, session=session)
+            # 1. fast_info 우선 조회
+            info = t_obj.fast_info
             price = info.last_price
             if price and price > 0:
                 return float(price)
+            
+            # 2. fast_info 실패 시 history 백업 조회
+            df = t_obj.history(period='1d')
+            if not df.empty:
+                return float(df['Close'].iloc[-1])
+                
             # KS → KQ fallback
             if yf_sym.endswith('.KS'):
-                info2 = yf.Ticker(ticker + '.KQ').fast_info
+                t_obj2 = yf.Ticker(ticker + '.KQ', session=session)
+                info2 = t_obj2.fast_info
                 price2 = info2.last_price
                 if price2 and price2 > 0:
                     return float(price2)
+                df2 = t_obj2.history(period='1d')
+                if not df2.empty:
+                    return float(df2['Close'].iloc[-1])
         except Exception:
             if attempt == 0:
                 time.sleep(1)
