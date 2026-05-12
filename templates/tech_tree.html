@@ -416,9 +416,12 @@ async function loadHistoryChart() {
   
   const getVal = (h, key) => {
     if (!isPercent) return h[key];
-    if (baseTotal === 0) return 0;
-    // 초기 전체 자산 대비 해당 자산의 증감 비율(기여도) 계산
-    return ((h[key] - base[key]) / baseTotal) * 100;
+    const baseVal = base[key];
+    if (baseVal === 0) {
+      return h[key] > 0 ? 100 : 0; // 0원에서 자산이 신규 형성된 경우 100% 성장으로 정의하고 NaN/Infinity 오류 방지
+    }
+    // 각 자산의 최초 시점 금액 대비 순수 성장률(%) 계산
+    return ((h[key] - baseVal) / baseVal) * 100;
   };
 
   const datasets = [
