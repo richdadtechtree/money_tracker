@@ -2,7 +2,19 @@ from flask import Flask, render_template, request, jsonify, Response
 from flask_cors import CORS
 from database import get_db, init_db
 from datetime import datetime, date
-import json, os, shutil, sqlite3, re, csv, io
+import json, os, shutil, sqlite3, re, csv, io, requests as http_req
+
+try:
+    import yfinance as yf
+    HAS_YFINANCE = True
+except ImportError:
+    HAS_YFINANCE = False
+
+try:
+    from pykrx import stock as krx_stock
+    HAS_PYKRX = True
+except ImportError:
+    HAS_PYKRX = False
 
 try:
     import openpyxl
@@ -682,6 +694,177 @@ def api_crypto_detail(rid):
     db.commit()
     db.close()
     return jsonify({'ok': True})
+
+
+# ── API: 현재가 업데이트 ─────────────────────────────────────
+import time
+
+def _is_krx_ticker(ticker: str) -> bool:
+    """6자리 숫자면 국내 KRX 종목으로 판단"""
+    return bool(re.match(r'^\d{6}$', ticker))
+
+
+def _fetch_krx_price(ticker: str) -> float | None:
+    """pykrx로 국내 주식 최근 종가 조회"""
+    if not HAS_PYKRX:
+        return None
+    try:
+        from datetime import date, timedelta
+        end = date.today().strftime('%Y%m%d')
+        start = (date.today() - timedelta(days=7)).strftime('%Y%m%d')
+        df = krx_stock.get_market_ohlcv_by_date(start, end, ticker)
+        if not df.empty:
+            return float(df['종가'].iloc[-1])
+    except Exception:
+        pass
+    return None
+
+
+def _fetch_yf_price(ticker: str) -> float | None:
+    """yfinance로 해외 주식/ETF 현재가 조회 (국내 6자리는 .KS/.KQ 변환 fallback)"""
+    if not HAS_YFINANCE:
+        return None
+    yf_sym = (ticker + '.KS') if _is_krx_ticker(ticker) else ticker
+    for attempt in range(2):
+        try:
+            info = yf.Ticker(yf_sym).fast_info
+            price = info.last_price
+            if price and price > 0:
+                return float(price)
+            # KS → KQ fallback
+            if yf_sym.endswith('.KS'):
+                info2 = yf.Ticker(ticker + '.KQ').fast_info
+                price2 = info2.last_price
+                if price2 and price2 > 0:
+                    return float(price2)
+        except Exception:
+            if attempt == 0:
+                time.sleep(1)
+    return None
+
+
+def _fetch_stock_price(ticker: str) -> float | None:
+    """국내는 pykrx 우선, 실패 시 yfinance. 해외는 yfinance."""
+    if _is_krx_ticker(ticker):
+        price = _fetch_krx_price(ticker)
+        if price:
+            return price
+    return _fetch_yf_price(ticker)
+
+
+
+def _fetch_coingecko_prices(symbols: list[str]) -> dict[str, float]:
+    """CoinGecko로 심볼 목록의 KRW 현재가 조회. {symbol_upper: price}"""
+    if not symbols:
+        return {}
+    try:
+        # 심볼 → id 매핑 (캐싱 없이 간단히 /simple/price의 ids 파라미터로 처리)
+        # CoinGecko simple/price는 id(슬러그)를 받으므로 먼저 목록에서 id 획득
+        list_res = http_req.get(
+            'https://api.coingecko.com/api/v3/coins/list',
+            timeout=10
+        )
+        if not list_res.ok:
+            return {}
+        coin_list = list_res.json()
+        sym_upper = [s.upper() for s in symbols]
+        # 심볼 → id 매핑 (동일 심볼 여러 개일 수 있어 첫 번째 사용)
+        sym_to_id = {}
+        for coin in coin_list:
+            s = coin['symbol'].upper()
+            if s in sym_upper and s not in sym_to_id:
+                sym_to_id[s] = coin['id']
+
+        ids = list(sym_to_id.values())
+        if not ids:
+            return {}
+
+        price_res = http_req.get(
+            'https://api.coingecko.com/api/v3/simple/price',
+            params={'ids': ','.join(ids), 'vs_currencies': 'krw'},
+            timeout=10
+        )
+        if not price_res.ok:
+            return {}
+        price_data = price_res.json()
+
+        result = {}
+        for sym, cid in sym_to_id.items():
+            p = price_data.get(cid, {}).get('krw')
+            if p:
+                result[sym] = float(p)
+        return result
+    except Exception:
+        return {}
+
+
+@app.route('/api/price-update', methods=['POST'])
+def api_price_update():
+    """등록된 모든 종목(주식/ETF/코인)의 현재가를 외부 API로 조회 후 DB 업데이트"""
+    db = get_db()
+    results = {'stocks': [], 'etf': [], 'crypto': [], 'errors': []}
+
+    # ── 주식 ──
+    cur = db.cursor()
+    cur.execute("SELECT id, name, ticker FROM stocks WHERE ticker IS NOT NULL AND ticker != ''")
+    stock_rows = cur.fetchall()
+    cur.close()
+
+    for row in stock_rows:
+        sid, name, ticker = row['id'], row['name'], row['ticker']
+        price = _fetch_stock_price(ticker)
+        if price:
+            cur = db.cursor()
+            cur.execute("UPDATE stocks SET current_price = %s WHERE id = %s", (price, sid))
+            cur.close()
+            results['stocks'].append({'id': sid, 'name': name, 'ticker': ticker, 'price': price, 'ok': True})
+        else:
+            results['errors'].append(f"주식 [{name}({ticker})]: 가격 조회 실패")
+            results['stocks'].append({'id': sid, 'name': name, 'ticker': ticker, 'price': None, 'ok': False})
+
+    # ── ETF ──
+    cur = db.cursor()
+    cur.execute("SELECT id, name, ticker FROM etf WHERE ticker IS NOT NULL AND ticker != ''")
+    etf_rows = cur.fetchall()
+    cur.close()
+
+    for row in etf_rows:
+        eid, name, ticker = row['id'], row['name'], row['ticker']
+        price = _fetch_stock_price(ticker)
+        if price:
+            cur = db.cursor()
+            cur.execute("UPDATE etf SET current_price = %s WHERE id = %s", (price, eid))
+            cur.close()
+            results['etf'].append({'id': eid, 'name': name, 'ticker': ticker, 'price': price, 'ok': True})
+        else:
+            results['errors'].append(f"ETF [{name}({ticker})]: 가격 조회 실패")
+            results['etf'].append({'id': eid, 'name': name, 'ticker': ticker, 'price': None, 'ok': False})
+
+    # ── 코인 ──
+    cur = db.cursor()
+    cur.execute("SELECT id, name, symbol FROM crypto WHERE symbol IS NOT NULL AND symbol != ''")
+    crypto_rows = cur.fetchall()
+    cur.close()
+
+    if crypto_rows:
+        symbols = [row['symbol'] for row in crypto_rows]
+        cg_prices = _fetch_coingecko_prices(symbols)
+
+        for row in crypto_rows:
+            cid, name, symbol = row['id'], row['name'], row['symbol']
+            price = cg_prices.get(symbol.upper())
+            if price:
+                cur = db.cursor()
+                cur.execute("UPDATE crypto SET current_price = %s WHERE id = %s", (price, cid))
+                cur.close()
+                results['crypto'].append({'id': cid, 'name': name, 'symbol': symbol, 'price': price, 'ok': True})
+            else:
+                results['errors'].append(f"코인 [{name}({symbol})]: 가격 조회 실패")
+                results['crypto'].append({'id': cid, 'name': name, 'symbol': symbol, 'price': None, 'ok': False})
+
+    db.commit()
+    db.close()
+    return jsonify(results)
 
 
 # ── API: 거주지 ──────────────────────────────────────────────

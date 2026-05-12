@@ -25,6 +25,9 @@
       <button class="btn btn-outline-primary btn-sm" onclick="stockGrid.addRow()">
         <i class="bi bi-plus-lg me-1"></i>종목 등록
       </button>
+      <button class="btn btn-success btn-sm" id="priceUpdateBtn" onclick="updateAllPrices()">
+        <i class="bi bi-arrow-repeat me-1"></i>현재가 업데이트
+      </button>
     </div>
 
     <!-- 포지션 현황 -->
@@ -296,5 +299,58 @@ const cryptoGrid = new GridTable({
 stockGrid.load();   // onLoad → allStocks 세팅 → stockTxGrid.load() 자동 호출
 etfGrid.load();
 cryptoGrid.load();
+
+async function updateAllPrices() {
+  const btn = document.getElementById('priceUpdateBtn');
+  const origHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>업데이트 중...';
+
+  try {
+    const res = await fetchJSON('/api/price-update', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    if (!res) throw new Error('응답 없음');
+
+    // 화면 새로고침
+    await stockGrid.load();
+    await etfGrid.load();
+    await cryptoGrid.load();
+
+    // 결과 토스트
+    const ok_s  = res.stocks.filter(x => x.ok).length;
+    const ok_e  = res.etf.filter(x => x.ok).length;
+    const ok_c  = res.crypto.filter(x => x.ok).length;
+    const errs  = res.errors || [];
+
+    let msg = `✅ 현재가 업데이트 완료`;
+    const parts = [];
+    if (res.stocks.length) parts.push(`주식 ${ok_s}/${res.stocks.length}종`);
+    if (res.etf.length)    parts.push(`ETF ${ok_e}/${res.etf.length}종`);
+    if (res.crypto.length) parts.push(`코인 ${ok_c}/${res.crypto.length}종`);
+    if (parts.length) msg += ` (${parts.join(', ')})`;
+    if (errs.length)  msg += `\n⚠️ 실패: ${errs.join(', ')}`;
+
+    showToast(msg, errs.length ? 'warning' : 'success');
+  } catch(e) {
+    showToast('❌ 현재가 업데이트 실패: ' + e.message, 'danger');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origHtml;
+  }
+}
+
+function showToast(msg, type = 'success') {
+  const colors = { success: '#198754', warning: '#fd7e14', danger: '#dc3545' };
+  const div = document.createElement('div');
+  div.style.cssText = `
+    position:fixed; bottom:24px; right:24px; z-index:9999;
+    background:${colors[type] || colors.success}; color:#fff;
+    padding:12px 20px; border-radius:8px; font-size:14px;
+    box-shadow:0 4px 16px rgba(0,0,0,.2); max-width:380px;
+    white-space:pre-line; line-height:1.5;
+  `;
+  div.textContent = msg;
+  document.body.appendChild(div);
+  setTimeout(() => div.remove(), 4000);
+}
 </script>
 {% endblock %}
