@@ -417,11 +417,13 @@ async function loadHistoryChart() {
   const getVal = (h, key) => {
     if (!isPercent) return h[key];
     const baseVal = base[key];
+    if (h[key] === baseVal) return 0; // 변동이 전혀 없는 경우 부동소수점 오차(e-16 등)를 사전에 차단하기 위해 0을 바로 반환
     if (baseVal === 0) {
-      return h[key] > 0 ? 100 : 0; // 0원에서 자산이 신규 형성된 경우 100% 성장으로 정의하고 NaN/Infinity 오류 방지
+      return h[key] > 0 ? 100 : 0; // 0원에서 시작한 경우 NaN/Infinity 방지
     }
-    // 각 자산의 최초 시점 금액 대비 순수 성장률(%) 계산
-    return ((h[key] - baseVal) / baseVal) * 100;
+    // 각 자산의 최초 시점 금액 대비 성장률(%)을 계산하고, 소수점 둘째 자리까지 반올림하여 부동소수점 오차 해결
+    const rate = ((h[key] - baseVal) / baseVal) * 100;
+    return Math.round(rate * 100) / 100;
   };
 
   const datasets = [
