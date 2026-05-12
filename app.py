@@ -223,14 +223,11 @@ def api_budget():
     data = request.json
     cur = db.cursor()
     cur.execute(
-    "INSERT INTO budget (date, category, name, type, payment_method, amount, memo, card_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+    "INSERT INTO budget (date, category, name, type, payment_method, amount, memo, card_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
     (data['date'], data.get('category'), data.get('name'), data.get('type'),
     data.get('payment_method'), data['amount'], data.get('memo'),
     data.get('card_id') or None)
     )
-    cur.close()
-    cur = db.cursor()
-    cur.execute("SELECT last_insert_rowid()")
     budget_id = cur.fetchone()[0]
     cur.close()
     _sync_card_tx(db, budget_id, data)
@@ -418,10 +415,7 @@ def api_card_tx_bulk_delete():
     placeholders = ','.join('%s' * len(ids))
     cur = db.cursor()
     cur.execute(f"DELETE FROM card_tx WHERE id IN ({placeholders})", ids)
-    cur.close()
-    cur = db.cursor()
-    cur.execute("SELECT changes()")
-    deleted = cur.fetchone()[0]
+    deleted = cur.rowcount
     cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True, 'deleted': deleted})
@@ -869,8 +863,8 @@ def api_re_expiring():
     FROM tenant_contracts c
     JOIN real_estate r ON c.real_estate_id = r.id
     WHERE c.end_date IS NOT NULL
-    AND c.end_date >= date('now')
-    AND c.end_date <= date('now', '+3 months')
+    AND c.end_date >= CURRENT_DATE
+    AND c.end_date <= CURRENT_DATE + INTERVAL '3 months'
     ORDER BY c.end_date
     """)
     rows = cur.fetchall()
@@ -1181,7 +1175,7 @@ def api_dashboard():
     cur = db.cursor()
     cur.execute(
     "SELECT COALESCE(SUM(amount),0) FROM income "
-    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= date('now')",
+    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= CURRENT_DATE",
     (ym,)
     )
     labor_inc = cur.fetchone()[0]
@@ -1191,7 +1185,7 @@ def api_dashboard():
     cur = db.cursor()
     cur.execute(
     "SELECT COALESCE(SUM(amount),0) FROM income "
-    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= date('now')",
+    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= CURRENT_DATE",
     (ym,)
     )
     passive_inc = cur.fetchone()[0]
@@ -1200,7 +1194,7 @@ def api_dashboard():
     # 이번달 수입 합계
     cur = db.cursor()
     cur.execute(
-    "SELECT COALESCE(SUM(amount),0) as total FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= date('now')", (ym,)
+    "SELECT COALESCE(SUM(amount),0) as total FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= CURRENT_DATE", (ym,)
     )
     income_total = cur.fetchone()['total']
     cur.close()
@@ -1208,7 +1202,7 @@ def api_dashboard():
     # 이번달 지출 합계
     cur = db.cursor()
     cur.execute(
-    "SELECT COALESCE(SUM(amount),0) as total FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= date('now')", (ym,)
+    "SELECT COALESCE(SUM(amount),0) as total FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= CURRENT_DATE", (ym,)
     )
     expense_total = cur.fetchone()['total']
     cur.close()
@@ -1216,7 +1210,7 @@ def api_dashboard():
     # 이번달 카드 지출
     cur = db.cursor()
     cur.execute(
-    "SELECT COALESCE(SUM(amount),0) as total FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= date('now')", (ym,)
+    "SELECT COALESCE(SUM(amount),0) as total FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= CURRENT_DATE", (ym,)
     )
     card_total = cur.fetchone()['total']
     cur.close()
@@ -1433,7 +1427,7 @@ def api_tech_tree_data():
     cur = db.cursor()
     cur.execute(
     "SELECT COALESCE(SUM(amount),0) FROM income "
-    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= date('now')", 
+    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= CURRENT_DATE", 
     (ym,)
     )
     labor_inc = cur.fetchone()[0]
@@ -1443,7 +1437,7 @@ def api_tech_tree_data():
     cur = db.cursor()
     cur.execute(
     "SELECT COALESCE(SUM(amount),0) FROM income "
-    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= date('now')", 
+    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= CURRENT_DATE", 
     (ym,)
     )
     passive_inc = cur.fetchone()[0]
@@ -1478,9 +1472,9 @@ def api_tech_tree_data():
     cur.execute("""
     SELECT name, amount, COUNT(*) as cnt, SUM(amount) as total
     FROM budget 
-    WHERE date >= date('now', '-3 months')
+    WHERE date >= CURRENT_DATE - INTERVAL '3 months'
     GROUP BY name, amount
-    HAVING cnt >= 2
+    HAVING COUNT(*) >= 2
     ORDER BY total DESC
     """)
     straws = cur.fetchall()
@@ -1547,7 +1541,7 @@ def api_tech_tree_data():
     cur = db.cursor()
     cur.execute("""
     INSERT INTO asset_snapshots (month, cash, stocks, real_estate, crypto, pension, total, updated_at)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, datetime('now'))
+    VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
     ON CONFLICT(month) DO UPDATE SET
     cash=excluded.cash, stocks=excluded.stocks, real_estate=excluded.real_estate,
     crypto=excluded.crypto, pension=excluded.pension, total=excluded.total,
@@ -1560,20 +1554,25 @@ def api_tech_tree_data():
     db.close()
     return jsonify({
         'assets': {
-            'cash': cash_val,
-            'stocks': stocks_val + etf_val,
-            'real_estate': re_val,
-            'crypto': crypto_val,
-            'pension': pension_val
+            'cash': int(cash_val or 0),
+            'stocks': int(stocks_val or 0) + int(etf_val or 0),
+            'real_estate': int(re_val or 0),
+            'crypto': int(crypto_val or 0),
+            'pension': int(pension_val or 0)
         },
         'income': {
-            'labor': labor_inc,
-            'passive': passive_inc
+            'labor': int(labor_inc or 0),
+            'passive': int(passive_inc or 0)
         },
-        'expense': total_exp,
-        'straw_total': straw_total,
-        'target_amount': target_amount,
-        'monthly_stats': monthly_stats
+        'expense': int(total_exp or 0),
+        'straw_total': int(straw_total or 0),
+        'target_amount': int(target_amount or 0),
+        'monthly_stats': {
+            k: {
+                'change': int(v['change'] or 0),
+                'percent': v['percent']
+            } for k, v in monthly_stats.items()
+        }
     })
 
 @app.route('/api/straws')
@@ -1747,13 +1746,13 @@ def api_tech_tree_detail():
     res = []
     if ttype == 'labor':
         cur = db.cursor()
-        cur.execute("SELECT date, name, amount, category FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= date('now')", (ym,))
+        cur.execute("SELECT date, name, amount, category FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= CURRENT_DATE", (ym,))
         rows = cur.fetchall()
         cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in rows]
     elif ttype == 'passive':
         cur = db.cursor()
-        cur.execute("SELECT date, name, amount, category FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= date('now')", (ym,))
+        cur.execute("SELECT date, name, amount, category FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= CURRENT_DATE", (ym,))
         rows = cur.fetchall()
         cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in rows]
@@ -1869,7 +1868,7 @@ def api_monthly_summary():
         cur = db.cursor()
         cur.execute(
         "SELECT COALESCE(SUM(amount),0) as t FROM income"
-        " WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= date('now')", (ym,)
+        " WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= CURRENT_DATE", (ym,)
         )
         inc = cur.fetchone()['t']
         cur.close()
@@ -2018,7 +2017,7 @@ def api_card_excel_mapping(card_id):
         db.close()
         return jsonify(json.loads(row['mapping']) if row else {})
     cur = db.cursor()
-    cur.execute("INSERT OR REPLACE INTO card_mappings (card_id, mapping) VALUES (%s,%s)",
+    cur.execute("INSERT INTO card_mappings (card_id, mapping) VALUES (%s, %s) ON CONFLICT (card_id) DO UPDATE SET mapping = EXCLUDED.mapping",
     (card_id, json.dumps(request.json or {})))
     cur.close()
     db.commit(); db.close()
@@ -2142,7 +2141,7 @@ def api_categories():
     max_order = cur.fetchone()[0]
     cur.close()
     cur = db.cursor()
-    cur.execute("INSERT OR IGNORE INTO categories (name, sort_order) VALUES (%s, %s)",
+    cur.execute("INSERT INTO categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING",
     (d.get('name', '').strip(), max_order + 1))
     cur.close()
     db.commit(); db.close()
@@ -2235,7 +2234,7 @@ def api_fund_groups():
     max_order = cur.fetchone()[0]
     cur.close()
     cur = db.cursor()
-    cur.execute("INSERT OR IGNORE INTO fund_groups (name, sort_order) VALUES (%s, %s)",
+    cur.execute("INSERT INTO fund_groups (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING",
     (d.get('name', '').strip(), max_order + 1))
     cur.close()
     db.commit(); db.close()
