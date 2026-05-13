@@ -1925,6 +1925,7 @@ def _api_tech_tree_data_inner():
 
     # 변동률 계산 (현재값 대비)
     def calc_pct(val, change):
+        val, change = float(val), float(change)
         prev = val - change
         return round((change / prev * 100), 1) if prev > 0 else 0
     
