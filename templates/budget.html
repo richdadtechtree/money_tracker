@@ -4,9 +4,21 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2 class="fw-bold mb-0"><i class="bi bi-receipt me-2 text-danger"></i>가계부</h2>
-  <button class="btn btn-danger" onclick="grid.addRow()">
-    <i class="bi bi-plus-lg me-1"></i>행 추가
-  </button>
+  <div class="d-flex gap-2">
+    <button class="btn btn-outline-danger" id="voiceBtn" onclick="toggleVoice()" title="음성으로 항목 추가">
+      <i class="bi bi-mic" id="voiceIcon"></i>
+      <span class="ms-1 d-none d-sm-inline" id="voiceLabel">음성 입력</span>
+    </button>
+    <button class="btn btn-danger" onclick="grid.addRow()">
+      <i class="bi bi-plus-lg me-1"></i>행 추가
+    </button>
+  </div>
+</div>
+
+<!-- 음성 상태 바 -->
+<div id="voiceBar" class="alert border-0 mb-3 py-2 d-none d-flex align-items-center gap-2">
+  <span id="voiceBarIcon" class="fs-5">🎙️</span>
+  <span id="voiceBarText" class="small fw-semibold flex-grow-1"></span>
 </div>
 
 <!-- 필터 -->
@@ -99,5 +111,124 @@ async function init() {
 }
 
 init();
+
+// ── 음성 입력 ─────────────────────────────────────────────
+let _recognition = null;
+let _listening    = false;
+
+function toggleVoice() {
+  _listening ? stopVoice() : startVoice();
+}
+
+function startVoice() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    setVoiceBar('danger', '⚠️', '이 브라우저는 음성 인식을 지원하지 않습니다. (Chrome/Edge 사용 권장)');
+    return;
+  }
+  _recognition = new SR();
+  _recognition.lang            = 'ko-KR';
+  _recognition.interimResults  = false;
+  _recognition.maxAlternatives = 1;
+
+  _recognition.onstart = () => {
+    _listening = true;
+    document.getElementById('voiceBtn').classList.add('active');
+    document.getElementById('voiceIcon').className = 'bi bi-mic-fill';
+    document.getElementById('voiceLabel').textContent = '녹음 중...';
+    setVoiceBar('info', '🎙️', '듣고 있습니다… (예: "점심 식비 만오천원" / "택시비 8500원")');
+  };
+
+  _recognition.onresult = async (e) => {
+    const text = e.results[0][0].transcript.trim();
+    await processVoice(text);
+  };
+
+  _recognition.onerror = (e) => {
+    const msg = { 'not-allowed': '마이크 권한을 허용해주세요.', 'no-speech': '음성이 감지되지 않았습니다.' };
+    setVoiceBar('danger', '⚠️', msg[e.error] || `오류: ${e.error}`);
+    stopVoice();
+  };
+
+  _recognition.onend = () => stopVoice();
+  _recognition.start();
+}
+
+function stopVoice() {
+  _listening = false;
+  try { _recognition?.stop(); } catch {}
+  _recognition = null;
+  document.getElementById('voiceBtn').classList.remove('active');
+  document.getElementById('voiceIcon').className = 'bi bi-mic';
+  document.getElementById('voiceLabel').textContent = '음성 입력';
+}
+
+async function processVoice(text) {
+  setVoiceBar('warning', '⏳', `"${text}" 분석 중…`);
+
+  const parsed = parseVoice(text);
+  if (!parsed || !parsed.amount) {
+    setVoiceBar('danger', '❌', `금액을 인식하지 못했습니다: "${text}" — "항목명 금액원" 형식으로 말해보세요.`, 5000);
+    return;
+  }
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const res = await fetchJSON('/api/budget', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      date: todayStr, name: parsed.name, amount: parsed.amount,
+      category: '', type: '', payment_method: '', card_id: null, memo: '',
+    }),
+  });
+
+  if (res) {
+    setVoiceBar('success', '✅', `추가됨 — "${parsed.name || '(항목없음)'}" ${fmt(parsed.amount)}원`, 3500);
+    grid.load();
+  } else {
+    setVoiceBar('danger', '❌', '저장 실패. 다시 시도해주세요.', 4000);
+  }
+}
+
+function parseVoice(text) {
+  // 숫자(아라비아) + 원
+  let m = text.match(/^(.*?)\s*([\d,]+)\s*원/);
+  if (m) return { name: m[1].trim(), amount: parseInt(m[2].replace(/,/g, '')) };
+
+  // 한글 숫자 + 원
+  m = text.match(/^(.*?)\s*([일이삼사오육칠팔구십백천만억\d]+)\s*원/);
+  if (m) {
+    const amount = korToNum(m[2]);
+    if (amount) return { name: m[1].trim(), amount };
+  }
+  return null;
+}
+
+function korToNum(s) {
+  const d = { 일:1, 이:2, 삼:3, 사:4, 오:5, 육:6, 칠:7, 팔:8, 구:9 };
+  const u = { 십:10, 백:100, 천:1000, 만:10000, 억:100000000 };
+  let total = 0, sub = 0, cur = 0;
+  for (const ch of s) {
+    if (/\d/.test(ch)) { cur = cur * 10 + parseInt(ch); continue; }
+    if (d[ch] !== undefined) { cur = d[ch]; continue; }
+    if (u[ch] !== undefined) {
+      const unit = u[ch];
+      if (unit >= 10000) { total += (sub + (cur || 1)) * unit; sub = 0; cur = 0; }
+      else               { sub   += (cur || 1) * unit;          cur = 0; }
+    }
+  }
+  return total + sub + cur || null;
+}
+
+let _voiceTimer = null;
+function setVoiceBar(type, icon, text, autohide = 0) {
+  const bar = document.getElementById('voiceBar');
+  const colorMap = { info: 'alert-info', success: 'alert-success', warning: 'alert-warning', danger: 'alert-danger' };
+  bar.className = `alert border-0 mb-3 py-2 d-flex align-items-center gap-2 ${colorMap[type]}`;
+  document.getElementById('voiceBarIcon').textContent = icon;
+  document.getElementById('voiceBarText').textContent = text;
+  clearTimeout(_voiceTimer);
+  if (autohide) _voiceTimer = setTimeout(() => bar.classList.add('d-none'), autohide);
+}
 </script>
 {% endblock %}
