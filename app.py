@@ -778,68 +778,51 @@ def _is_krx_ticker(ticker: str) -> bool:
     return bool(re.match(r'^\d{6}$', ticker))
 
 
-def _fetch_naver_price(ticker: str) -> float | None:
-    """Naver Finance 모바일 API로 국내 주식 현재가 조회"""
+def _fetch_stooq_price(ticker: str) -> float | None:
+    """Stooq CSV 피드로 주식 현재가 조회 (국내/해외 모두 지원, API 키 불필요)"""
     try:
+        stooq_sym = (ticker + '.kr') if _is_krx_ticker(ticker) else ticker
         res = http_req.get(
-            f'https://m.stock.naver.com/api/stock/{ticker}/basic',
+            f'https://stooq.com/q/l/?s={stooq_sym}&f=sd2t2ohlcv&h&e=csv',
             timeout=8,
-            headers={'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
+            headers={'User-Agent': 'Mozilla/5.0'}
         )
-        if res.ok:
-            data = res.json()
-            price_str = data.get('closePrice') or data.get('currentPrice') or data.get('stockEndPrice')
-            if price_str:
-                return float(str(price_str).replace(',', ''))
+        if not res.ok:
+            return None
+        lines = res.text.strip().split('\n')
+        if len(lines) < 2:
+            return None
+        # CSV: Symbol,Date,Time,Open,High,Low,Close,Volume
+        parts = lines[1].split(',')
+        if len(parts) >= 7:
+            close = parts[6].strip()
+            if close and close not in ('N/D', '0', ''):
+                return float(close)
     except Exception:
         pass
     return None
 
 
-def _fetch_yf_price(ticker: str) -> float | None:
-    """yfinance로 해외 주식/ETF 현재가 조회"""
-    if not HAS_YFINANCE:
-        return None
-    import requests
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-    })
-    for attempt in range(2):
+def _fetch_stock_price(ticker: str) -> float | None:
+    """Stooq 우선, 실패 시 yfinance fallback."""
+    price = _fetch_stooq_price(ticker)
+    if price:
+        return price
+    # yfinance fallback (해외 주식)
+    if HAS_YFINANCE and not _is_krx_ticker(ticker):
+        import requests
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
         try:
             t_obj = yf.Ticker(ticker, session=session)
-            info = t_obj.fast_info
-            price = info.last_price
-            if price and price > 0:
-                return float(price)
             df = t_obj.history(period='5d')
             if not df.empty:
                 return float(df['Close'].iloc[-1])
         except Exception:
-            if attempt == 0:
-                time.sleep(1)
+            pass
     return None
-
-
-def _fetch_stock_price(ticker: str) -> float | None:
-    """국내(6자리)는 Naver Finance, 해외는 yfinance."""
-    if _is_krx_ticker(ticker):
-        price = _fetch_naver_price(ticker)
-        if price:
-            return price
-        # pykrx fallback (설치된 경우)
-        if HAS_PYKRX:
-            try:
-                from datetime import date, timedelta
-                end = date.today().strftime('%Y%m%d')
-                start = (date.today() - timedelta(days=7)).strftime('%Y%m%d')
-                df = krx_stock.get_market_ohlcv_by_date(start, end, ticker)
-                if not df.empty:
-                    return float(df['종가'].iloc[-1])
-            except Exception:
-                pass
-        return None
-    return _fetch_yf_price(ticker)
 
 
 
