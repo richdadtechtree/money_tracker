@@ -3,12 +3,12 @@
  */
 
 const COLORS = {
-  stocks:     '#1565C0',
-  etf:        '#1976D2',
-  crypto:     '#F57F17',
-  realestate: '#2E7D32',
-  pension:    '#6A1B9A',
-  cash:       '#00838F',
+  stocks:     '#6366f1',  // indigo
+  etf:        '#06b6d4',  // cyan
+  crypto:     '#f59e0b',  // amber
+  realestate: '#10b981',  // emerald
+  pension:    '#8b5cf6',  // violet
+  cash:       '#14b8a6',  // teal
 };
 
 // 차트 인스턴스 저장 (재생성 시 destroy 필요)
@@ -126,8 +126,9 @@ function renderAssetPie(breakdown) {
       datasets: [{
         data: values,
         backgroundColor: colors,
-        borderWidth: 2,
-        borderColor: '#fff',
+        borderWidth: 3,
+        borderColor: '#ffffff',
+        hoverBorderWidth: 4,
       }]
     },
     options: {
