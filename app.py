@@ -1833,39 +1833,39 @@ def _api_tech_tree_data_inner():
     "WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= CURRENT_DATE", 
     (ym,)
     )
-    labor_inc = cur.fetchone()[0]
+    labor_inc = float(cur.fetchone()[0] or 0)
     cur.close()
-    
+
     # 자생소득: 그 외 모든 수입
     cur = db.cursor()
     cur.execute(
     "SELECT COALESCE(SUM(amount),0) FROM income "
-    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= CURRENT_DATE", 
+    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= CURRENT_DATE",
     (ym,)
     )
-    passive_inc = cur.fetchone()[0]
+    passive_inc = float(cur.fetchone()[0] or 0)
     cur.close()
 
     # 부동산 월세(임대료) 자동 합산
     cur = db.cursor()
     cur.execute("""
-    SELECT COALESCE(SUM(monthly_rent), 0) 
-    FROM tenant_contracts 
-    WHERE contract_type = '월세' 
+    SELECT COALESCE(SUM(monthly_rent), 0)
+    FROM tenant_contracts
+    WHERE contract_type = '월세'
     AND id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
     """)
-    rental_inc = cur.fetchone()[0]
+    rental_inc = float(cur.fetchone()[0] or 0)
     cur.close()
-    
+
     # 전세 보증금 사적 레버리지 수익 계산 (보증금 * 4% / 12개월)
     cur = db.cursor()
     cur.execute("""
     SELECT COALESCE(SUM(deposit * 0.04 / 12), 0)
-    FROM tenant_contracts 
-    WHERE contract_type = '전세' 
+    FROM tenant_contracts
+    WHERE contract_type = '전세'
     AND id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
     """)
-    leverage_inc = cur.fetchone()[0]
+    leverage_inc = float(cur.fetchone()[0] or 0)
     cur.close()
     
     passive_inc += (rental_inc + leverage_inc)
@@ -1887,20 +1887,19 @@ def _api_tech_tree_data_inner():
     # 이번달 지출 합계 (가계부 + 카드 + 대출 상환액)
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(amount),0) FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
-    expense_total = cur.fetchone()[0]
+    expense_total = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(amount),0) FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
-    card_total = cur.fetchone()[0]
+    card_total = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(monthly_payment), 0) FROM loans")
-    loan_repayment = cur.fetchone()[0]
+    loan_repayment = float(cur.fetchone()[0] or 0)
     cur.close()
     total_exp = expense_total + card_total + loan_repayment
 
     # [신규] 월간 변동성 계산 (이번달 순유입액 기준)
-    # 실제 과거 스냅샷이 없으므로, 이번달 발생한 현금흐름과 투자내역을 바탕으로 추정치 산출
     monthly_stats = {
         'cash': {'change': (labor_inc + passive_inc) - total_exp, 'percent': 0},
         'stocks': {'change': 0, 'percent': 0},
@@ -1910,17 +1909,17 @@ def _api_tech_tree_data_inner():
     # 주식/코인 이번달 매수액 집계
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE to_char(tx_date::date, 'YYYY-MM') = %s AND tx_type='buy'", (ym,))
-    s_buy = cur.fetchone()[0]
+    s_buy = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE to_char(tx_date::date, 'YYYY-MM') = %s AND tx_type='sell'", (ym,))
-    s_sell = cur.fetchone()[0]
+    s_sell = float(cur.fetchone()[0] or 0)
     cur.close()
     monthly_stats['stocks']['change'] = s_buy - s_sell
-    
+
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(buy_price*quantity),0) FROM crypto WHERE to_char(buy_date::date, 'YYYY-MM') = %s", (ym,))
-    c_buy = cur.fetchone()[0]
+    c_buy = float(cur.fetchone()[0] or 0)
     cur.close()
     monthly_stats['crypto']['change'] = c_buy
 
