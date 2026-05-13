@@ -440,7 +440,16 @@ async function updateAllPrices() {
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>업데이트 중...';
 
   try {
-    const res = await fetchJSON('/api/price-update', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    // 환율 + 주식 가격 동시 갱신
+    const [rateData, res] = await Promise.all([
+      fetchJSON('/api/exchange-rate'),
+      fetchJSON('/api/price-update', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' }),
+    ]);
+    if (rateData?.rate) {
+      usdKrw = rateData.rate;
+      const badge = document.getElementById('usdkrw-badge');
+      if (badge) badge.textContent = `USD/KRW ${usdKrw.toLocaleString('ko-KR')}`;
+    }
     if (!res) throw new Error('응답 없음');
 
     // 화면 새로고침
