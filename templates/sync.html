@@ -74,6 +74,26 @@
       </div>
 
     </div>
+
+    <!-- 초기화 -->
+    <div class="row g-4 mt-0">
+      <div class="col-12">
+        <div class="card border-danger border-0 shadow-sm" style="border-left: 4px solid #dc3545 !important;">
+          <div class="card-header bg-white border-0 pt-3 fw-semibold text-danger">
+            <i class="bi bi-trash3-fill me-2"></i>데이터 초기화 — 모든 데이터 삭제
+          </div>
+          <div class="card-body">
+            <p class="text-muted small mb-3">
+              모든 거래 내역, 자산 정보, 설정을 <strong class="text-danger">영구적으로 삭제</strong>합니다.<br>
+              복구가 불가능하므로 반드시 먼저 백업 파일을 다운로드하세요.
+            </p>
+            <button class="btn btn-outline-danger fw-semibold" onclick="openResetModal()">
+              <i class="bi bi-trash3 me-1"></i>초기화
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ── 데이터 탭 (텍스트) ── -->
@@ -210,6 +230,31 @@
 
 </div>
 {% endblock %}
+
+<!-- 초기화 확인 모달 -->
+<div class="modal fade" id="resetModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-danger">
+      <div class="modal-header bg-danger text-white border-0">
+        <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill me-2"></i>데이터 초기화</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-danger fw-semibold">경고: 이 작업은 되돌릴 수 없습니다!</p>
+        <p class="text-muted small mb-3">모든 주식·ETF·코인·지출·수입·대출·부동산 데이터가 영구 삭제됩니다.</p>
+        <label class="form-label fw-semibold">확인을 위해 <code>초기화</code>를 입력하세요:</label>
+        <input type="text" id="resetConfirmInput" class="form-control" placeholder="초기화" autocomplete="off">
+        <div id="resetModalStatus" class="mt-2 small"></div>
+      </div>
+      <div class="modal-footer border-0">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-danger fw-semibold" id="resetConfirmBtn" onclick="doReset()">
+          <i class="bi bi-trash3 me-1"></i>초기화 실행
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 {% block scripts %}
 <script>
@@ -395,5 +440,43 @@ async function copyText(id, btn) {
 }
 
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// ── 초기화 ────────────────────────────────────────────────
+function openResetModal() {
+  document.getElementById('resetConfirmInput').value = '';
+  document.getElementById('resetModalStatus').innerHTML = '';
+  document.getElementById('resetConfirmBtn').disabled = false;
+  document.getElementById('resetConfirmBtn').innerHTML = '<i class="bi bi-trash3 me-1"></i>초기화 실행';
+  new bootstrap.Modal(document.getElementById('resetModal')).show();
+}
+
+async function doReset() {
+  const input  = document.getElementById('resetConfirmInput').value.trim();
+  const status = document.getElementById('resetModalStatus');
+  if (input !== '초기화') {
+    status.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle me-1"></i>"초기화"를 정확히 입력해야 합니다.</span>';
+    return;
+  }
+  const btn = document.getElementById('resetConfirmBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>초기화 중...';
+  status.innerHTML = '<span class="text-muted">데이터를 삭제하고 있습니다...</span>';
+  try {
+    const res  = await fetch('/api/reset', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      status.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>초기화 완료. 대시보드로 이동합니다.</span>';
+      setTimeout(() => location.href = '/', 1500);
+    } else {
+      status.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.error}</span>`;
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-trash3 me-1"></i>초기화 실행';
+    }
+  } catch(e) {
+    status.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>요청 실패: ${e.message}</span>`;
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-trash3 me-1"></i>초기화 실행';
+  }
+}
 </script>
 {% endblock %}

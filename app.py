@@ -3450,6 +3450,28 @@ def api_restore():
         db.close()
 
 
+@app.route('/api/reset', methods=['POST'])
+def api_reset():
+    """모든 테이블의 데이터를 삭제 (초기화)"""
+    import traceback
+    db = get_db()
+    try:
+        cur = db.cursor()
+        for table in _BACKUP_DELETE_ORDER:
+            try:
+                cur.execute(f"DELETE FROM {table}")
+            except Exception:
+                db.rollback()
+        db.commit()
+        cur.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': f'초기화 실패: {traceback.format_exc()}'}), 500
+    finally:
+        db.close()
+
+
 if __name__ == '__main__':
     init_db()
     app.run(debug=True, port=5000)
