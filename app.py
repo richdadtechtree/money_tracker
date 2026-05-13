@@ -1769,6 +1769,13 @@ def _api_dashboard_inner():
 
 @app.route('/api/tech-tree-data')
 def api_tech_tree_data():
+    try:
+        return _api_tech_tree_data_inner()
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+def _api_tech_tree_data_inner():
     db = get_db()
     # 자산 현황
     cur = db.cursor()
