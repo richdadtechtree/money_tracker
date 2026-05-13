@@ -41,6 +41,18 @@ def init_db():
             amount          INTEGER NOT NULL DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS budget_recurring (
+            id              SERIAL PRIMARY KEY,
+            name            TEXT NOT NULL,
+            category        TEXT,
+            type            TEXT,
+            payment_method  TEXT,
+            card_id         INTEGER,
+            amount          INTEGER NOT NULL DEFAULT 0,
+            memo            TEXT,
+            active          BOOLEAN DEFAULT TRUE
+        );
+
         CREATE TABLE IF NOT EXISTS budget (
             id              SERIAL PRIMARY KEY,
             date            TEXT NOT NULL,
@@ -292,6 +304,7 @@ def init_db():
     # 마이그레이션: 기존 DB에 컬럼 추가 / 데이터 이전
     migrations = [
         "ALTER TABLE budget   ADD COLUMN card_id          INTEGER REFERENCES card_info(id)",
+        "ALTER TABLE budget   ADD COLUMN recurring_id     INTEGER REFERENCES budget_recurring(id)",
         "ALTER TABLE card_tx  ADD COLUMN budget_id         INTEGER REFERENCES budget(id)",
         "ALTER TABLE card_tx  ADD COLUMN category_locked   INTEGER DEFAULT 0",
         "ALTER TABLE card_tx  ADD COLUMN fund_group_id     INTEGER REFERENCES fund_groups(id)",

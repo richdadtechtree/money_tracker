@@ -41,6 +41,36 @@
   </div>
 </div>
 
+<!-- 반복 지출 삭제 확인 모달 -->
+<div class="modal fade" id="recurringDeleteModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-1">
+        <h5 class="modal-title fw-bold"><i class="bi bi-trash me-2 text-danger"></i>반복 지출 삭제</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-1 text-muted small">
+          <strong id="rdmName" class="text-dark"></strong>
+          <span class="badge ms-1" id="rdmTypeBadge"></span>
+        </p>
+        <p class="mb-3">이 항목을 어떻게 삭제할까요?</p>
+        <div class="d-grid gap-2">
+          <button class="btn btn-outline-danger" onclick="confirmRecurringDelete('single')">
+            <i class="bi bi-calendar-x me-1"></i>이번 달만 삭제
+          </button>
+          <button class="btn btn-danger" onclick="confirmRecurringDelete('forward')">
+            <i class="bi bi-arrow-repeat me-1"></i>이번 달 이후 모두 삭제 <span class="small opacity-75">(반복 중단)</span>
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- 그리드 -->
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
@@ -73,6 +103,14 @@ let allCards = [];
 
 initYearMonthFilters('filterYear', 'filterMonth', today.getFullYear(), today.getMonth() + 1);
 
+let _rdmDoDelete = null;
+let _rdmModal    = null;
+
+function confirmRecurringDelete(mode) {
+  _rdmModal?.hide();
+  _rdmDoDelete?.(mode);
+}
+
 const grid = new GridTable({
   tableId: 'dataTable',
   columns: [
@@ -80,9 +118,19 @@ const grid = new GridTable({
     { key: 'category',       type: 'select',
       options: ['식비','교통비','주거비','의료비','교육비','문화/여가','쇼핑','통신비','보험','기타'],
       render: v => v ? `<span class="badge bg-danger-subtle text-danger">${v}</span>` : '-' },
-    { key: 'name',           type: 'text' },
+    { key: 'name', type: 'text',
+      render: (v, r) => {
+        const icon = r.recurring_id
+          ? `<i class="bi bi-arrow-repeat text-primary me-1" title="${r.type === '고정지출' ? '고정' : '변동'} 반복지출"></i>`
+          : '';
+        return icon + (v || '-');
+      }},
     { key: 'type',           type: 'select', options: ['고정지출','변동지출'],
-      render: v => v ? `<span class="badge bg-secondary-subtle text-secondary">${v}</span>` : '-' },
+      render: v => {
+        if (!v) return '-';
+        const cls = v === '고정지출' ? 'bg-danger-subtle text-danger' : 'bg-secondary-subtle text-secondary';
+        return `<span class="badge ${cls}">${v}</span>`;
+      }},
     { key: 'payment_method', type: 'select', options: ['현금','체크카드','신용카드','계좌이체','기타'] },
     { key: 'card_id',        type: 'select',
       options: () => allCards.map(c => ({ value: String(c.id), label: c.card_name || '카드' + c.card_num })),
@@ -102,6 +150,22 @@ const grid = new GridTable({
   onLoad: rows => {
     const total = rows.reduce((s, r) => s + r.amount, 0);
     document.getElementById('totalAmount').textContent = fmt(total) + '원';
+  },
+  onBeforeDelete: (id, doDelete) => {
+    const row = grid.rows.find(r => String(r.id) === String(id));
+    if (row?.recurring_id) {
+      _rdmDoDelete = doDelete;
+      if (!_rdmModal) _rdmModal = new bootstrap.Modal(document.getElementById('recurringDeleteModal'));
+      const isFixed = row.type === '고정지출';
+      document.getElementById('rdmName').textContent = row.name || '';
+      document.getElementById('rdmTypeBadge').textContent = row.type || '';
+      document.getElementById('rdmTypeBadge').className =
+        `badge ms-1 ${isFixed ? 'bg-danger-subtle text-danger' : 'bg-secondary-subtle text-secondary'}`;
+      _rdmModal.show();
+    } else {
+      if (!confirm('삭제하시겠습니까?')) return;
+      doDelete('single');
+    }
   },
 });
 

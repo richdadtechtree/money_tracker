@@ -217,6 +217,35 @@ def api_budget():
     if request.method == 'GET':
         year  = request.args.get('year')
         month = request.args.get('month')
+
+        # 고정/변동지출 자동 생성 (해당 월에 아직 없는 경우)
+        if year and month:
+            ym = f"{year}-{month.zfill(2)}"
+            cur = db.cursor()
+            cur.execute("SELECT * FROM budget_recurring WHERE active = TRUE")
+            recurrings = rows_to_list(cur.fetchall())
+            cur.close()
+            for rec in recurrings:
+                cur = db.cursor()
+                cur.execute(
+                    "SELECT id FROM budget WHERE recurring_id=%s AND to_char(date::date,'YYYY-MM')=%s",
+                    (rec['id'], ym)
+                )
+                exists = cur.fetchone()
+                cur.close()
+                if not exists:
+                    date_str = f"{year}-{month.zfill(2)}-01"
+                    cur = db.cursor()
+                    cur.execute(
+                        "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id,recurring_id) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (date_str, rec['category'], rec['name'], rec['type'],
+                         rec['payment_method'], rec['amount'], rec['memo'],
+                         rec['card_id'], rec['id'])
+                    )
+                    cur.close()
+            db.commit()
+
         query = """SELECT b.*, c.card_name
                    FROM budget b
                    LEFT JOIN card_info c ON b.card_id = c.id"""
@@ -233,12 +262,29 @@ def api_budget():
         return jsonify(rows_to_list(rows))
 
     data = request.json
+    type_ = data.get('type', '')
+    recurring_id = None
+
+    # 고정/변동지출이면 반복 마스터 생성
+    if type_ in ('고정지출', '변동지출'):
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO budget_recurring (name,category,type,payment_method,card_id,amount,memo) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (data.get('name'), data.get('category'), type_,
+             data.get('payment_method'), data.get('card_id') or None,
+             data['amount'], data.get('memo'))
+        )
+        recurring_id = cur.fetchone()[0]
+        cur.close()
+
     cur = db.cursor()
     cur.execute(
-    "INSERT INTO budget (date, category, name, type, payment_method, amount, memo, card_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-    (data['date'], data.get('category'), data.get('name'), data.get('type'),
-    data.get('payment_method'), data['amount'], data.get('memo'),
-    data.get('card_id') or None)
+        "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id,recurring_id) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (data['date'], data.get('category'), data.get('name'), type_,
+         data.get('payment_method'), data['amount'], data.get('memo'),
+         data.get('card_id') or None, recurring_id)
     )
     budget_id = cur.fetchone()[0]
     cur.close()
@@ -253,24 +299,81 @@ def api_budget_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
+        type_ = data.get('type', '')
+
+        # 현재 행의 recurring_id, date 조회
+        cur = db.cursor()
+        cur.execute("SELECT recurring_id, date FROM budget WHERE id=%s", (rid,))
+        row = cur.fetchone()
+        recurring_id = row[0] if row else None
+        row_date     = row[1] if row else None
+        cur.close()
+
         cur = db.cursor()
         cur.execute(
-        "UPDATE budget SET date=%s, category=%s, name=%s, type=%s, payment_method=%s, amount=%s, memo=%s, card_id=%s WHERE id=%s",
-        (data.get('date'), data.get('category'), data.get('name'), data.get('type'),
-        data.get('payment_method'), data.get('amount', 0), data.get('memo'),
-        data.get('card_id') or None, rid)
+            "UPDATE budget SET date=%s,category=%s,name=%s,type=%s,payment_method=%s,amount=%s,memo=%s,card_id=%s WHERE id=%s",
+            (data.get('date'), data.get('category'), data.get('name'), type_,
+             data.get('payment_method'), data.get('amount', 0), data.get('memo'),
+             data.get('card_id') or None, rid)
         )
         cur.close()
+
+        # 고정지출: 마스터 + 이후 모든 월 동기화
+        if type_ == '고정지출' and recurring_id:
+            cur = db.cursor()
+            cur.execute(
+                "UPDATE budget_recurring SET name=%s,category=%s,payment_method=%s,card_id=%s,amount=%s,memo=%s WHERE id=%s",
+                (data.get('name'), data.get('category'), data.get('payment_method'),
+                 data.get('card_id') or None, data.get('amount', 0), data.get('memo'), recurring_id)
+            )
+            cur.close()
+            cur = db.cursor()
+            cur.execute(
+                "UPDATE budget SET name=%s,category=%s,payment_method=%s,card_id=%s,amount=%s,memo=%s "
+                "WHERE recurring_id=%s AND date > %s",
+                (data.get('name'), data.get('category'), data.get('payment_method'),
+                 data.get('card_id') or None, data.get('amount', 0), data.get('memo'),
+                 recurring_id, row_date)
+            )
+            cur.close()
+
         _sync_card_tx(db, rid, data)
         db.commit()
         db.close()
         return jsonify({'ok': True})
+
+    # DELETE
+    mode = request.args.get('mode', 'single')  # 'single' | 'forward'
     cur = db.cursor()
-    cur.execute("DELETE FROM card_tx WHERE budget_id = %s", (rid,))
+    cur.execute("SELECT recurring_id, date FROM budget WHERE id=%s", (rid,))
+    row = cur.fetchone()
+    recurring_id = row[0] if row else None
+    row_date     = row[1] if row else None
     cur.close()
-    cur = db.cursor()
-    cur.execute("DELETE FROM budget WHERE id = %s", (rid,))
-    cur.close()
+
+    if mode == 'forward' and recurring_id:
+        # 이 날짜 이후 + 이 행 포함 모두 삭제, 반복 비활성화
+        cur = db.cursor()
+        cur.execute(
+            "DELETE FROM card_tx WHERE budget_id IN "
+            "(SELECT id FROM budget WHERE recurring_id=%s AND date >= %s)",
+            (recurring_id, row_date)
+        )
+        cur.close()
+        cur = db.cursor()
+        cur.execute("DELETE FROM budget WHERE recurring_id=%s AND date >= %s", (recurring_id, row_date))
+        cur.close()
+        cur = db.cursor()
+        cur.execute("UPDATE budget_recurring SET active=FALSE WHERE id=%s", (recurring_id,))
+        cur.close()
+    else:
+        cur = db.cursor()
+        cur.execute("DELETE FROM card_tx WHERE budget_id=%s", (rid,))
+        cur.close()
+        cur = db.cursor()
+        cur.execute("DELETE FROM budget WHERE id=%s", (rid,))
+        cur.close()
+
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -3314,7 +3417,7 @@ _BACKUP_DELETE_ORDER = [
     'tenant_contracts', 'property_costs',
     'fund_group_rules', 'monthly_fund_budgets',
     'asset_snapshots', 'sold_real_estate',
-    'income', 'budget', 'crypto', 'loans', 'pension', 'goals',
+    'income', 'budget', 'budget_recurring', 'crypto', 'loans', 'pension', 'goals',
     'cash_deposits', 'residence',
     'stocks', 'etf', 'real_estate', 'card_info',
     'fund_groups', 'categories', 'app_settings',
@@ -3323,6 +3426,7 @@ _BACKUP_DELETE_ORDER = [
 _BACKUP_INSERT_ORDER = [
     'categories', 'card_info', 'fund_groups',
     'stocks', 'etf', 'real_estate',
+    'budget_recurring',
     'income', 'budget', 'crypto', 'loans', 'pension', 'goals',
     'cash_deposits', 'residence', 'app_settings', 'asset_snapshots', 'sold_real_estate',
     'card_tx', 'card_mappings', 'card_category_rules',

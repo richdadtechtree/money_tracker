@@ -27,7 +27,7 @@ async function fetchJSON(url, opts = {}) {
  *     options:[]/fn, compute:fn, render:fn, align:'end', step }
  */
 class GridTable {
-  constructor({ tableId, columns, apiUrl, getQueryParams, onLoad, getExtraData, onSave, onDelete, onStartEdit, selectable, onSelectChange }) {
+  constructor({ tableId, columns, apiUrl, getQueryParams, onLoad, getExtraData, onSave, onDelete, onStartEdit, selectable, onSelectChange, onBeforeDelete }) {
     this.tableEl  = document.getElementById(tableId);
     this.tbody    = this.tableEl.querySelector('tbody');
     this.columns  = columns;
@@ -38,6 +38,7 @@ class GridTable {
     this.onSave         = onSave         || null;
     this.onDelete       = onDelete       || null;
     this.onStartEdit    = onStartEdit    || null;
+    this.onBeforeDelete = onBeforeDelete || null;
     this.selectable       = selectable       || false;
     this.selected         = new Set();
     this.onSelectChange   = onSelectChange   || null;
@@ -257,6 +258,17 @@ class GridTable {
 
   async _delete(id) {
     if (this._tr) this.cancelEdit();
+    if (this.onBeforeDelete) {
+      await this.onBeforeDelete(id, async (mode = 'single') => {
+        const url = mode === 'forward'
+          ? `${this.apiUrl}/${id}?mode=forward`
+          : `${this.apiUrl}/${id}`;
+        await fetchJSON(url, { method: 'DELETE' });
+        await this.load();
+        this.onDelete?.();
+      });
+      return;
+    }
     if (!confirm('삭제하시겠습니까?')) return;
     await fetchJSON(`${this.apiUrl}/${id}`, { method: 'DELETE' });
     await this.load();
