@@ -6,8 +6,13 @@
 
 <ul class="nav nav-tabs mb-4" id="syncTabs">
   <li class="nav-item">
-    <a class="nav-link active" data-bs-toggle="tab" href="#tab-data">
-      <i class="bi bi-database me-1"></i>데이터
+    <a class="nav-link active" data-bs-toggle="tab" href="#tab-backup">
+      <i class="bi bi-cloud-arrow-down me-1"></i>백업 / 복구
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" data-bs-toggle="tab" href="#tab-data">
+      <i class="bi bi-database me-1"></i>데이터 (텍스트)
     </a>
   </li>
   <li class="nav-item">
@@ -19,8 +24,60 @@
 
 <div class="tab-content">
 
-  <!-- ── 데이터 탭 ── -->
-  <div class="tab-pane fade show active" id="tab-data">
+  <!-- ── 백업/복구 탭 ── -->
+  <div class="tab-pane fade show active" id="tab-backup">
+    <div class="row g-4">
+
+      <!-- 백업 -->
+      <div class="col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+          <div class="card-header bg-white border-0 pt-3 fw-semibold">
+            <i class="bi bi-cloud-arrow-down me-2 text-success"></i>백업 — JSON 파일로 저장
+          </div>
+          <div class="card-body d-flex flex-column">
+            <p class="text-muted small mb-4">
+              현재 모든 데이터(주식·ETF·코인·지출·수입·대출 등)를 <strong>.json 파일</strong>로 다운로드합니다.<br>
+              구글 로그인 연동 시 이 파일로 데이터를 그대로 복구할 수 있습니다.
+            </p>
+            <div class="mt-auto">
+              <button class="btn btn-success fw-semibold" onclick="doBackup()">
+                <i class="bi bi-download me-1"></i>백업 파일 다운로드
+              </button>
+              <p class="text-muted small mt-2 mb-0" id="backupStatus"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 복구 -->
+      <div class="col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+          <div class="card-header bg-white border-0 pt-3 fw-semibold">
+            <i class="bi bi-cloud-arrow-up me-2 text-warning"></i>복구 — 백업 파일로 덮어쓰기
+          </div>
+          <div class="card-body d-flex flex-column">
+            <p class="text-muted small mb-3">
+              이전에 저장한 <strong>.json 백업 파일</strong>을 선택하면 현재 데이터가 <span class="text-danger fw-semibold">전부 교체</span>됩니다.<br>
+              복구 전 반드시 현재 데이터를 백업하세요.
+            </p>
+            <div class="mb-3">
+              <input type="file" id="restoreFile" accept=".json" class="form-control">
+            </div>
+            <div class="mt-auto">
+              <button class="btn btn-warning fw-semibold" onclick="doRestore()">
+                <i class="bi bi-arrow-clockwise me-1"></i>복구 시작 (데이터 교체)
+              </button>
+              <div id="restoreStatus" class="mt-2 small"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── 데이터 탭 (텍스트) ── -->
+  <div class="tab-pane fade" id="tab-data">
     <div class="row g-4">
 
       <div class="col-12">
@@ -156,6 +213,65 @@
 
 {% block scripts %}
 <script>
+// ── 백업 / 복구 ────────────────────────────────────────────
+async function doBackup() {
+  const btn = event.target;
+  const status = document.getElementById('backupStatus');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>준비 중...';
+  status.textContent = '';
+  try {
+    const res = await fetch('/api/backup');
+    if (!res.ok) throw new Error('서버 오류 ' + res.status);
+    const blob = await res.blob();
+    const cd   = res.headers.get('Content-Disposition') || '';
+    const name = cd.match(/filename="([^"]+)"/)?.[1] || 'money_backup.json';
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = name; a.click();
+    URL.revokeObjectURL(url);
+    const kb = Math.round(blob.size / 1024);
+    status.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>${name} (${kb} KB) 저장됨</span>`;
+  } catch(e) {
+    status.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-download me-1"></i>백업 파일 다운로드';
+  }
+}
+
+async function doRestore() {
+  const file = document.getElementById('restoreFile').files[0];
+  const status = document.getElementById('restoreStatus');
+  if (!file) { status.innerHTML = '<span class="text-danger">파일을 선택하세요.</span>'; return; }
+  if (!file.name.endsWith('.json')) { status.innerHTML = '<span class="text-danger">JSON 파일만 지원합니다.</span>'; return; }
+  if (!confirm(`⚠️ 현재 모든 데이터가 삭제되고 "${file.name}" 로 교체됩니다.\n\n계속하시겠습니까?`)) return;
+
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>복구 중...';
+  status.innerHTML = '<span class="text-muted">데이터를 복구하고 있습니다...</span>';
+
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res  = await fetch('/api/restore', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.ok) {
+      status.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>복구 완료 (총 ${data.restored_rows.toLocaleString()}행). 대시보드로 이동합니다.</span>`;
+      setTimeout(() => location.href = '/', 2000);
+    } else {
+      status.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.error}</span>`;
+    }
+  } catch(e) {
+    status.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>요청 실패: ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>복구 시작 (데이터 교체)';
+  }
+}
+
+// ── 기존 텍스트 내보내기/가져오기 ──────────────────────────
 async function doExport(type) {
   const btn = event.target;
   btn.disabled = true;

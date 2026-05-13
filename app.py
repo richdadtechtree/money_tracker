@@ -3305,6 +3305,136 @@ def api_import_text():
     return jsonify({'error': 'PostgreSQL 환경에서는 텍스트 복구 기능을 지원하지 않습니다.'}), 501
 
 
+# ── API: 전체 백업 / 복구 ────────────────────────────────────
+
+# 외래키 의존성을 고려한 삭제 순서 (자식 → 부모)
+_BACKUP_DELETE_ORDER = [
+    'card_tx', 'card_mappings', 'card_category_rules',
+    'stock_tx', 'etf_tx',
+    'tenant_contracts', 'property_costs',
+    'fund_group_rules', 'monthly_fund_budgets',
+    'asset_snapshots', 'sold_real_estate',
+    'income', 'budget', 'crypto', 'loans', 'pension', 'goals',
+    'cash_deposits', 'residence',
+    'stocks', 'etf', 'real_estate', 'card_info',
+    'fund_groups', 'categories', 'app_settings',
+]
+# 삽입 순서 (부모 → 자식)
+_BACKUP_INSERT_ORDER = [
+    'categories', 'card_info', 'fund_groups',
+    'stocks', 'etf', 'real_estate',
+    'income', 'budget', 'crypto', 'loans', 'pension', 'goals',
+    'cash_deposits', 'residence', 'app_settings', 'asset_snapshots', 'sold_real_estate',
+    'card_tx', 'card_mappings', 'card_category_rules',
+    'stock_tx', 'etf_tx',
+    'tenant_contracts', 'property_costs',
+    'fund_group_rules', 'monthly_fund_budgets',
+]
+
+
+@app.route('/api/backup')
+def api_backup():
+    """전체 테이블 데이터를 JSON 파일로 다운로드"""
+    db = get_db()
+    backup = {'version': '1.0', 'exported_at': datetime.now().isoformat(), 'tables': {}}
+    try:
+        for table in _BACKUP_INSERT_ORDER:
+            cur = db.cursor()
+            try:
+                cur.execute(f"SELECT * FROM {table}")
+                rows = cur.fetchall()
+                backup['tables'][table] = []
+                for row in rows:
+                    r = {}
+                    for k, v in dict(row).items():
+                        if isinstance(v, (date, datetime)):
+                            r[k] = v.isoformat()
+                        else:
+                            r[k] = v
+                    backup['tables'][table].append(r)
+            except Exception:
+                backup['tables'][table] = []
+            finally:
+                cur.close()
+    finally:
+        db.close()
+
+    filename = f"money_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    return Response(
+        json.dumps(backup, ensure_ascii=False, indent=2),
+        mimetype='application/json',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
+
+
+@app.route('/api/restore', methods=['POST'])
+def api_restore():
+    """업로드된 JSON 백업 파일로 전체 데이터 복구"""
+    import traceback
+    if 'file' not in request.files:
+        return jsonify({'error': '파일이 없습니다.'}), 400
+    f = request.files['file']
+    if not f.filename.endswith('.json'):
+        return jsonify({'error': 'JSON 파일만 업로드할 수 있습니다.'}), 400
+
+    try:
+        backup = json.loads(f.read().decode('utf-8'))
+    except Exception:
+        return jsonify({'error': '파일 파싱 실패: 올바른 JSON 형식이 아닙니다.'}), 400
+
+    if backup.get('version') != '1.0' or 'tables' not in backup:
+        return jsonify({'error': '지원하지 않는 백업 형식입니다.'}), 400
+
+    db = get_db()
+    try:
+        cur = db.cursor()
+        # 자식 → 부모 순서로 삭제
+        for table in _BACKUP_DELETE_ORDER:
+            try:
+                cur.execute(f"DELETE FROM {table}")
+            except Exception:
+                db.rollback()
+        cur.close()
+
+        tables = backup['tables']
+        for table in _BACKUP_INSERT_ORDER:
+            rows = tables.get(table, [])
+            if not rows:
+                continue
+            cols = list(rows[0].keys())
+            col_str = ', '.join(f'"{c}"' for c in cols)
+            placeholders = ', '.join(['%s'] * len(cols))
+            cur = db.cursor()
+            for row in rows:
+                vals = [row.get(c) for c in cols]
+                cur.execute(
+                    f"INSERT INTO {table} ({col_str}) VALUES ({placeholders}) ON CONFLICT DO NOTHING",
+                    vals
+                )
+            cur.close()
+
+            # 시퀀스 리셋 (id 컬럼이 있는 테이블)
+            if rows and 'id' in rows[0]:
+                cur = db.cursor()
+                try:
+                    cur.execute(
+                        f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+                        f"COALESCE((SELECT MAX(id) FROM {table}), 0) + 1, false)"
+                    )
+                except Exception:
+                    pass
+                cur.close()
+
+        db.commit()
+        total = sum(len(v) for v in tables.values())
+        return jsonify({'ok': True, 'restored_rows': total})
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': f'복구 실패: {traceback.format_exc()}'}), 500
+    finally:
+        db.close()
+
+
 if __name__ == '__main__':
     init_db()
     app.run(debug=True, port=5000)
