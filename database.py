@@ -252,6 +252,39 @@ def init_db():
             total           INTEGER DEFAULT 0,
             updated_at      TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS etf_tx (
+            id      SERIAL PRIMARY KEY,
+            etf_id  INTEGER NOT NULL REFERENCES etf(id),
+            tx_date TEXT    NOT NULL,
+            tx_type TEXT    NOT NULL,
+            price   INTEGER NOT NULL DEFAULT 0,
+            quantity REAL   NOT NULL DEFAULT 0,
+            fee     INTEGER DEFAULT 0,
+            memo    TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS sold_real_estate (
+            id              SERIAL PRIMARY KEY,
+            name            TEXT,
+            re_type         TEXT,
+            purchase_date   TEXT,
+            purchase_price  INTEGER DEFAULT 0,
+            real_inv        INTEGER DEFAULT 0,
+            sell_date       TEXT,
+            sell_price      INTEGER DEFAULT 0,
+            tax             INTEGER DEFAULT 0,
+            other_costs     INTEGER DEFAULT 0,
+            profit          INTEGER DEFAULT 0,
+            roi             REAL DEFAULT 0,
+            memo            TEXT,
+            created_at      TEXT
+        );
     """)
 
     conn.commit()
@@ -263,6 +296,10 @@ def init_db():
         "ALTER TABLE card_tx  ADD COLUMN category_locked   INTEGER DEFAULT 0",
         "ALTER TABLE card_tx  ADD COLUMN fund_group_id     INTEGER REFERENCES fund_groups(id)",
         "ALTER TABLE card_tx  ADD COLUMN fund_group_locked INTEGER DEFAULT 0",
+        # ETF 기존 데이터 → etf_tx 이전
+        "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo) "
+        "SELECT id, COALESCE(NULLIF(buy_date,''), TO_CHAR(NOW(),'YYYY-MM-DD')), 'buy', buy_price, quantity, 0, '기존데이터' "
+        "FROM etf WHERE quantity > 0 AND id NOT IN (SELECT DISTINCT etf_id FROM etf_tx)",
     ]
     for sql in migrations:
         try:

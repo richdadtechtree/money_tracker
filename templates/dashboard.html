@@ -5,6 +5,10 @@
 <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
   <h2 class="fw-bold mb-0"><i class="bi bi-speedometer2 me-2 text-primary"></i>대시보드</h2>
   <div class="d-flex gap-2 align-items-center">
+    <button class="btn btn-sm btn-outline-secondary" id="btnPrivacy" onclick="togglePrivacy()" title="프라이빗 모드">
+      <i class="bi bi-eye-slash" id="privacyIcon"></i>
+      <span class="ms-1 d-none d-sm-inline" id="privacyLabel">프라이빗</span>
+    </button>
     <select id="dashYear"  class="form-select form-select-sm" style="width:90px"></select>
     <select id="dashMonth" class="form-select form-select-sm" style="width:80px"></select>
     <button class="btn btn-sm btn-primary" onclick="reloadDashboard()">
@@ -25,7 +29,7 @@
           <div class="icon-box bg-primary-subtle text-primary me-3"><i class="bi bi-wallet2"></i></div>
           <span class="text-muted small">순자산</span>
         </div>
-        <div class="fs-4 fw-bold" id="kpi-networth">-</div>
+        <div class="fs-4 fw-bold amt" id="kpi-networth">-</div>
       </div>
     </div>
   </div>
@@ -36,7 +40,7 @@
           <div class="icon-box bg-success-subtle text-success me-3"><i class="bi bi-arrow-down-circle"></i></div>
           <span class="text-muted small" id="label-income">이번달 수입</span>
         </div>
-        <div class="fs-4 fw-bold text-success" id="kpi-income">-</div>
+        <div class="fs-4 fw-bold text-success amt" id="kpi-income">-</div>
       </div>
     </div>
   </div>
@@ -47,7 +51,7 @@
           <div class="icon-box bg-danger-subtle text-danger me-3"><i class="bi bi-arrow-up-circle"></i></div>
           <span class="text-muted small" id="label-expense">이번달 지출</span>
         </div>
-        <div class="fs-4 fw-bold text-danger" id="kpi-expense">-</div>
+        <div class="fs-4 fw-bold text-danger amt" id="kpi-expense">-</div>
       </div>
     </div>
   </div>
@@ -58,7 +62,7 @@
           <div class="icon-box bg-warning-subtle text-warning me-3"><i class="bi bi-bank"></i></div>
           <span class="text-muted small">총 대출잔액</span>
         </div>
-        <div class="fs-4 fw-bold text-warning" id="kpi-loans">-</div>
+        <div class="fs-4 fw-bold text-warning amt" id="kpi-loans">-</div>
       </div>
     </div>
   </div>
@@ -125,6 +129,24 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block styles %}
+<style>
+.privacy-mode .amt {
+  filter: blur(8px);
+  transition: filter 0.25s;
+  user-select: none;
+}
+.privacy-mode .amt:hover {
+  filter: blur(4px);
+}
+#btnPrivacy.active {
+  background-color: var(--bs-secondary);
+  color: #fff;
+  border-color: var(--bs-secondary);
+}
+</style>
 {% endblock %}
 
 {% block scripts %}

@@ -40,6 +40,7 @@
 <ul class="nav nav-tabs mb-3">
   <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-re">보유 부동산</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-residence">거주지 (전/월세)</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-sold">매도 부동산</a></li>
 </ul>
 
 <div class="tab-content">
@@ -65,6 +66,7 @@
                 <th class="text-end">실수익률</th>
                 <th class="text-end">평가손익</th>
                 <th class="text-center">상세</th>
+                <th class="text-center">매도</th>
                 <th class="text-center">삭제</th>
               </tr>
             </thead>
@@ -141,6 +143,30 @@
     </div>
   </div>
 
+  <!-- 매도 부동산 탭 -->
+  <div class="tab-pane fade" id="tab-sold">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="soldTable">
+            <thead class="table-light">
+              <tr>
+                <th>이름</th><th>유형</th><th>취득일</th>
+                <th class="text-end">취득가</th><th>매도일</th>
+                <th class="text-end">매도가</th><th class="text-end">세금</th>
+                <th class="text-end">기타비용</th>
+                <th class="text-end">차익</th><th class="text-end">수익률</th>
+                <th>메모</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody id="soldTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 거주지 탭 -->
   <div class="tab-pane fade" id="tab-residence">
     <div class="d-flex justify-content-end mb-3">
@@ -169,6 +195,88 @@
   </div>
 
 </div>
+<!-- 매도 모달 -->
+<div class="modal fade" id="sellModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold"><i class="bi bi-cash-coin me-2 text-danger"></i>매도 등록</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- 물건 정보 (읽기전용) -->
+        <div class="card bg-light border-0 mb-3">
+          <div class="card-body py-2">
+            <div class="fw-semibold mb-1" id="sell-name-display"></div>
+            <div class="d-flex gap-4">
+              <div>
+                <div class="text-muted" style="font-size:0.75rem">취득가</div>
+                <div class="fw-semibold small" id="sell-purchase-display"></div>
+              </div>
+              <div>
+                <div class="text-muted" style="font-size:0.75rem">실투자금</div>
+                <div class="fw-semibold small" id="sell-realinv-display"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">매도일 <span class="text-danger">*</span></label>
+          <input type="date" class="form-control" id="sell-date">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">매도가 <span class="text-danger">*</span></label>
+          <div class="input-group">
+            <input type="number" class="form-control" id="sell-price" placeholder="0" oninput="calcSellProfit()">
+            <span class="input-group-text">원</span>
+          </div>
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-6">
+            <label class="form-label fw-semibold">세금</label>
+            <div class="input-group">
+              <input type="number" class="form-control" id="sell-tax" placeholder="0" oninput="calcSellProfit()">
+              <span class="input-group-text">원</span>
+            </div>
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">기타 비용 <small class="text-muted fw-normal">(보수 등)</small></label>
+            <div class="input-group">
+              <input type="number" class="form-control" id="sell-other" placeholder="0" oninput="calcSellProfit()">
+              <span class="input-group-text">원</span>
+            </div>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">메모</label>
+          <input type="text" class="form-control" id="sell-memo" placeholder="선택 입력">
+        </div>
+
+        <!-- 계산 결과 -->
+        <div class="card border-success-subtle bg-success-subtle">
+          <div class="card-body py-2">
+            <div class="d-flex justify-content-between align-items-center">
+              <span class="small fw-semibold">차익 (매도가 - 취득가 - 세금 - 기타)</span>
+              <span class="fw-bold fs-6" id="sell-profit-display">-</span>
+            </div>
+            <div class="d-flex justify-content-between align-items-center mt-1">
+              <span class="small fw-semibold">수익률 (차익 / 실투자금)</span>
+              <span class="fw-bold fs-6" id="sell-roi-display">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-danger" onclick="confirmSell()">
+          <i class="bi bi-check-lg me-1"></i>매도 확정
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -271,6 +379,10 @@ const reGrid = new GridTable({
       compute: r => `<button class="btn btn-sm btn-outline-success py-0"
         onclick="event.stopPropagation();selectRE(${r.id},'${(r.name||'').replace(/'/g,"\\'")}')">
         <i class="bi bi-layout-sidebar-reverse"></i></button>` },
+    { key: '_sell', type: 'computed',
+      compute: r => `<button class="btn btn-sm btn-outline-danger py-0"
+        onclick="event.stopPropagation();openSellModal(${r.id},'${(r.name||'').replace(/'/g,"\\'")}',${r.purchase_price},${r.real_inv})">
+        <i class="bi bi-cash-coin me-1"></i>매도</button>` },
   ],
   apiUrl: '/api/real-estate',
   onSave:   () => loadSummary(),
@@ -369,6 +481,107 @@ const resGrid = new GridTable({
 });
 
 document.querySelector('[href="#tab-residence"]').addEventListener('shown.bs.tab', () => resGrid.load());
+document.querySelector('[href="#tab-sold"]').addEventListener('shown.bs.tab', () => loadSoldRE());
+
+// ── 매도 모달 ─────────────────────────────────────────────
+let sellTargetId = null;
+let sellPurchasePrice = 0;
+let sellRealInv = 0;
+
+function openSellModal(id, name, purchasePrice, realInv) {
+  sellTargetId = id;
+  sellPurchasePrice = purchasePrice;
+  sellRealInv = realInv;
+
+  document.getElementById('sell-name-display').textContent = name;
+  document.getElementById('sell-purchase-display').textContent = fmt(purchasePrice) + '원';
+  document.getElementById('sell-realinv-display').textContent = fmt(realInv) + '원';
+  document.getElementById('sell-date').value = '';
+  document.getElementById('sell-price').value = '';
+  document.getElementById('sell-tax').value = '';
+  document.getElementById('sell-other').value = '';
+  document.getElementById('sell-memo').value = '';
+  document.getElementById('sell-profit-display').textContent = '-';
+  document.getElementById('sell-roi-display').textContent = '-';
+
+  new bootstrap.Modal(document.getElementById('sellModal')).show();
+}
+
+function calcSellProfit() {
+  const sellPrice = parseInt(document.getElementById('sell-price').value) || 0;
+  const tax       = parseInt(document.getElementById('sell-tax').value)   || 0;
+  const other     = parseInt(document.getElementById('sell-other').value) || 0;
+  const profit    = sellPrice - sellPurchasePrice - tax - other;
+  const roi       = sellRealInv > 0 ? (profit / sellRealInv * 100).toFixed(1) : 0;
+
+  const profitEl = document.getElementById('sell-profit-display');
+  const roiEl    = document.getElementById('sell-roi-display');
+  profitEl.textContent = (profit >= 0 ? '+' : '') + fmt(profit) + '원';
+  profitEl.className   = 'fw-bold fs-6 ' + (profit >= 0 ? 'text-danger' : 'text-primary');
+  roiEl.textContent    = (roi >= 0 ? '+' : '') + roi + '%';
+  roiEl.className      = 'fw-bold fs-6 ' + (roi >= 0 ? 'text-danger' : 'text-primary');
+}
+
+async function confirmSell() {
+  const sellDate = document.getElementById('sell-date').value;
+  const sellPrice = parseInt(document.getElementById('sell-price').value) || 0;
+  if (!sellDate || !sellPrice) {
+    alert('매도일과 매도가를 입력해주세요.');
+    return;
+  }
+  const tax       = parseInt(document.getElementById('sell-tax').value)   || 0;
+  const other     = parseInt(document.getElementById('sell-other').value) || 0;
+  const memo      = document.getElementById('sell-memo').value;
+
+  const res = await fetch(`/api/real-estate/${sellTargetId}/sell`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sell_date: sellDate, sell_price: sellPrice, tax, other_costs: other, memo }),
+  });
+  if (!res.ok) { alert('매도 등록 실패'); return; }
+
+  bootstrap.Modal.getInstance(document.getElementById('sellModal')).hide();
+  await reGrid.load();
+  loadSummary();
+}
+
+// ── 매도 부동산 탭 ─────────────────────────────────────────
+async function loadSoldRE() {
+  const rows = await fetchJSON('/api/sold-real-estate');
+  const tbody = document.getElementById('soldTableBody');
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">매도 이력이 없습니다</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const profitCls = r.profit >= 0 ? 'text-danger fw-semibold' : 'text-primary fw-semibold';
+    const roiCls    = r.roi    >= 0 ? 'text-danger fw-semibold' : 'text-primary fw-semibold';
+    return `<tr>
+      <td>${r.name || '-'}</td>
+      <td>${r.re_type ? `<span class="badge bg-success-subtle text-success">${r.re_type}</span>` : '-'}</td>
+      <td>${r.purchase_date || '-'}</td>
+      <td class="text-end">${fmt(r.purchase_price)}원</td>
+      <td>${r.sell_date || '-'}</td>
+      <td class="text-end">${fmt(r.sell_price)}원</td>
+      <td class="text-end">${fmt(r.tax)}원</td>
+      <td class="text-end">${fmt(r.other_costs)}원</td>
+      <td class="text-end"><span class="${profitCls}">${r.profit >= 0 ? '+' : ''}${fmt(r.profit)}원</span></td>
+      <td class="text-end"><span class="${roiCls}">${r.roi >= 0 ? '+' : ''}${r.roi}%</span></td>
+      <td>${r.memo || '-'}</td>
+      <td class="text-center">
+        <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSoldRE(${r.id})">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function deleteSoldRE(sid) {
+  if (!confirm('매도 기록을 삭제하시겠습니까?')) return;
+  await fetch(`/api/sold-real-estate/${sid}`, { method: 'DELETE' });
+  loadSoldRE();
+}
 
 async function init() {
   await reGrid.load();

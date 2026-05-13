@@ -602,18 +602,41 @@ def api_etf():
     db = get_db()
     if request.method == 'GET':
         cur = db.cursor()
-        cur.execute("SELECT * FROM etf ORDER BY name")
+        cur.execute("""
+        SELECT e.id, e.name, e.ticker, e.current_price, e.etf_type, e.memo,
+          COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+          COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
+          COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity + t.fee ELSE 0 END), 0) AS total_buy_amount,
+          COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.price * t.quantity - t.fee ELSE 0 END), 0) AS total_sell_amount
+        FROM etf e
+        LEFT JOIN etf_tx t ON t.etf_id = e.id
+        GROUP BY e.id
+        ORDER BY e.name
+        """)
         rows = cur.fetchall()
         cur.close()
+        result = []
+        for row in rows:
+            r = dict(row)
+            qty      = r['buy_qty'] - r['sell_qty']
+            avg      = round(r['total_buy_amount'] / r['buy_qty']) if r['buy_qty'] else 0
+            eval_amt = round(qty * r['current_price'])
+            cost_amt = round(qty * avg)
+            r['quantity']       = qty
+            r['avg_price']      = avg
+            r['eval_amount']    = eval_amt
+            r['unrealized_pnl'] = eval_amt - cost_amt
+            r['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
+            r['realized_pnl']   = round(r['total_sell_amount'] - r['sell_qty'] * avg) if r['sell_qty'] else 0
+            result.append(r)
         db.close()
-        return jsonify(rows_to_list(rows))
+        return jsonify(result)
 
     data = request.json
     cur = db.cursor()
     cur.execute(
-    "INSERT INTO etf (name, ticker, buy_date, buy_price, quantity, current_price, etf_type, memo) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-    (data.get('name'), data.get('ticker'), data.get('buy_date'),
-    data.get('buy_price', 0), data.get('quantity', 0),
+    "INSERT INTO etf (name, ticker, current_price, etf_type, memo) VALUES (%s,%s,%s,%s,%s)",
+    (data.get('name'), data.get('ticker'),
     data.get('current_price', 0), data.get('etf_type'), data.get('memo'))
     )
     cur.close()
@@ -629,9 +652,8 @@ def api_etf_detail(rid):
         data = request.json
         cur = db.cursor()
         cur.execute(
-        "UPDATE etf SET name=%s, ticker=%s, buy_date=%s, buy_price=%s, quantity=%s, current_price=%s, etf_type=%s, memo=%s WHERE id=%s",
-        (data.get('name'), data.get('ticker'), data.get('buy_date'),
-        data.get('buy_price', 0), data.get('quantity', 0),
+        "UPDATE etf SET name=%s, ticker=%s, current_price=%s, etf_type=%s, memo=%s WHERE id=%s",
+        (data.get('name'), data.get('ticker'),
         data.get('current_price', 0), data.get('etf_type'), data.get('memo'), rid)
         )
         cur.close()
@@ -639,10 +661,62 @@ def api_etf_detail(rid):
         db.close()
         return jsonify({'ok': True})
     cur = db.cursor()
+    cur.execute("DELETE FROM etf_tx WHERE etf_id = %s", (rid,))
     cur.execute("DELETE FROM etf WHERE id = %s", (rid,))
     cur.close()
     db.commit()
     db.close()
+    return jsonify({'ok': True})
+
+
+# ── API: ETF 거래내역 ──────────────────────────────────────────
+@app.route('/api/etf-tx', methods=['GET', 'POST'])
+def api_etf_tx():
+    db = get_db()
+    if request.method == 'GET':
+        etf_id = request.args.get('etf_id')
+        query  = "SELECT t.*, e.name, e.ticker FROM etf_tx t LEFT JOIN etf e ON t.etf_id = e.id"
+        params = []
+        if etf_id:
+            query += " WHERE t.etf_id = %s"
+            params.append(etf_id)
+        query += " ORDER BY t.tx_date DESC, t.id DESC"
+        cur = db.cursor()
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        cur.close(); db.close()
+        return jsonify(rows_to_list(rows))
+
+    data = request.json
+    cur = db.cursor()
+    cur.execute(
+    "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+    (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'))
+    )
+    cur.close()
+    db.commit(); db.close()
+    return jsonify({'ok': True}), 201
+
+
+@app.route('/api/etf-tx/<int:rid>', methods=['PUT', 'DELETE'])
+def api_etf_tx_detail(rid):
+    db = get_db()
+    if request.method == 'DELETE':
+        cur = db.cursor()
+        cur.execute("DELETE FROM etf_tx WHERE id = %s", (rid,))
+        cur.close()
+        db.commit(); db.close()
+        return jsonify({'ok': True})
+    data = request.json
+    cur = db.cursor()
+    cur.execute(
+    "UPDATE etf_tx SET etf_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s WHERE id=%s",
+    (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), rid)
+    )
+    cur.close()
+    db.commit(); db.close()
     return jsonify({'ok': True})
 
 
@@ -1168,6 +1242,111 @@ def api_property_costs_detail(rid):
     return jsonify({'ok': True})
 
 
+# ── API: 앱 설정 ──────────────────────────────────────────────
+@app.route('/api/settings/<key>', methods=['GET', 'PUT'])
+def api_settings(key):
+    db = get_db()
+    cur = db.cursor()
+    if request.method == 'GET':
+        cur.execute("SELECT value FROM app_settings WHERE key=%s", (key,))
+        row = cur.fetchone()
+        cur.close(); db.close()
+        return jsonify({'key': key, 'value': row['value'] if row else None})
+    value = (request.json or {}).get('value')
+    cur.execute(
+        "INSERT INTO app_settings (key, value) VALUES (%s,%s) "
+        "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+        (key, value)
+    )
+    cur.close()
+    db.commit(); db.close()
+    return jsonify({'ok': True})
+
+
+# ── API: 매도 부동산 ──────────────────────────────────────────
+@app.route('/api/real-estate/<int:rid>/sell', methods=['POST'])
+def api_real_estate_sell(rid):
+    d = request.json or {}
+    db = get_db()
+    cur = db.cursor()
+
+    cur.execute("SELECT * FROM real_estate WHERE id=%s", (rid,))
+    re = cur.fetchone()
+    cur.close()
+    if not re:
+        db.close()
+        return jsonify({'error': '부동산을 찾을 수 없습니다'}), 404
+
+    # 취득비용 합계
+    cur = db.cursor()
+    cur.execute(
+        "SELECT COALESCE(SUM(amount),0) as v FROM property_costs "
+        "WHERE real_estate_id=%s AND cost_type='취득비용'", (rid,)
+    )
+    acq_cost = cur.fetchone()['v']
+    cur.close()
+
+    # 현재 보증금
+    cur = db.cursor()
+    cur.execute(
+        "SELECT COALESCE(deposit,0) as v FROM tenant_contracts "
+        "WHERE real_estate_id=%s ORDER BY end_date DESC LIMIT 1", (rid,)
+    )
+    row = cur.fetchone()
+    cur.close()
+    deposit = row['v'] if row else 0
+
+    purchase_price = re['purchase_price']
+    sell_price   = int(d.get('sell_price', 0))
+    tax          = int(d.get('tax', 0))
+    other_costs  = int(d.get('other_costs', 0))
+    real_inv     = purchase_price - deposit + acq_cost
+    profit       = sell_price - purchase_price - tax - other_costs
+    roi          = round(profit / real_inv * 100, 1) if real_inv > 0 else 0.0
+
+    from datetime import date
+    cur = db.cursor()
+    cur.execute(
+        "INSERT INTO sold_real_estate "
+        "(name, re_type, purchase_date, purchase_price, real_inv, sell_date, sell_price, tax, other_costs, profit, roi, memo, created_at) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        (re['name'], re['re_type'], re['purchase_date'], purchase_price, real_inv,
+         d.get('sell_date'), sell_price, tax, other_costs, profit, roi,
+         d.get('memo'), str(date.today()))
+    )
+    cur.close()
+
+    # 원본 데이터 삭제 (관련 레코드 먼저)
+    cur = db.cursor()
+    cur.execute("DELETE FROM tenant_contracts WHERE real_estate_id=%s", (rid,))
+    cur.execute("DELETE FROM property_costs WHERE real_estate_id=%s", (rid,))
+    cur.execute("DELETE FROM real_estate WHERE id=%s", (rid,))
+    cur.close()
+
+    db.commit(); db.close()
+    return jsonify({'ok': True, 'profit': profit, 'roi': roi}), 201
+
+
+@app.route('/api/sold-real-estate', methods=['GET'])
+def api_sold_real_estate():
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT * FROM sold_real_estate ORDER BY sell_date DESC")
+    rows = cur.fetchall()
+    cur.close(); db.close()
+    return jsonify(rows_to_list(rows))
+
+
+@app.route('/api/sold-real-estate/<int:sid>', methods=['DELETE'])
+def api_sold_real_estate_detail(sid):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("DELETE FROM sold_real_estate WHERE id=%s", (sid,))
+    cur.close()
+    db.commit(); db.close()
+    return jsonify({'ok': True})
+
+
 # ── API: 대출 ────────────────────────────────────────────────
 @app.route('/api/loans', methods=['GET', 'POST'])
 def api_loans():
@@ -1431,7 +1610,7 @@ def api_dashboard():
     # ETF 평가액
     cur = db.cursor()
     cur.execute(
-    "SELECT COALESCE(SUM(current_price * quantity),0) as val FROM etf"
+    "SELECT COALESCE(SUM(e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id)),0) as val FROM etf e"
     )
     etf_val = cur.fetchone()['val']
     cur.close()
@@ -1545,7 +1724,7 @@ def api_dashboard():
     stocks_cost = cur.fetchone()['c']
     cur.close()
     cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(buy_price * quantity),0) as c FROM etf")
+    cur.execute("SELECT COALESCE(SUM(price * quantity + fee),0) as c FROM etf_tx WHERE tx_type='buy'")
     etf_cost = cur.fetchone()['c']
     cur.close()
     cur = db.cursor()
@@ -1590,7 +1769,7 @@ def api_tech_tree_data():
     stocks_val = cur.fetchone()[0]
     cur.close()
     cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM etf")
+    cur.execute("SELECT COALESCE(SUM(e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id)),0) FROM etf e")
     etf_val = cur.fetchone()[0]
     cur.close()
     cur = db.cursor()
@@ -1623,13 +1802,7 @@ def api_tech_tree_data():
     cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
     cash_val = cur.fetchone()[0]
     cur.close()
-    # 목표저축 누계액 포함 (총 목표 설정용 제외)
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(current_amount), 0) FROM goals WHERE name != '자본주의테크트리'")
-    goal_savings = cur.fetchone()[0]
-    cur.close()
-    cash_val += goal_savings
-    
+
     # 연금 자산 추가
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
@@ -1852,7 +2025,7 @@ def api_tech_tree_yearly_stats():
     cur.close()
     
     cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM etf")
+    cur.execute("SELECT COALESCE(SUM(e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id)),0) FROM etf e")
     etf_val = cur.fetchone()[0] or 0
     cur.close()
     
@@ -1884,13 +2057,7 @@ def api_tech_tree_yearly_stats():
     cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
     cash_val = cur.fetchone()[0] or 0
     cur.close()
-    
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(current_amount), 0) FROM goals WHERE name != '자본주의테크트리'")
-    goal_savings = cur.fetchone()[0] or 0
-    cur.close()
-    cash_val += goal_savings
-    
+
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
     pension_val = cur.fetchone()[0] or 0
@@ -2076,10 +2243,6 @@ def api_asset_history():
     curr_cash = cur.fetchone()[0]
     cur.close()
     cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(current_amount), 0) FROM goals WHERE name != '자본주의테크트리'")
-    curr_cash += cur.fetchone()[0]
-    cur.close()
-    cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
     curr_pension = cur.fetchone()[0]
     cur.close()
@@ -2092,7 +2255,7 @@ def api_asset_history():
     curr_stocks = cur.fetchone()[0]
     cur.close()
     cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM etf")
+    cur.execute("SELECT COALESCE(SUM(e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id)),0) FROM etf e")
     curr_stocks += cur.fetchone()[0]
     cur.close()
     cur = db.cursor()
@@ -2298,7 +2461,7 @@ def api_tech_tree_detail():
         s = cur.fetchall()
         cur.close()
         cur = db.cursor()
-        cur.execute("SELECT 'ETF' as date, name, quantity * current_price as amount, ticker as memo FROM etf")
+        cur.execute("SELECT 'ETF' as date, e.name, e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id) as amount, e.ticker as memo FROM etf e")
         e = cur.fetchall()
         cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in s + e if r[2] > 0]

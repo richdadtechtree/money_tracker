@@ -94,26 +94,70 @@
 
   <!-- ETF 탭 -->
   <div class="tab-pane fade" id="tab-etf">
+    <!-- 포지션 헤더 -->
     <div class="d-flex justify-content-between align-items-center mb-3">
       <div class="text-muted small">
         평가총액: <strong id="etf-total" class="text-primary">-</strong> &nbsp;|&nbsp;
-        수익률: <strong id="etf-return">-</strong>
+        미실현손익: <strong id="etf-profit">-</strong> &nbsp;|&nbsp;
+        실현손익: <strong id="etf-realized">-</strong>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="etfGrid.addRow()">
-        <i class="bi bi-plus-lg me-1"></i>ETF 추가
+      <button class="btn btn-outline-primary btn-sm" onclick="etfGrid.addRow()">
+        <i class="bi bi-plus-lg me-1"></i>종목 등록
       </button>
     </div>
-    <div class="card border-0 shadow-sm">
+
+    <!-- 포지션 현황 -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 pt-3 pb-2 fw-semibold">
+        <i class="bi bi-bar-chart-fill me-2 text-primary"></i>포지션 현황
+      </div>
       <div class="card-body p-0">
         <div class="table-responsive">
           <table class="table table-hover mb-0" id="etfTable">
             <thead class="table-light">
               <tr>
-                <th>ETF명</th><th>티커</th><th>유형</th><th>매수일</th>
-                <th class="text-end">매수가</th><th class="text-end">수량</th>
+                <th>ETF명</th><th>티커</th><th>유형</th>
+                <th class="text-end">보유수량</th>
+                <th class="text-end">평균단가</th>
                 <th class="text-end">현재가</th>
+                <th class="text-end">평가액</th>
+                <th class="text-end">미실현손익</th>
+                <th class="text-end">수익률</th>
+                <th class="text-end">실현손익</th>
                 <th>메모</th>
-                <th class="text-end">평가액</th><th class="text-end">수익률</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 거래내역 -->
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-journal-text me-2 text-secondary"></i>매매 거래내역</span>
+        <div class="d-flex gap-2 align-items-center">
+          <select id="txEtfFilter" class="form-select form-select-sm" style="width:auto" onchange="etfTxGrid.load()">
+            <option value="">전체 종목</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="etfTxGrid.addRow()">
+            <i class="bi bi-plus-lg me-1"></i>거래 입력
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="etfTxTable">
+            <thead class="table-light">
+              <tr>
+                <th>날짜</th><th>종목</th><th>구분</th>
+                <th class="text-end">단가</th>
+                <th class="text-end">수량</th>
+                <th class="text-end">거래금액</th>
+                <th class="text-end">수수료</th>
+                <th>메모</th>
                 <th class="text-center">삭제</th>
               </tr>
             </thead>
@@ -242,32 +286,76 @@ const stockTxGrid = new GridTable({
   onDelete: () => stockGrid.load(),
 });
 
-// ── ETF ──
+// ── ETF 포지션 ──
+let allEtfs = [];
+
 const etfGrid = new GridTable({
   tableId: 'etfTable',
   columns: [
-    { key: 'name',          type: 'text' },
-    { key: 'ticker',        type: 'text' },
-    { key: 'etf_type',      type: 'select',
+    { key: 'name',    type: 'text' },
+    { key: 'ticker',  type: 'text' },
+    { key: 'etf_type', type: 'select',
       options: ['국내주식형','해외주식형','채권형','리츠형','원자재형','혼합형'],
       render: v => v ? `<span class="badge bg-primary-subtle text-primary">${v}</span>` : '-' },
-    { key: 'buy_date',      type: 'date' },
-    { key: 'buy_price',     type: 'number', align: 'end', render: v => fmt(v) },
-    { key: 'quantity',      type: 'number', align: 'end', step: 0.01 },
+    { key: '_qty',    type: 'computed', align: 'end',
+      compute: r => (r.quantity == null ? '-' : r.quantity % 1 === 0 ? r.quantity : r.quantity.toFixed(4)) },
+    { key: '_avg',    type: 'computed', align: 'end',
+      compute: r => r.avg_price != null ? fmt(r.avg_price) : '-' },
     { key: 'current_price', type: 'number', align: 'end', render: v => fmt(v) },
-    { key: 'memo',          type: 'text' },
     { key: '_eval',   type: 'computed', align: 'end',
-      compute: r => `<span class="fw-semibold">${fmt(Math.round(r.current_price * r.quantity))}원</span>` },
-    { key: '_return', type: 'computed', align: 'end',
-      compute: r => rateHtml(r.buy_price ? (r.current_price - r.buy_price) / r.buy_price * 100 : null) },
+      compute: r => r.eval_amount != null ? `<span class="fw-semibold">${fmt(r.eval_amount)}원</span>` : '-' },
+    { key: '_pnl',    type: 'computed', align: 'end',
+      compute: r => r.unrealized_pnl != null ? pnlHtml(r.unrealized_pnl) : '-' },
+    { key: '_rate',   type: 'computed', align: 'end',
+      compute: r => r.return_rate != null ? rateHtml(r.return_rate) : '-' },
+    { key: '_real',   type: 'computed', align: 'end',
+      compute: r => (r.sell_qty != null && r.sell_qty > 0) ? pnlHtml(r.realized_pnl) : '-' },
+    { key: 'memo',    type: 'text' },
   ],
   apiUrl: '/api/etf',
   onLoad: rows => {
-    let tv = 0, tc = 0;
-    rows.forEach(r => { tv += r.current_price * r.quantity; tc += r.buy_price * r.quantity; });
-    document.getElementById('etf-total').textContent = fmt(Math.round(tv)) + '원';
-    document.getElementById('etf-return').innerHTML  = rateHtml(tc ? (tv - tc) / tc * 100 : null);
+    allEtfs = rows;
+    const sel = document.getElementById('txEtfFilter');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">전체 종목</option>' +
+      rows.map(r => `<option value="${r.id}"${String(r.id) === cur ? ' selected' : ''}>${r.name}${r.ticker ? ` (${r.ticker})` : ''}</option>`).join('');
+    let tv = 0, tp = 0, tr = 0;
+    rows.forEach(r => { tv += r.eval_amount; tp += r.unrealized_pnl; tr += (r.realized_pnl || 0); });
+    document.getElementById('etf-total').textContent   = fmt(Math.round(tv)) + '원';
+    document.getElementById('etf-profit').innerHTML    = pnlHtml(tp);
+    document.getElementById('etf-realized').innerHTML  = pnlHtml(tr);
+    etfTxGrid.load();
   },
+});
+
+// ── ETF 거래내역 ──
+const etfTxGrid = new GridTable({
+  tableId: 'etfTxTable',
+  columns: [
+    { key: 'tx_date',  type: 'date' },
+    { key: 'etf_id',   type: 'select',
+      options: () => allEtfs.map(e => ({ value: String(e.id), label: e.name + (e.ticker ? ` (${e.ticker})` : '') })),
+      render: (v, row) => row.name || '-' },
+    { key: 'tx_type',  type: 'select',
+      options: [{value:'buy',label:'매수'},{value:'sell',label:'매도'}],
+      render: v => v === 'buy'
+        ? '<span class="badge bg-danger-subtle text-danger">매수</span>'
+        : '<span class="badge bg-primary-subtle text-primary">매도</span>' },
+    { key: 'price',    type: 'number', align: 'end', render: v => fmt(v) },
+    { key: 'quantity', type: 'number', align: 'end', step: 0.001 },
+    { key: '_amount',  type: 'computed', align: 'end',
+      compute: r => `<span class="fw-semibold">${fmt(Math.round(r.price * r.quantity))}원</span>` },
+    { key: 'fee',      type: 'number', align: 'end', render: v => v ? fmt(v) : '-' },
+    { key: 'memo',     type: 'text' },
+  ],
+  apiUrl: '/api/etf-tx',
+  getQueryParams: () => {
+    const eid = document.getElementById('txEtfFilter').value;
+    return eid ? `etf_id=${eid}` : '';
+  },
+  onLoad: () => {},
+  onSave:   () => etfGrid.load(),
+  onDelete: () => etfGrid.load(),
 });
 
 // ── 코인 ──
@@ -297,8 +385,9 @@ const cryptoGrid = new GridTable({
 });
 
 stockGrid.load();   // onLoad → allStocks 세팅 → stockTxGrid.load() 자동 호출
-etfGrid.load();
 cryptoGrid.load();
+
+document.querySelector('[href="#tab-etf"]').addEventListener('shown.bs.tab', () => etfGrid.load());
 
 async function updateAllPrices() {
   const btn = document.getElementById('priceUpdateBtn');

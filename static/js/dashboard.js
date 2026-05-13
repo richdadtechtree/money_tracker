@@ -256,7 +256,7 @@ function renderGoalsProgress(goals) {
     <div class="mb-3">
       <div class="d-flex justify-content-between mb-1">
         <span class="fw-semibold">${g.name}</span>
-        <span class="text-muted small">${fmt(g.current_amount)}원 / ${fmt(g.target_amount)}원 (${pct}%)</span>
+        <span class="text-muted small amt">${fmt(g.current_amount)}원 / ${fmt(g.target_amount)}원 (${pct}%)</span>
       </div>
       <div class="progress" style="height:12px">
         <div class="progress-bar ${barClass}" style="width:${pct}%" role="progressbar"></div>
@@ -265,5 +265,38 @@ function renderGoalsProgress(goals) {
   }).join('');
 }
 
+// ── 프라이빗 모드 ─────────────────────────────────────────────
+async function initPrivacyMode() {
+  const res = await fetchJSON('/api/settings/privacyMode');
+  applyPrivacyMode(res?.value === 'true');
+}
+
+async function togglePrivacy() {
+  const on = !document.body.classList.contains('privacy-mode');
+  applyPrivacyMode(on);
+  await fetch('/api/settings/privacyMode', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: String(on) }),
+  });
+}
+
+function applyPrivacyMode(on) {
+  document.body.classList.toggle('privacy-mode', on);
+  const btn   = document.getElementById('btnPrivacy');
+  const icon  = document.getElementById('privacyIcon');
+  const label = document.getElementById('privacyLabel');
+  if (on) {
+    btn.classList.add('active');
+    icon.className  = 'bi bi-eye-slash-fill';
+    label.textContent = '프라이빗 ON';
+  } else {
+    btn.classList.remove('active');
+    icon.className  = 'bi bi-eye-slash';
+    label.textContent = '프라이빗';
+  }
+}
+
 // 페이지 로드 시 실행
+initPrivacyMode();
 loadDashboard();

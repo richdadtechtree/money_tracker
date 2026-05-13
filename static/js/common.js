@@ -271,6 +271,44 @@ class GridTable {
   }
 }
 
+// ── Dark Mode ─────────────────────────────────────────────────
+async function initDarkMode() {
+  // 깜빡임 방지: 로컬에서 즉시 적용 후 DB 확인
+  const cached = localStorage.getItem('darkMode');
+  if (cached === 'true') applyDarkMode(true, false);
+
+  const res = await fetchJSON('/api/settings/darkMode');
+  const on = res?.value === 'true';
+  if (String(on) !== cached) localStorage.setItem('darkMode', on);
+  applyDarkMode(on, false);
+}
+
+async function toggleDarkMode() {
+  const on = !document.body.classList.contains('dark-mode');
+  localStorage.setItem('darkMode', on);
+  applyDarkMode(on, true);
+  await fetch('/api/settings/darkMode', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: String(on) }),
+  });
+}
+
+function applyDarkMode(on, animate = true) {
+  if (!animate) document.body.style.transition = 'none';
+  document.body.classList.toggle('dark-mode', on);
+  if (!animate) requestAnimationFrame(() => { document.body.style.transition = ''; });
+
+  const icon  = document.getElementById('darkModeIcon');
+  const label = document.getElementById('darkModeLabel');
+  const btn   = document.getElementById('btnDarkMode');
+  if (icon)  icon.className  = on ? 'bi bi-sun' : 'bi bi-moon-stars';
+  if (label) label.textContent = on ? '라이트 모드' : '다크 모드';
+  if (btn)   btn.title = on ? '라이트 모드로 전환' : '다크 모드로 전환';
+}
+
+document.addEventListener('DOMContentLoaded', initDarkMode);
+
 /** 년도/월 셀렉트 초기화 */
 function initYearMonthFilters(yearId, monthId, defaultYear, defaultMonth) {
   const yearSel  = document.getElementById(yearId);
