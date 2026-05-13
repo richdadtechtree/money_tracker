@@ -778,58 +778,43 @@ def _is_krx_ticker(ticker: str) -> bool:
     return bool(re.match(r'^\d{6}$', ticker))
 
 
-def _fetch_krx_price(ticker: str) -> float | None:
-    """pykrx로 국내 주식 최근 종가 조회"""
-    if not HAS_PYKRX:
-        return None
+def _fetch_naver_price(ticker: str) -> float | None:
+    """Naver Finance 모바일 API로 국내 주식 현재가 조회"""
     try:
-        from datetime import date, timedelta
-        end = date.today().strftime('%Y%m%d')
-        start = (date.today() - timedelta(days=7)).strftime('%Y%m%d')
-        df = krx_stock.get_market_ohlcv_by_date(start, end, ticker)
-        if not df.empty:
-            return float(df['종가'].iloc[-1])
+        res = http_req.get(
+            f'https://m.stock.naver.com/api/stock/{ticker}/basic',
+            timeout=8,
+            headers={'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
+        )
+        if res.ok:
+            data = res.json()
+            price_str = data.get('closePrice') or data.get('currentPrice') or data.get('stockEndPrice')
+            if price_str:
+                return float(str(price_str).replace(',', ''))
     except Exception:
         pass
     return None
 
 
 def _fetch_yf_price(ticker: str) -> float | None:
-    """yfinance로 해외 주식/ETF 현재가 조회 (국내 6자리는 .KS/.KQ 변환 fallback)"""
+    """yfinance로 해외 주식/ETF 현재가 조회"""
     if not HAS_YFINANCE:
         return None
-    yf_sym = (ticker + '.KS') if _is_krx_ticker(ticker) else ticker
-    
     import requests
     session = requests.Session()
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     })
-    
     for attempt in range(2):
         try:
-            t_obj = yf.Ticker(yf_sym, session=session)
-            # 1. fast_info 우선 조회
+            t_obj = yf.Ticker(ticker, session=session)
             info = t_obj.fast_info
             price = info.last_price
             if price and price > 0:
                 return float(price)
-            
-            # 2. fast_info 실패 시 history 백업 조회
-            df = t_obj.history(period='1d')
+            df = t_obj.history(period='5d')
             if not df.empty:
                 return float(df['Close'].iloc[-1])
-                
-            # KS → KQ fallback
-            if yf_sym.endswith('.KS'):
-                t_obj2 = yf.Ticker(ticker + '.KQ', session=session)
-                info2 = t_obj2.fast_info
-                price2 = info2.last_price
-                if price2 and price2 > 0:
-                    return float(price2)
-                df2 = t_obj2.history(period='1d')
-                if not df2.empty:
-                    return float(df2['Close'].iloc[-1])
         except Exception:
             if attempt == 0:
                 time.sleep(1)
@@ -837,11 +822,23 @@ def _fetch_yf_price(ticker: str) -> float | None:
 
 
 def _fetch_stock_price(ticker: str) -> float | None:
-    """국내는 pykrx 우선, 실패 시 yfinance. 해외는 yfinance."""
+    """국내(6자리)는 Naver Finance, 해외는 yfinance."""
     if _is_krx_ticker(ticker):
-        price = _fetch_krx_price(ticker)
+        price = _fetch_naver_price(ticker)
         if price:
             return price
+        # pykrx fallback (설치된 경우)
+        if HAS_PYKRX:
+            try:
+                from datetime import date, timedelta
+                end = date.today().strftime('%Y%m%d')
+                start = (date.today() - timedelta(days=7)).strftime('%Y%m%d')
+                df = krx_stock.get_market_ohlcv_by_date(start, end, ticker)
+                if not df.empty:
+                    return float(df['종가'].iloc[-1])
+            except Exception:
+                pass
+        return None
     return _fetch_yf_price(ticker)
 
 
