@@ -1611,7 +1611,7 @@ def _api_dashboard_inner():
     FROM stock_tx WHERE stock_id = s.id
     )), 0) AS val FROM stocks s
     """)
-    stocks_val = cur.fetchone()['val']
+    stocks_val = float(cur.fetchone()['val'] or 0)
     cur.close()
 
     # ETF 평가액
@@ -1619,7 +1619,7 @@ def _api_dashboard_inner():
     cur.execute(
     "SELECT COALESCE(SUM(e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id)),0) as val FROM etf e"
     )
-    etf_val = cur.fetchone()['val']
+    etf_val = float(cur.fetchone()['val'] or 0)
     cur.close()
 
     # 코인 평가액
@@ -1627,24 +1627,24 @@ def _api_dashboard_inner():
     cur.execute(
     "SELECT COALESCE(SUM(current_price * quantity),0) as val FROM crypto"
     )
-    crypto_val = cur.fetchone()['val']
+    crypto_val = float(cur.fetchone()['val'] or 0)
     cur.close()
 
     # 부동산 현재가 (시세 - 임대보증금 + 거주보증금)
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
-    re_total_price = cur.fetchone()[0]
+    re_total_price = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("""
-    SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts 
+    SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts
     WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
     """)
-    re_total_deposit = cur.fetchone()[0]
+    re_total_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
-    residence_deposit = cur.fetchone()[0]
+    residence_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
     re_val = re_total_price - re_total_deposit + residence_deposit
 
@@ -1653,7 +1653,7 @@ def _api_dashboard_inner():
     cur.execute(
     "SELECT COALESCE(SUM(accumulated),0) as val FROM pension"
     )
-    pension_val = cur.fetchone()['val']
+    pension_val = float(cur.fetchone()['val'] or 0)
     cur.close()
 
     # 현금/예금
@@ -1661,7 +1661,7 @@ def _api_dashboard_inner():
     cur.execute(
     "SELECT COALESCE(SUM(amount),0) as val FROM cash_deposits"
     )
-    cash_val = cur.fetchone()['val']
+    cash_val = float(cur.fetchone()['val'] or 0)
     cur.close()
 
     # 대출 잔액
@@ -1669,7 +1669,7 @@ def _api_dashboard_inner():
     cur.execute(
     "SELECT COALESCE(SUM(remaining),0) as total FROM loans"
     )
-    loan_total = cur.fetchone()['total']
+    loan_total = float(cur.fetchone()['total'] or 0)
     cur.close()
 
     total_assets = stocks_val + etf_val + crypto_val + re_val + pension_val + cash_val
@@ -1773,47 +1773,47 @@ def api_tech_tree_data():
     # 자산 현황
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(s.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id)), 0) FROM stocks s")
-    stocks_val = cur.fetchone()[0]
+    stocks_val = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id)),0) FROM etf e")
-    etf_val = cur.fetchone()[0]
+    etf_val = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
-    crypto_val = cur.fetchone()[0]
+    crypto_val = float(cur.fetchone()[0] or 0)
     cur.close()
     # 부동산 가치 계산 (현재 시세 총합 - 임대 보증금 총합)
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
-    re_total_price = cur.fetchone()[0]
+    re_total_price = float(cur.fetchone()[0] or 0)
     cur.close()
     # 각 부동산별 가장 최근 계약의 보증금 합계
     cur = db.cursor()
     cur.execute("""
-    SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts 
+    SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts
     WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
     """)
-    re_total_deposit = cur.fetchone()[0]
+    re_total_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
-    
+
     # 거주지 보증금 (본인이 돌려받을 돈이므로 자산에 포함)
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
-    residence_deposit = cur.fetchone()[0]
+    residence_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
-    
+
     re_val = re_total_price - re_total_deposit + residence_deposit
-    
+
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
-    cash_val = cur.fetchone()[0]
+    cash_val = float(cur.fetchone()[0] or 0)
     cur.close()
 
     # 연금 자산 추가
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
-    pension_val = cur.fetchone()[0]
+    pension_val = float(cur.fetchone()[0] or 0)
     cur.close()
     
     # 소득 현황 (이번달 기준, 오늘 이후 날짜의 반복 수입 등은 제외)
@@ -2247,39 +2247,39 @@ def api_asset_history():
     # 현재 실시간 자산 상태 (역산용 기준점)
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
-    curr_cash = cur.fetchone()[0]
+    curr_cash = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
-    curr_pension = cur.fetchone()[0]
+    curr_pension = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(monthly_payment),0) FROM pension")
-    p_monthly = cur.fetchone()[0]
+    p_monthly = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(s.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id)), 0) FROM stocks s")
-    curr_stocks = cur.fetchone()[0]
+    curr_stocks = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id)),0) FROM etf e")
-    curr_stocks += cur.fetchone()[0]
+    curr_stocks += float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
-    curr_crypto = cur.fetchone()[0]
+    curr_crypto = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
-    re_price = cur.fetchone()[0]
+    re_price = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)")
-    re_dep = cur.fetchone()[0]
+    re_dep = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
-    res_dep = cur.fetchone()[0]
+    res_dep = float(cur.fetchone()[0] or 0)
     cur.close()
     curr_re = re_price - re_dep + res_dep
 
