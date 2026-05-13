@@ -850,113 +850,127 @@ def _fetch_coingecko_prices(symbols: list[str]) -> dict[str, float]:
     """CoinGecko로 심볼 목록의 KRW 현재가 조회. {symbol_upper: price}"""
     if not symbols:
         return {}
-    try:
-        # 심볼 → id 매핑 (캐싱 없이 간단히 /simple/price의 ids 파라미터로 처리)
-        # CoinGecko simple/price는 id(슬러그)를 받으므로 먼저 목록에서 id 획득
-        list_res = http_req.get(
-            'https://api.coingecko.com/api/v3/coins/list',
-            timeout=10
-        )
-        if not list_res.ok:
-            return {}
-        coin_list = list_res.json()
-        sym_upper = [s.upper() for s in symbols]
-        # 심볼 → id 매핑 (동일 심볼 여러 개일 수 있어 첫 번째 사용)
-        sym_to_id = {}
-        for coin in coin_list:
-            s = coin['symbol'].upper()
-            if s in sym_upper and s not in sym_to_id:
-                sym_to_id[s] = coin['id']
+    result = {}
+    for sym in symbols:
+        try:
+            # /search 로 심볼 → coin id 획득 (전체 목록 다운로드 대신)
+            search_res = http_req.get(
+                'https://api.coingecko.com/api/v3/search',
+                params={'query': sym},
+                timeout=8
+            )
+            if not search_res.ok:
+                continue
+            coins = search_res.json().get('coins', [])
+            coin_id = None
+            for coin in coins:
+                if coin.get('symbol', '').upper() == sym.upper():
+                    coin_id = coin['id']
+                    break
+            if not coin_id:
+                continue
 
-        ids = list(sym_to_id.values())
-        if not ids:
-            return {}
-
-        price_res = http_req.get(
-            'https://api.coingecko.com/api/v3/simple/price',
-            params={'ids': ','.join(ids), 'vs_currencies': 'krw'},
-            timeout=10
-        )
-        if not price_res.ok:
-            return {}
-        price_data = price_res.json()
-
-        result = {}
-        for sym, cid in sym_to_id.items():
-            p = price_data.get(cid, {}).get('krw')
+            price_res = http_req.get(
+                'https://api.coingecko.com/api/v3/simple/price',
+                params={'ids': coin_id, 'vs_currencies': 'krw'},
+                timeout=8
+            )
+            if not price_res.ok:
+                continue
+            p = price_res.json().get(coin_id, {}).get('krw')
             if p:
-                result[sym] = float(p)
-        return result
-    except Exception:
-        return {}
+                result[sym.upper()] = float(p)
+        except Exception:
+            continue
+    return result
 
 
 @app.route('/api/price-update', methods=['POST'])
 def api_price_update():
     """등록된 모든 종목(주식/ETF/코인)의 현재가를 외부 API로 조회 후 DB 업데이트"""
+    import traceback
     db = get_db()
     results = {'stocks': [], 'etf': [], 'crypto': [], 'errors': []}
 
-    # ── 주식 ──
-    cur = db.cursor()
-    cur.execute("SELECT id, name, ticker FROM stocks WHERE ticker IS NOT NULL AND ticker != ''")
-    stock_rows = cur.fetchall()
-    cur.close()
+    try:
+        # ── 주식 ──
+        cur = db.cursor()
+        cur.execute("SELECT id, name, ticker FROM stocks WHERE ticker IS NOT NULL AND ticker != ''")
+        stock_rows = cur.fetchall()
+        cur.close()
 
-    for row in stock_rows:
-        sid, name, ticker = row['id'], row['name'], row['ticker']
-        price = _fetch_stock_price(ticker)
-        if price:
-            cur = db.cursor()
-            cur.execute("UPDATE stocks SET current_price = %s WHERE id = %s", (price, sid))
-            cur.close()
-            results['stocks'].append({'id': sid, 'name': name, 'ticker': ticker, 'price': price, 'ok': True})
-        else:
-            results['errors'].append(f"주식 [{name}({ticker})]: 가격 조회 실패")
-            results['stocks'].append({'id': sid, 'name': name, 'ticker': ticker, 'price': None, 'ok': False})
-
-    # ── ETF ──
-    cur = db.cursor()
-    cur.execute("SELECT id, name, ticker FROM etf WHERE ticker IS NOT NULL AND ticker != ''")
-    etf_rows = cur.fetchall()
-    cur.close()
-
-    for row in etf_rows:
-        eid, name, ticker = row['id'], row['name'], row['ticker']
-        price = _fetch_stock_price(ticker)
-        if price:
-            cur = db.cursor()
-            cur.execute("UPDATE etf SET current_price = %s WHERE id = %s", (price, eid))
-            cur.close()
-            results['etf'].append({'id': eid, 'name': name, 'ticker': ticker, 'price': price, 'ok': True})
-        else:
-            results['errors'].append(f"ETF [{name}({ticker})]: 가격 조회 실패")
-            results['etf'].append({'id': eid, 'name': name, 'ticker': ticker, 'price': None, 'ok': False})
-
-    # ── 코인 ──
-    cur = db.cursor()
-    cur.execute("SELECT id, name, symbol FROM crypto WHERE symbol IS NOT NULL AND symbol != ''")
-    crypto_rows = cur.fetchall()
-    cur.close()
-
-    if crypto_rows:
-        symbols = [row['symbol'] for row in crypto_rows]
-        cg_prices = _fetch_coingecko_prices(symbols)
-
-        for row in crypto_rows:
-            cid, name, symbol = row['id'], row['name'], row['symbol']
-            price = cg_prices.get(symbol.upper())
+        for row in stock_rows:
+            sid, name, ticker = row['id'], row['name'], row['ticker']
+            try:
+                price = _fetch_stock_price(ticker)
+            except Exception as e:
+                price = None
+                results['errors'].append(f"주식 [{name}({ticker})]: {e}")
             if price:
                 cur = db.cursor()
-                cur.execute("UPDATE crypto SET current_price = %s WHERE id = %s", (price, cid))
+                cur.execute("UPDATE stocks SET current_price = %s WHERE id = %s", (price, sid))
                 cur.close()
-                results['crypto'].append({'id': cid, 'name': name, 'symbol': symbol, 'price': price, 'ok': True})
+                results['stocks'].append({'id': sid, 'name': name, 'ticker': ticker, 'price': price, 'ok': True})
             else:
-                results['errors'].append(f"코인 [{name}({symbol})]: 가격 조회 실패")
-                results['crypto'].append({'id': cid, 'name': name, 'symbol': symbol, 'price': None, 'ok': False})
+                if not any(f"주식 [{name}({ticker})]" in e for e in results['errors']):
+                    results['errors'].append(f"주식 [{name}({ticker})]: 가격 조회 실패")
+                results['stocks'].append({'id': sid, 'name': name, 'ticker': ticker, 'price': None, 'ok': False})
 
-    db.commit()
-    db.close()
+        # ── ETF ──
+        cur = db.cursor()
+        cur.execute("SELECT id, name, ticker FROM etf WHERE ticker IS NOT NULL AND ticker != ''")
+        etf_rows = cur.fetchall()
+        cur.close()
+
+        for row in etf_rows:
+            eid, name, ticker = row['id'], row['name'], row['ticker']
+            try:
+                price = _fetch_stock_price(ticker)
+            except Exception as e:
+                price = None
+                results['errors'].append(f"ETF [{name}({ticker})]: {e}")
+            if price:
+                cur = db.cursor()
+                cur.execute("UPDATE etf SET current_price = %s WHERE id = %s", (price, eid))
+                cur.close()
+                results['etf'].append({'id': eid, 'name': name, 'ticker': ticker, 'price': price, 'ok': True})
+            else:
+                if not any(f"ETF [{name}({ticker})]" in e for e in results['errors']):
+                    results['errors'].append(f"ETF [{name}({ticker})]: 가격 조회 실패")
+                results['etf'].append({'id': eid, 'name': name, 'ticker': ticker, 'price': None, 'ok': False})
+
+        # ── 코인 ──
+        cur = db.cursor()
+        cur.execute("SELECT id, name, symbol FROM crypto WHERE symbol IS NOT NULL AND symbol != ''")
+        crypto_rows = cur.fetchall()
+        cur.close()
+
+        if crypto_rows:
+            symbols = [row['symbol'] for row in crypto_rows]
+            try:
+                cg_prices = _fetch_coingecko_prices(symbols)
+            except Exception as e:
+                cg_prices = {}
+                results['errors'].append(f"코인 가격 조회 오류: {e}")
+
+            for row in crypto_rows:
+                cid, name, symbol = row['id'], row['name'], row['symbol']
+                price = cg_prices.get(symbol.upper())
+                if price:
+                    cur = db.cursor()
+                    cur.execute("UPDATE crypto SET current_price = %s WHERE id = %s", (price, cid))
+                    cur.close()
+                    results['crypto'].append({'id': cid, 'name': name, 'symbol': symbol, 'price': price, 'ok': True})
+                else:
+                    results['errors'].append(f"코인 [{name}({symbol})]: 가격 조회 실패")
+                    results['crypto'].append({'id': cid, 'name': name, 'symbol': symbol, 'price': None, 'ok': False})
+
+        db.commit()
+    except Exception as e:
+        results['errors'].append(f"서버 오류: {traceback.format_exc()}")
+    finally:
+        db.close()
+
     return jsonify(results)
 
 
