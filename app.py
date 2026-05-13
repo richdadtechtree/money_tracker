@@ -220,31 +220,34 @@ def api_budget():
 
         # 고정/변동지출 자동 생성 (해당 월에 아직 없는 경우)
         if year and month:
-            ym = f"{year}-{month.zfill(2)}"
-            cur = db.cursor()
-            cur.execute("SELECT * FROM budget_recurring WHERE active = TRUE")
-            recurrings = rows_to_list(cur.fetchall())
-            cur.close()
-            for rec in recurrings:
+            try:
+                ym = f"{year}-{month.zfill(2)}"
                 cur = db.cursor()
-                cur.execute(
-                    "SELECT id FROM budget WHERE recurring_id=%s AND to_char(date::date,'YYYY-MM')=%s",
-                    (rec['id'], ym)
-                )
-                exists = cur.fetchone()
+                cur.execute("SELECT * FROM budget_recurring WHERE active = TRUE")
+                recurrings = rows_to_list(cur.fetchall())
                 cur.close()
-                if not exists:
-                    date_str = f"{year}-{month.zfill(2)}-01"
+                for rec in recurrings:
                     cur = db.cursor()
                     cur.execute(
-                        "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id,recurring_id) "
-                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (date_str, rec['category'], rec['name'], rec['type'],
-                         rec['payment_method'], rec['amount'], rec['memo'],
-                         rec['card_id'], rec['id'])
+                        "SELECT id FROM budget WHERE recurring_id=%s AND to_char(date::date,'YYYY-MM')=%s",
+                        (rec['id'], ym)
                     )
+                    exists = cur.fetchone()
                     cur.close()
-            db.commit()
+                    if not exists:
+                        date_str = f"{year}-{month.zfill(2)}-01"
+                        cur = db.cursor()
+                        cur.execute(
+                            "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id,recurring_id) "
+                            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (date_str, rec['category'], rec['name'], rec['type'],
+                             rec['payment_method'], rec['amount'], rec['memo'],
+                             rec['card_id'], rec['id'])
+                        )
+                        cur.close()
+                db.commit()
+            except Exception:
+                db.rollback()
 
         query = """SELECT b.*, c.card_name
                    FROM budget b
@@ -265,27 +268,43 @@ def api_budget():
     type_ = data.get('type', '')
     recurring_id = None
 
-    # 고정/변동지출이면 반복 마스터 생성
+    # 고정/변동지출이면 반복 마스터 생성 (테이블 미존재 시 무시)
     if type_ in ('고정지출', '변동지출'):
+        try:
+            cur = db.cursor()
+            cur.execute(
+                "INSERT INTO budget_recurring (name,category,type,payment_method,card_id,amount,memo) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                (data.get('name'), data.get('category'), type_,
+                 data.get('payment_method'), data.get('card_id') or None,
+                 data['amount'], data.get('memo'))
+            )
+            recurring_id = cur.fetchone()[0]
+            cur.close()
+        except Exception:
+            db.rollback()
+            recurring_id = None
+
+    # recurring_id 컬럼 존재 여부에 따라 INSERT 분기
+    cur = db.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id,recurring_id) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (data['date'], data.get('category'), data.get('name'), type_,
+             data.get('payment_method'), data['amount'], data.get('memo'),
+             data.get('card_id') or None, recurring_id)
+        )
+    except Exception:
+        db.rollback()
         cur = db.cursor()
         cur.execute(
-            "INSERT INTO budget_recurring (name,category,type,payment_method,card_id,amount,memo) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (data.get('name'), data.get('category'), type_,
-             data.get('payment_method'), data.get('card_id') or None,
-             data['amount'], data.get('memo'))
+            "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (data['date'], data.get('category'), data.get('name'), type_,
+             data.get('payment_method'), data['amount'], data.get('memo'),
+             data.get('card_id') or None)
         )
-        recurring_id = cur.fetchone()[0]
-        cur.close()
-
-    cur = db.cursor()
-    cur.execute(
-        "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id,recurring_id) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (data['date'], data.get('category'), data.get('name'), type_,
-         data.get('payment_method'), data['amount'], data.get('memo'),
-         data.get('card_id') or None, recurring_id)
-    )
     budget_id = cur.fetchone()[0]
     cur.close()
     _sync_card_tx(db, budget_id, data)
@@ -301,13 +320,18 @@ def api_budget_detail(rid):
         data = request.json
         type_ = data.get('type', '')
 
-        # 현재 행의 recurring_id, date 조회
-        cur = db.cursor()
-        cur.execute("SELECT recurring_id, date FROM budget WHERE id=%s", (rid,))
-        row = cur.fetchone()
-        recurring_id = row[0] if row else None
-        row_date     = row[1] if row else None
-        cur.close()
+        # 현재 행의 recurring_id, date 조회 (컬럼 없으면 None)
+        try:
+            cur = db.cursor()
+            cur.execute("SELECT recurring_id, date FROM budget WHERE id=%s", (rid,))
+            row = cur.fetchone()
+            recurring_id = row[0] if row else None
+            row_date     = row[1] if row else None
+            cur.close()
+        except Exception:
+            db.rollback()
+            recurring_id = None
+            row_date     = None
 
         cur = db.cursor()
         cur.execute(
@@ -320,22 +344,25 @@ def api_budget_detail(rid):
 
         # 고정지출: 마스터 + 이후 모든 월 동기화
         if type_ == '고정지출' and recurring_id:
-            cur = db.cursor()
-            cur.execute(
-                "UPDATE budget_recurring SET name=%s,category=%s,payment_method=%s,card_id=%s,amount=%s,memo=%s WHERE id=%s",
-                (data.get('name'), data.get('category'), data.get('payment_method'),
-                 data.get('card_id') or None, data.get('amount', 0), data.get('memo'), recurring_id)
-            )
-            cur.close()
-            cur = db.cursor()
-            cur.execute(
-                "UPDATE budget SET name=%s,category=%s,payment_method=%s,card_id=%s,amount=%s,memo=%s "
-                "WHERE recurring_id=%s AND date > %s",
-                (data.get('name'), data.get('category'), data.get('payment_method'),
-                 data.get('card_id') or None, data.get('amount', 0), data.get('memo'),
-                 recurring_id, row_date)
-            )
-            cur.close()
+            try:
+                cur = db.cursor()
+                cur.execute(
+                    "UPDATE budget_recurring SET name=%s,category=%s,payment_method=%s,card_id=%s,amount=%s,memo=%s WHERE id=%s",
+                    (data.get('name'), data.get('category'), data.get('payment_method'),
+                     data.get('card_id') or None, data.get('amount', 0), data.get('memo'), recurring_id)
+                )
+                cur.close()
+                cur = db.cursor()
+                cur.execute(
+                    "UPDATE budget SET name=%s,category=%s,payment_method=%s,card_id=%s,amount=%s,memo=%s "
+                    "WHERE recurring_id=%s AND date > %s",
+                    (data.get('name'), data.get('category'), data.get('payment_method'),
+                     data.get('card_id') or None, data.get('amount', 0), data.get('memo'),
+                     recurring_id, row_date)
+                )
+                cur.close()
+            except Exception:
+                db.rollback()
 
         _sync_card_tx(db, rid, data)
         db.commit()
