@@ -1554,7 +1554,7 @@ def api_goals():
     db = get_db()
     if request.method == 'GET':
         cur = db.cursor()
-        cur.execute("SELECT * FROM goals ORDER BY target_date")
+        cur.execute("SELECT * FROM goals WHERE name != '자본주의테크트리' ORDER BY target_date")
         rows = cur.fetchall()
         cur.close()
         db.close()
@@ -1868,26 +1868,26 @@ def _api_dashboard_inner():
     loans_list = cur.fetchall()
     cur.close()
 
-    # 목표 자산 목록 (자본주의테크트리인 경우 실시간 순자산 가치로 덮어쓰기)
+    # 목표저축 목록 (자본주의테크트리 항목 제외)
     cur = db.cursor()
     cur.execute(
-    "SELECT name, target_amount, current_amount FROM goals ORDER BY target_date"
+    "SELECT name, target_amount, current_amount FROM goals WHERE name != '자본주의테크트리' ORDER BY target_date"
     )
     raw_goals = cur.fetchall()
     cur.close()
 
-    goals_list = []
-    for g in raw_goals:
-        name = g['name']
-        target_amount = g['target_amount']
-        # '자본주의테크트리' 목표인 경우, 정적 컬럼 대신 실시간 순자산(net_worth)을 동적으로 반영해 데이터 부정합 차단
-        current_amount = int(net_worth) if name == '자본주의테크트리' else g['current_amount']
-        display_name = '자본주의테크트리 (목표 자산)' if name == '자본주의테크트리' else name
-        
+    goals_list = [{'name': g['name'], 'target_amount': g['target_amount'], 'current_amount': g['current_amount']} for g in raw_goals]
+
+    # 자본주의테크트리 목표 자산 (app_settings에서 읽기)
+    cur = db.cursor()
+    cur.execute("SELECT value FROM app_settings WHERE key = 'techTreeTarget'")
+    tt_goal = cur.fetchone()
+    cur.close()
+    if tt_goal and tt_goal['value']:
         goals_list.append({
-            'name': display_name,
-            'target_amount': target_amount,
-            'current_amount': current_amount
+            'name': '자본주의테크트리 (목표 자산)',
+            'target_amount': int(tt_goal['value']),
+            'current_amount': int(net_worth),
         })
 
     # 투자 수익률
@@ -2102,10 +2102,10 @@ def _api_tech_tree_data_inner():
 
     # 목표 자산
     cur = db.cursor()
-    cur.execute("SELECT target_amount FROM goals WHERE name = '자본주의테크트리'")
+    cur.execute("SELECT value FROM app_settings WHERE key = 'techTreeTarget'")
     goal = cur.fetchone()
     cur.close()
-    target_amount = goal[0] if goal else 1000000000 # 기본 10억
+    target_amount = int(goal['value']) if goal and goal['value'] else 1000000000  # 기본 10억
 
     # [신규] 월별 자산 스냅샷 자동 저장/업데이트
     cur = db.cursor()
@@ -2166,21 +2166,14 @@ def api_straws():
 def api_tech_tree_goal():
     db = get_db()
     data = request.json
-    target = data.get('target_amount', 1000000000)
-    
+    target = str(data.get('target_amount', 1000000000))
     cur = db.cursor()
-    cur.execute("SELECT id FROM goals WHERE name = '자본주의테크트리'")
-    exists = cur.fetchone()
+    cur.execute(
+        "INSERT INTO app_settings (key, value) VALUES ('techTreeTarget', %s) "
+        "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+        (target,)
+    )
     cur.close()
-    if exists:
-        cur = db.cursor()
-        cur.execute("UPDATE goals SET target_amount = %s WHERE name = '자본주의테크트리'", (target,))
-        cur.close()
-    else:
-        cur = db.cursor()
-        cur.execute("INSERT INTO goals (name, target_amount) VALUES ('자본주의테크트리', %s)", (target,))
-        cur.close()
-    
     db.commit()
     db.close()
     return jsonify({'ok': True})
@@ -2201,10 +2194,10 @@ def _api_tech_tree_yearly_stats_inner():
     
     # 1. 목표 자산 가져오기
     cur = db.cursor()
-    cur.execute("SELECT target_amount FROM goals WHERE name = '자본주의테크트리'")
+    cur.execute("SELECT value FROM app_settings WHERE key = 'techTreeTarget'")
     goal = cur.fetchone()
     cur.close()
-    target_amount = goal[0] if goal else 1000000000
+    target_amount = int(goal['value']) if goal and goal['value'] else 1000000000
     
     # 2. 실시간 현재 자산 가져오기
     cur = db.cursor()
