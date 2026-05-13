@@ -1545,6 +1545,13 @@ def api_cash_deposits_detail(rid):
 # ── API: 대시보드 집계 ───────────────────────────────────────
 @app.route('/api/dashboard')
 def api_dashboard():
+    try:
+     return _api_dashboard_inner()
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+def _api_dashboard_inner():
     db = get_db()
     today = date.today()
     year  = request.args.get('year',  today.strftime('%Y'))
