@@ -11,6 +11,20 @@
 </head>
 <body>
 
+<!-- 모바일 상단 바 -->
+<div id="mobileTopBar">
+  <button id="hamburgerBtn" onclick="toggleSidebar()" aria-label="메뉴">
+    <i class="bi bi-list" id="hamburgerIcon"></i>
+  </button>
+  <a href="/" class="mobile-logo">
+    <div class="mobile-logo-icon"><i class="bi bi-piggy-bank-fill"></i></div>
+    <span>자산 관리</span>
+  </a>
+</div>
+
+<!-- 사이드바 오버레이 -->
+<div id="sidebarOverlay" onclick="closeSidebar()"></div>
+
 <!-- 사이드바 -->
 <nav id="sidebar">
   <a href="/" class="sidebar-logo">
@@ -92,6 +106,22 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <script src="/static/js/common.js?v=10"></script>
+<script>
+function toggleSidebar() {
+  const open = document.getElementById('sidebar').classList.toggle('sidebar-open');
+  document.getElementById('sidebarOverlay').classList.toggle('overlay-open', open);
+  document.getElementById('hamburgerIcon').className = open ? 'bi bi-x-lg' : 'bi bi-list';
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('sidebar-open');
+  document.getElementById('sidebarOverlay').classList.remove('overlay-open');
+  document.getElementById('hamburgerIcon').className = 'bi bi-list';
+}
+// 모바일에서 메뉴 항목 클릭 시 드로어 닫기
+document.querySelectorAll('#sidebar .nav-link').forEach(el => {
+  el.addEventListener('click', () => { if (window.innerWidth <= 768) closeSidebar(); });
+});
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

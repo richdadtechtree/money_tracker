@@ -190,7 +190,8 @@ class GridTable {
       <button class="btn btn-sm btn-success py-0 me-1" data-ga="s"><i class="bi bi-check-lg"></i></button>
       <button class="btn btn-sm btn-outline-secondary py-0" data-ga="c"><i class="bi bi-x-lg"></i></button>
     </td>`);
-    return cells.join('');
+    const cbCell = this.selectable ? '<td></td>' : '';
+    return cbCell + cells.join('');
   }
 
   startEdit(tr) {

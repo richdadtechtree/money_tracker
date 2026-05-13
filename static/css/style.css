@@ -391,6 +391,60 @@ body {
 ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 999px; }
 ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
 
+/* ── 모바일 상단 바 ───────────────────────────────────────────── */
+#mobileTopBar {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 52px;
+  background: var(--sidebar-bg);
+  z-index: 400;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+#hamburgerBtn {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.85);
+  font-size: 1.4rem;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#hamburgerBtn:hover { background: rgba(255,255,255,0.08); }
+.mobile-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+.mobile-logo-icon {
+  width: 28px; height: 28px;
+  background: var(--primary);
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.85rem; color: white;
+  flex-shrink: 0;
+}
+
+/* ── 사이드바 오버레이 ─────────────────────────────────────────── */
+#sidebarOverlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 350;
+  backdrop-filter: blur(2px);
+}
+#sidebarOverlay.overlay-open { display: block; }
+
 /* ── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 1024px) {
   #sidebar { width: 200px; min-width: 200px; }
@@ -398,8 +452,18 @@ body {
   .container-fluid { padding: 20px 20px !important; }
 }
 @media (max-width: 768px) {
-  #sidebar { display: none !important; }
-  #main-content { margin-left: 0; }
+  #mobileTopBar { display: flex; }
+
+  #sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 500;
+    width: 240px;
+    min-width: 240px;
+  }
+  #sidebar.sidebar-open { transform: translateX(0); }
+
+  #main-content { margin-left: 0; padding-top: 52px; }
   .container-fluid { padding: 16px !important; }
 }
 
@@ -551,6 +615,9 @@ body.dark-mode select option { background: #1F2937; color: #F9FAFB; }
 
 /* 테이블 inside 카드 */
 body.dark-mode .table-responsive { background: var(--card-bg); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+
+/* 다크모드 모바일 상단바 */
+body.dark-mode #mobileTopBar { background: #0D1421; border-bottom-color: rgba(255,255,255,0.04); }
 
 /* ── Privacy Mode ────────────────────────────────────────────── */
 .privacy-mode .amt {
