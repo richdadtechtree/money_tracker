@@ -14,6 +14,11 @@ const COLORS = {
 // 차트 인스턴스 저장 (재생성 시 destroy 필요)
 const _charts = {};
 
+// 투자 수익률 차트 상태
+let _returnsMode    = 'cumul';
+let _lastReturns    = null;   // 누계용 스냅샷 데이터
+let _monthlyData    = null;   // 월별 데이터 (lazy load)
+
 function destroyChart(id) {
   if (_charts[id]) { _charts[id].destroy(); delete _charts[id]; }
 }
@@ -90,7 +95,13 @@ async function loadDashboard(year, month) {
   // 차트 재생성
   renderAssetPie(d.asset_breakdown);
   renderIncomeExpenseBar(d.income_by_cat, d.expense_by_cat);
-  renderReturnsChart(d.investment_returns);
+  _lastReturns = d.investment_returns;
+  if (_returnsMode === 'cumul') {
+    renderReturnsChart(_lastReturns);
+  } else {
+    // 월별 모드일 때 대시보드 재조회 후에도 월별 차트 유지
+    if (_monthlyData) renderReturnsMonthly(_monthlyData);
+  }
   renderLoansChart(d.loans);
   renderGoalsProgress(d.goals);
 }
@@ -210,6 +221,89 @@ function renderReturnsChart(returns) {
 function calcReturn(inv) {
   if (!inv || !inv.cost) return 0;
   return parseFloat(((inv.value - inv.cost) / inv.cost * 100).toFixed(2));
+}
+
+async function setReturnsMode(mode) {
+  _returnsMode = mode;
+  document.getElementById('btnReturnsCumul').classList.toggle('active', mode === 'cumul');
+  document.getElementById('btnReturnsMonthly').classList.toggle('active', mode === 'monthly');
+
+  if (mode === 'monthly') {
+    if (!_monthlyData) _monthlyData = await fetchJSON('/api/investment-monthly');
+    renderReturnsMonthly(_monthlyData);
+  } else {
+    if (_lastReturns) renderReturnsChart(_lastReturns);
+  }
+}
+
+function renderReturnsMonthly(data) {
+  destroyChart('chartReturns');
+  const labels = data.map(d => {
+    const [y, m] = d.ym.split('-');
+    return `${y.slice(2)}년 ${parseInt(m)}월`;
+  });
+  const rates = data.map(d => d.return_rate);
+  const pnls  = data.map(d => d.realized_pnl);
+  const hasRealizedPnl = pnls.some(v => v !== 0);
+
+  const datasets = [
+    {
+      type: 'bar',
+      label: '실현수익률 (%)',
+      data: rates,
+      backgroundColor: rates.map(v => v > 0 ? 'rgba(220,53,69,0.75)' : v < 0 ? 'rgba(13,110,253,0.75)' : 'rgba(160,160,160,0.4)'),
+      borderRadius: 4,
+      yAxisID: 'y',
+      order: 2,
+    }
+  ];
+
+  const scales = {
+    x: { grid: { display: false } },
+    y: {
+      ticks: { callback: v => v + '%' },
+      grid:  { color: '#f0f0f0' },
+    },
+  };
+
+  if (hasRealizedPnl) {
+    datasets.push({
+      type: 'bar',
+      label: '실현손익 (원)',
+      data: pnls,
+      backgroundColor: pnls.map(v => v > 0 ? 'rgba(220,53,69,0.18)' : v < 0 ? 'rgba(13,110,253,0.18)' : 'transparent'),
+      borderColor:     pnls.map(v => v > 0 ? 'rgba(220,53,69,0.7)'  : v < 0 ? 'rgba(13,110,253,0.7)'  : 'transparent'),
+      borderWidth: 1,
+      borderRadius: 4,
+      yAxisID: 'y2',
+      order: 1,
+    });
+    scales.y2 = {
+      position: 'right',
+      grid: { drawOnChartArea: false },
+      ticks: { callback: v => (v >= 0 ? '' : '-') + Math.abs(v / 10000).toFixed(0) + '만' },
+    };
+  }
+
+  _charts['chartReturns'] = new Chart(document.getElementById('chartReturns'), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: hasRealizedPnl, position: 'top' },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              if (ctx.dataset.yAxisID === 'y2') return ` 실현손익: ${fmt(ctx.raw)}원`;
+              return ` 실현수익률: ${ctx.raw}%`;
+            }
+          }
+        }
+      },
+      scales,
+    }
+  });
 }
 
 function renderLoansChart(loans) {

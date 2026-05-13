@@ -493,7 +493,7 @@ def api_stocks():
             eval_amt = round(qty * r['current_price'])
             cost_amt = round(qty * avg)
             r['quantity']       = qty
-            r['avg_price']      = avg
+            r['avg_price']      = avg if qty > 0 else None
             r['eval_amount']    = eval_amt
             r['unrealized_pnl'] = eval_amt - cost_amt
             r['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
@@ -623,7 +623,7 @@ def api_etf():
             eval_amt = round(qty * r['current_price'])
             cost_amt = round(qty * avg)
             r['quantity']       = qty
-            r['avg_price']      = avg
+            r['avg_price']      = avg if qty > 0 else None
             r['eval_amount']    = eval_amt
             r['unrealized_pnl'] = eval_amt - cost_amt
             r['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
@@ -1642,6 +1642,72 @@ def api_cash_deposits_detail(rid):
     db.commit()
     db.close()
     return jsonify({'ok': True})
+
+# ── API: 월별 실현손익 ───────────────────────────────────────
+@app.route('/api/investment-monthly')
+def api_investment_monthly():
+    """최근 12개월 월별 실현손익 및 누계 (주식+ETF 합산)"""
+    db = get_db()
+
+    cur = db.cursor()
+    cur.execute("""
+        WITH avg_costs AS (
+            SELECT stock_id,
+                SUM(CASE WHEN tx_type='buy' THEN price*quantity+fee ELSE 0 END) /
+                NULLIF(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE 0 END), 0) AS avg_cost
+            FROM stock_tx GROUP BY stock_id
+        )
+        SELECT to_char(t.tx_date::date, 'YYYY-MM') AS ym,
+            COALESCE(SUM((t.price - ac.avg_cost) * t.quantity - t.fee), 0) AS realized_pnl,
+            COALESCE(SUM(ac.avg_cost * t.quantity), 0) AS sell_cost
+        FROM stock_tx t
+        JOIN avg_costs ac ON ac.stock_id = t.stock_id
+        WHERE t.tx_type = 'sell'
+        GROUP BY ym ORDER BY ym
+    """)
+    stocks_by_month = {r['ym']: {'pnl': float(r['realized_pnl']), 'cost': float(r['sell_cost'])} for r in cur.fetchall()}
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("""
+        WITH avg_costs AS (
+            SELECT etf_id,
+                SUM(CASE WHEN tx_type='buy' THEN price*quantity+fee ELSE 0 END) /
+                NULLIF(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE 0 END), 0) AS avg_cost
+            FROM etf_tx GROUP BY etf_id
+        )
+        SELECT to_char(t.tx_date::date, 'YYYY-MM') AS ym,
+            COALESCE(SUM((t.price - ac.avg_cost) * t.quantity - t.fee), 0) AS realized_pnl,
+            COALESCE(SUM(ac.avg_cost * t.quantity), 0) AS sell_cost
+        FROM etf_tx t
+        JOIN avg_costs ac ON ac.etf_id = t.etf_id
+        WHERE t.tx_type = 'sell'
+        GROUP BY ym ORDER BY ym
+    """)
+    etf_by_month = {r['ym']: {'pnl': float(r['realized_pnl']), 'cost': float(r['sell_cost'])} for r in cur.fetchall()}
+    cur.close()
+    db.close()
+
+    today = date.today()
+    months = []
+    cumulative = 0
+    for i in range(11, -1, -1):
+        mo = today.month - i
+        yr = today.year
+        while mo <= 0:
+            mo += 12
+            yr -= 1
+        ym = f"{yr}-{mo:02d}"
+        s    = stocks_by_month.get(ym, {'pnl': 0, 'cost': 0})
+        e    = etf_by_month.get(ym, {'pnl': 0, 'cost': 0})
+        pnl  = round(s['pnl'] + e['pnl'])
+        cost = s['cost'] + e['cost']
+        rate = round((s['pnl'] + e['pnl']) / cost * 100, 2) if cost else 0
+        cumulative += pnl
+        months.append({'ym': ym, 'realized_pnl': pnl, 'return_rate': rate, 'cumulative_pnl': cumulative})
+
+    return jsonify(months)
+
 
 # ── API: 대시보드 집계 ───────────────────────────────────────
 @app.route('/api/dashboard')
