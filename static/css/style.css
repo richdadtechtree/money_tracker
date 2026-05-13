@@ -422,9 +422,28 @@ body.dark-mode {
 /* 카드 & 테이블 */
 body.dark-mode .card { background: var(--card-bg) !important; }
 body.dark-mode .card-header { background: var(--card-bg) !important; }
+
+/* Bootstrap 5 table CSS 변수 재정의 */
+body.dark-mode .table {
+  --bs-table-bg:           var(--card-bg);
+  --bs-table-color:        var(--text-primary);
+  --bs-table-border-color: var(--border-light);
+  --bs-table-hover-bg:     #253040;
+  --bs-table-hover-color:  var(--text-primary);
+  --bs-table-striped-bg:   #1A2535;
+  --bs-table-striped-color:var(--text-primary);
+  color: var(--text-primary);
+}
+body.dark-mode .table-light,
+body.dark-mode thead.table-light {
+  --bs-table-bg:           #1A2535;
+  --bs-table-color:        var(--text-muted);
+  --bs-table-border-color: var(--border);
+}
 body.dark-mode .table th,
 body.dark-mode .table-light th { background: #1A2535 !important; color: var(--text-muted) !important; }
-body.dark-mode .table td { color: var(--text-primary); border-color: var(--border-light) !important; }
+body.dark-mode .table td { color: var(--text-primary) !important; border-color: var(--border-light) !important; }
+body.dark-mode .table tbody tr { background-color: var(--card-bg); }
 body.dark-mode .table-hover tbody tr:hover td { background: #253040 !important; }
 
 /* 폼 */
