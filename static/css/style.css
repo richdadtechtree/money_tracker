@@ -464,7 +464,44 @@ body {
   #sidebar.sidebar-open { transform: translateX(0); }
 
   #main-content { margin-left: 0; padding-top: 52px; }
-  .container-fluid { padding: 16px !important; }
+  .container-fluid { padding: 12px !important; }
+
+  /* 카드 패딩 축소 */
+  .card-body  { padding: 14px !important; }
+  .card-header { padding: 12px 14px !important; }
+
+  /* 헤더 h2 */
+  h2.fw-bold { font-size: 1.15rem !important; }
+
+  /* 버튼 그룹 줄바꿈 허용 */
+  .d-flex.gap-2 { flex-wrap: wrap; }
+
+  /* 테이블 폰트/패딩 */
+  .table      { font-size: 0.78rem !important; }
+  .table th,
+  .table td   { padding: 7px 8px !important; }
+
+  /* 캔버스 최대 높이 */
+  canvas { max-height: 220px; }
+
+  /* 대시보드 KPI 카드 */
+  .summary-card .card-body { padding: 12px 14px !important; }
+  .summary-card .fs-4 { font-size: 1rem !important; }
+  .icon-box { width: 32px; height: 32px; font-size: 0.85rem; }
+
+  /* 필터 영역 줄바꿈 */
+  .row.g-2.align-items-center { flex-wrap: wrap; }
+
+  /* 탭 레이블 */
+  .nav-tabs .nav-link { font-size: 0.78rem; padding: 6px 10px; }
+
+  /* 배지 */
+  .badge { font-size: 0.68rem; }
+
+  /* 모달 */
+  .modal-body  { padding: 14px 16px !important; }
+  .modal-header { padding: 14px 16px 10px !important; }
+  .modal-footer { padding: 10px 16px !important; }
 }
 
 /* ── Dark Mode ───────────────────────────────────────────────── */

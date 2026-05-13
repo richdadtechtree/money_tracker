@@ -2,25 +2,73 @@
 {% block title %}자본주의 테크트리{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <div class="d-flex align-items-center">
-    <h2 class="fw-bold mb-0"><i class="bi bi-diagram-3 me-2 text-warning"></i>자본주의 테크트리</h2>
-    <span class="badge bg-danger ms-3 px-3 py-2" style="cursor: pointer;" onclick="openStrawModal()">
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+  <div>
+    <h2 class="fw-bold mb-1"><i class="bi bi-diagram-3 me-2 text-warning"></i>자본주의 테크트리</h2>
+    <span class="badge bg-danger px-3 py-2" style="cursor:pointer" onclick="openStrawModal()">
       <i class="bi bi-exclamation-triangle me-1"></i>내 돈을 빨아가는 빨대 찾기
     </span>
   </div>
-  <div class="d-flex align-items-center gap-3">
-    <div class="input-group input-group-sm" style="width: 250px;">
-      <span class="input-group-text bg-light fw-bold">목표 자산</span>
-      <input type="text" id="targetAmountInput" class="form-control text-end" placeholder="0">
-      <span class="input-group-text bg-light">원</span>
-      <button class="btn btn-warning fw-bold" onclick="saveTarget()">설정</button>
+  <div class="input-group input-group-sm tt-target-input">
+    <span class="input-group-text bg-light fw-bold">목표 자산</span>
+    <input type="text" id="targetAmountInput" class="form-control text-end" placeholder="0">
+    <span class="input-group-text bg-light">원</span>
+    <button class="btn btn-warning fw-bold" onclick="saveTarget()">설정</button>
+  </div>
+</div>
+
+<!-- ── 모바일 전용 요약 노드 카드 ── -->
+<div class="d-lg-none row g-2 mb-3">
+  <div class="col-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-center mb-1">
+          <span class="badge bg-primary me-2">Active</span>
+          <span class="small text-muted">근로소득</span>
+        </div>
+        <div class="fw-bold text-primary" id="mLaborIncome" onclick="openDetailModal('labor','근로소득 상세')" style="cursor:pointer">0원</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6">
+    <div class="card border-danger border-0 shadow-sm">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-center mb-1">
+          <span class="badge bg-danger me-2">Expense</span>
+          <span class="small text-muted">총 지출</span>
+        </div>
+        <div class="fw-bold text-danger" id="mExpenseTotal" onclick="openDetailModal('expense','지출 상세')" style="cursor:pointer">0원</div>
+        <div class="small text-danger mt-1">빨대: <span id="mStrawTotal">0원</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-center mb-1">
+          <span class="badge bg-success me-2">Passive</span>
+          <span class="small text-muted">자생소득</span>
+        </div>
+        <div class="fw-bold text-success" id="mPassiveIncome" onclick="openDetailModal('passive','자생소득 상세')" style="cursor:pointer">0원</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6">
+    <div class="card border-0 shadow-sm" style="border: 2px dashed #0d6efd !important;">
+      <div class="card-body p-3">
+        <div class="d-flex align-items-center mb-1">
+          <span class="badge bg-info me-2">Tank In</span>
+          <span class="small text-muted">자산 축적</span>
+        </div>
+        <div class="fw-bold text-info" id="mNetSavings">0원</div>
+        <div class="small text-muted">(소득 - 지출)</div>
+      </div>
     </div>
   </div>
 </div>
 
 <div class="row g-4 mb-4">
-  <div class="col-lg-9">
+  <div class="col-lg-9 d-none d-lg-block">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body p-4 overflow-hidden">
         <div class="flow-container position-relative" style="height: 550px; background: #fafbfc; border-radius: 20px; border: 1px solid #edf2f7;">
@@ -80,7 +128,7 @@
   </div>
 
   <!-- 오른쪽: 물탱크 -->
-  <div class="col-lg-3">
+  <div class="col-12 col-lg-3">
     <div class="card border-0 shadow-sm h-100">
       <div class="card-header bg-white fw-bold py-3 border-0"><i class="bi bi-bank me-2 text-primary"></i>자산 물탱크</div>
       <div class="card-body d-flex flex-column align-items-center justify-content-center p-3">
@@ -415,6 +463,17 @@
   color: #6c757d;
   margin-top: 6px;
 }
+
+/* ── 모바일 ─────────────────────────── */
+@media (max-width: 991px) {
+  .tt-target-input { width: 100%; max-width: 340px; }
+}
+@media (max-width: 576px) {
+  .tt-target-input { max-width: 100%; }
+  .tank-container  { height: 260px; }
+  .tank-percentage { font-size: 1.5rem; }
+  #assetHistoryChart { max-height: 220px !important; }
+}
 </style>
 {% endblock %}
 
@@ -438,6 +497,15 @@ async function loadTechTree() {
   const elNet = document.getElementById('netSavingsVal');
   elNet.textContent = (netSavings >= 0 ? '+' : '') + fmt(netSavings) + '원';
   elNet.className = 'fw-bold fs-4 ' + (netSavings >= 0 ? 'text-info' : 'text-danger');
+
+  // 모바일 카드 업데이트
+  document.getElementById('mLaborIncome').textContent  = fmt(income.labor) + '원';
+  document.getElementById('mPassiveIncome').textContent = fmt(income.passive) + '원';
+  document.getElementById('mExpenseTotal').textContent  = fmt(expense) + '원';
+  document.getElementById('mStrawTotal').textContent    = fmt(straw_total) + '원';
+  const mNet = document.getElementById('mNetSavings');
+  mNet.textContent  = (netSavings >= 0 ? '+' : '') + fmt(netSavings) + '원';
+  mNet.className    = 'fw-bold ' + (netSavings >= 0 ? 'text-info' : 'text-danger');
   const total = assets.cash + assets.stocks + assets.real_estate + assets.crypto + assets.pension;
   document.getElementById('currentTotalAssets').textContent = fmt(total) + '원';
   document.getElementById('valCash').textContent = fmt(assets.cash);
