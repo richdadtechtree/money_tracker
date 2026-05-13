@@ -998,6 +998,46 @@ def api_price_update():
     return jsonify(results)
 
 
+@app.route('/api/price-test')
+def api_price_test():
+    """주식 가격 소스별 진단 (예: /api/price-test?ticker=005930)"""
+    ticker = request.args.get('ticker', '005930')
+    av_key = os.environ.get('ALPHAVANTAGE_API_KEY', '')
+    result = {'ticker': ticker, 'av_key_set': bool(av_key), 'sources': {}}
+
+    # 1. Alpha Vantage
+    try:
+        av_sym = (ticker + '.KSC') if _is_krx_ticker(ticker) else ticker
+        r = http_req.get('https://www.alphavantage.co/query',
+            params={'function': 'GLOBAL_QUOTE', 'symbol': av_sym, 'apikey': av_key or 'demo'},
+            timeout=10)
+        result['sources']['alphavantage'] = {'status': r.status_code, 'body': r.text[:300]}
+    except Exception as e:
+        result['sources']['alphavantage'] = {'error': str(e)}
+
+    # 2. Stooq
+    try:
+        stooq_sym = (ticker + '.kr') if _is_krx_ticker(ticker) else ticker
+        r = http_req.get(f'https://stooq.com/q/l/?s={stooq_sym}&f=sd2t2ohlcv&h&e=csv',
+            timeout=8, headers={'User-Agent': 'Mozilla/5.0'})
+        result['sources']['stooq'] = {'status': r.status_code, 'body': r.text[:300]}
+    except Exception as e:
+        result['sources']['stooq'] = {'error': str(e)}
+
+    # 3. Yahoo Finance 직접
+    try:
+        yf_sym = (ticker + '.KS') if _is_krx_ticker(ticker) else ticker
+        r = http_req.get(f'https://query2.finance.yahoo.com/v8/finance/chart/{yf_sym}',
+            params={'interval': '1d', 'range': '5d'},
+            headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
+            timeout=8)
+        result['sources']['yahoo'] = {'status': r.status_code, 'body': r.text[:300]}
+    except Exception as e:
+        result['sources']['yahoo'] = {'error': str(e)}
+
+    return jsonify(result)
+
+
 # ── API: 거주지 ──────────────────────────────────────────────
 @app.route('/api/residence', methods=['GET', 'POST'])
 def api_residence():
