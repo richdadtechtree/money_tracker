@@ -21,6 +21,7 @@
         평가총액: <strong id="stocks-total" class="text-primary">-</strong> &nbsp;|&nbsp;
         미실현손익: <strong id="stocks-profit">-</strong> &nbsp;|&nbsp;
         실현손익: <strong id="stocks-realized">-</strong>
+        &nbsp;<span id="usdkrw-badge" class="badge bg-secondary-subtle text-secondary" style="font-size:0.7rem"></span>
       </div>
       <button class="btn btn-outline-primary btn-sm" onclick="stockGrid.addRow()">
         <i class="bi bi-plus-lg me-1"></i>종목 등록
@@ -205,6 +206,19 @@
 {% block scripts %}
 <script>
 let allStocks = [];
+let usdKrw = 1380;  // 환율 기본값, 페이지 로드 시 갱신
+
+function isForeign(ticker) {
+  return !!ticker && !/^\d{6}$/.test(ticker);
+}
+
+function fmtUsd(v) {
+  return '$' + Number(v).toFixed(2);
+}
+
+function toKrw(amount, ticker) {
+  return isForeign(ticker) ? amount * usdKrw : amount;
+}
 
 function pnlHtml(v) {
   if (v == null || isNaN(v)) return '-';
@@ -226,29 +240,34 @@ const stockGrid = new GridTable({
     { key: '_qty',    type: 'computed', align: 'end',
       compute: r => (r.quantity == null ? '-' : r.quantity % 1 === 0 ? r.quantity : r.quantity.toFixed(4)) },
     { key: '_avg',    type: 'computed', align: 'end',
-      compute: r => r.avg_price != null ? fmt(r.avg_price) : '-' },
-    { key: 'current_price', type: 'number', align: 'end', render: v => fmt(v) },
+      compute: r => r.avg_price == null ? '-' : isForeign(r.ticker) ? fmtUsd(r.avg_price) : fmt(r.avg_price) },
+    { key: 'current_price', type: 'number', align: 'end',
+      render: (v, r) => isForeign(r?.ticker) ? fmtUsd(v) : fmt(v) },
     { key: '_eval',   type: 'computed', align: 'end',
-      compute: r => r.eval_amount != null ? `<span class="fw-semibold">${fmt(r.eval_amount)}원</span>` : '-' },
+      compute: r => r.eval_amount == null ? '-'
+        : `<span class="fw-semibold">${fmt(Math.round(toKrw(r.eval_amount, r.ticker)))}원</span>` },
     { key: '_pnl',    type: 'computed', align: 'end',
-      compute: r => r.unrealized_pnl != null ? pnlHtml(r.unrealized_pnl) : '-' },
+      compute: r => r.unrealized_pnl == null ? '-' : pnlHtml(toKrw(r.unrealized_pnl, r.ticker)) },
     { key: '_rate',   type: 'computed', align: 'end',
       compute: r => r.return_rate != null ? rateHtml(r.return_rate) : '-' },
     { key: '_real',   type: 'computed', align: 'end',
-      compute: r => (r.sell_qty != null && r.sell_qty > 0) ? pnlHtml(r.realized_pnl) : '-' },
+      compute: r => (r.sell_qty != null && r.sell_qty > 0) ? pnlHtml(toKrw(r.realized_pnl, r.ticker)) : '-' },
     { key: 'memo',    type: 'text' },
   ],
   apiUrl: '/api/stocks',
   onLoad: rows => {
     allStocks = rows;
-    // 종목 필터 셀렉트 갱신
     const sel = document.getElementById('txStockFilter');
     const cur = sel.value;
     sel.innerHTML = '<option value="">전체 종목</option>' +
       rows.map(r => `<option value="${r.id}"${String(r.id) === cur ? ' selected' : ''}>${r.name}${r.ticker ? ` (${r.ticker})` : ''}</option>`).join('');
-    // 요약 KPI
     let tv = 0, tp = 0, tr = 0;
-    rows.forEach(r => { tv += r.eval_amount; tp += r.unrealized_pnl; tr += (r.realized_pnl || 0); });
+    rows.forEach(r => {
+      const mul = isForeign(r.ticker) ? usdKrw : 1;
+      tv += r.eval_amount * mul;
+      tp += r.unrealized_pnl * mul;
+      tr += (r.realized_pnl || 0) * mul;
+    });
     document.getElementById('stocks-total').textContent = fmt(Math.round(tv)) + '원';
     document.getElementById('stocks-profit').innerHTML   = pnlHtml(tp);
     document.getElementById('stocks-realized').innerHTML = pnlHtml(tr);
@@ -269,10 +288,14 @@ const stockTxGrid = new GridTable({
       render: v => v === 'buy'
         ? '<span class="badge bg-danger-subtle text-danger">매수</span>'
         : '<span class="badge bg-primary-subtle text-primary">매도</span>' },
-    { key: 'price',    type: 'number', align: 'end', render: v => fmt(v) },
+    { key: 'price',    type: 'number', align: 'end',
+      render: (v, r) => isForeign(r?.ticker) ? fmtUsd(v) : fmt(v) },
     { key: 'quantity', type: 'number', align: 'end', step: 0.001 },
     { key: '_amount',  type: 'computed', align: 'end',
-      compute: r => `<span class="fw-semibold">${fmt(Math.round(r.price * r.quantity))}원</span>` },
+      compute: r => {
+        const krw = Math.round(toKrw(r.price * r.quantity, r.ticker));
+        return `<span class="fw-semibold">${fmt(krw)}원</span>`;
+      }},
     { key: 'fee',      type: 'number', align: 'end', render: v => v ? fmt(v) : '-' },
     { key: 'memo',     type: 'text' },
   ],
@@ -300,16 +323,18 @@ const etfGrid = new GridTable({
     { key: '_qty',    type: 'computed', align: 'end',
       compute: r => (r.quantity == null ? '-' : r.quantity % 1 === 0 ? r.quantity : r.quantity.toFixed(4)) },
     { key: '_avg',    type: 'computed', align: 'end',
-      compute: r => r.avg_price != null ? fmt(r.avg_price) : '-' },
-    { key: 'current_price', type: 'number', align: 'end', render: v => fmt(v) },
+      compute: r => r.avg_price == null ? '-' : isForeign(r.ticker) ? fmtUsd(r.avg_price) : fmt(r.avg_price) },
+    { key: 'current_price', type: 'number', align: 'end',
+      render: (v, r) => isForeign(r?.ticker) ? fmtUsd(v) : fmt(v) },
     { key: '_eval',   type: 'computed', align: 'end',
-      compute: r => r.eval_amount != null ? `<span class="fw-semibold">${fmt(r.eval_amount)}원</span>` : '-' },
+      compute: r => r.eval_amount == null ? '-'
+        : `<span class="fw-semibold">${fmt(Math.round(toKrw(r.eval_amount, r.ticker)))}원</span>` },
     { key: '_pnl',    type: 'computed', align: 'end',
-      compute: r => r.unrealized_pnl != null ? pnlHtml(r.unrealized_pnl) : '-' },
+      compute: r => r.unrealized_pnl == null ? '-' : pnlHtml(toKrw(r.unrealized_pnl, r.ticker)) },
     { key: '_rate',   type: 'computed', align: 'end',
       compute: r => r.return_rate != null ? rateHtml(r.return_rate) : '-' },
     { key: '_real',   type: 'computed', align: 'end',
-      compute: r => (r.sell_qty != null && r.sell_qty > 0) ? pnlHtml(r.realized_pnl) : '-' },
+      compute: r => (r.sell_qty != null && r.sell_qty > 0) ? pnlHtml(toKrw(r.realized_pnl, r.ticker)) : '-' },
     { key: 'memo',    type: 'text' },
   ],
   apiUrl: '/api/etf',
@@ -320,7 +345,12 @@ const etfGrid = new GridTable({
     sel.innerHTML = '<option value="">전체 종목</option>' +
       rows.map(r => `<option value="${r.id}"${String(r.id) === cur ? ' selected' : ''}>${r.name}${r.ticker ? ` (${r.ticker})` : ''}</option>`).join('');
     let tv = 0, tp = 0, tr = 0;
-    rows.forEach(r => { tv += r.eval_amount; tp += r.unrealized_pnl; tr += (r.realized_pnl || 0); });
+    rows.forEach(r => {
+      const mul = isForeign(r.ticker) ? usdKrw : 1;
+      tv += r.eval_amount * mul;
+      tp += r.unrealized_pnl * mul;
+      tr += (r.realized_pnl || 0) * mul;
+    });
     document.getElementById('etf-total').textContent   = fmt(Math.round(tv)) + '원';
     document.getElementById('etf-profit').innerHTML    = pnlHtml(tp);
     document.getElementById('etf-realized').innerHTML  = pnlHtml(tr);
@@ -341,10 +371,14 @@ const etfTxGrid = new GridTable({
       render: v => v === 'buy'
         ? '<span class="badge bg-danger-subtle text-danger">매수</span>'
         : '<span class="badge bg-primary-subtle text-primary">매도</span>' },
-    { key: 'price',    type: 'number', align: 'end', render: v => fmt(v) },
+    { key: 'price',    type: 'number', align: 'end',
+      render: (v, r) => isForeign(r?.ticker) ? fmtUsd(v) : fmt(v) },
     { key: 'quantity', type: 'number', align: 'end', step: 0.001 },
     { key: '_amount',  type: 'computed', align: 'end',
-      compute: r => `<span class="fw-semibold">${fmt(Math.round(r.price * r.quantity))}원</span>` },
+      compute: r => {
+        const krw = Math.round(toKrw(r.price * r.quantity, r.ticker));
+        return `<span class="fw-semibold">${fmt(krw)}원</span>`;
+      }},
     { key: 'fee',      type: 'number', align: 'end', render: v => v ? fmt(v) : '-' },
     { key: 'memo',     type: 'text' },
   ],
@@ -384,8 +418,18 @@ const cryptoGrid = new GridTable({
   },
 });
 
-stockGrid.load();   // onLoad → allStocks 세팅 → stockTxGrid.load() 자동 호출
-cryptoGrid.load();
+async function initPage() {
+  const rate = await fetchJSON('/api/exchange-rate');
+  if (rate?.rate) {
+    usdKrw = rate.rate;
+    const badge = document.getElementById('usdkrw-badge');
+    if (badge) badge.textContent = `USD/KRW ${usdKrw.toLocaleString('ko-KR')}`;
+  }
+  stockGrid.load();   // onLoad → allStocks 세팅 → stockTxGrid.load() 자동 호출
+  cryptoGrid.load();
+}
+
+initPage();
 
 document.querySelector('[href="#tab-etf"]').addEventListener('shown.bs.tab', () => etfGrid.load());
 

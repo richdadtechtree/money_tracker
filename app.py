@@ -1038,6 +1038,29 @@ def api_price_test():
     return jsonify(result)
 
 
+# ── API: USD/KRW 환율 ────────────────────────────────────────
+@app.route('/api/exchange-rate')
+def api_exchange_rate():
+    """Yahoo Finance에서 USD/KRW 환율 조회. 실패 시 1380 반환"""
+    try:
+        r = http_req.get(
+            'https://query2.finance.yahoo.com/v8/finance/chart/USDKRW=X',
+            params={'interval': '1d', 'range': '5d'},
+            headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
+            timeout=8
+        )
+        if r.ok:
+            result = r.json().get('chart', {}).get('result', [])
+            if result:
+                closes = result[0].get('indicators', {}).get('quote', [{}])[0].get('close', [])
+                closes = [c for c in closes if c is not None]
+                if closes:
+                    return jsonify({'rate': round(closes[-1], 2)})
+    except Exception:
+        pass
+    return jsonify({'rate': 1380})
+
+
 # ── API: 거주지 ──────────────────────────────────────────────
 @app.route('/api/residence', methods=['GET', 'POST'])
 def api_residence():
