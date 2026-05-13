@@ -3335,6 +3335,20 @@ _BACKUP_INSERT_ORDER = [
 @app.route('/api/backup')
 def api_backup():
     """전체 테이블 데이터를 JSON 파일로 다운로드"""
+    import decimal, traceback
+
+    def _safe(v):
+        """psycopg2 반환값을 JSON 직렬화 가능한 타입으로 변환"""
+        if v is None:
+            return None
+        if isinstance(v, (datetime, date)):
+            return v.isoformat()
+        if isinstance(v, decimal.Decimal):
+            return float(v)
+        if isinstance(v, memoryview):
+            return v.tobytes().decode('utf-8', errors='replace')
+        return v
+
     db = get_db()
     backup = {'version': '1.0', 'exported_at': datetime.now().isoformat(), 'tables': {}}
     try:
@@ -3343,21 +3357,22 @@ def api_backup():
             try:
                 cur.execute(f"SELECT * FROM {table}")
                 rows = cur.fetchall()
-                backup['tables'][table] = []
-                for row in rows:
-                    r = {}
-                    for k, v in dict(row).items():
-                        if isinstance(v, (date, datetime)):
-                            r[k] = v.isoformat()
-                        else:
-                            r[k] = v
-                    backup['tables'][table].append(r)
+                backup['tables'][table] = [
+                    {k: _safe(v) for k, v in dict(row).items()}
+                    for row in rows
+                ]
             except Exception:
                 backup['tables'][table] = []
             finally:
                 cur.close()
-    finally:
+    except Exception as e:
         db.close()
+        return jsonify({'error': traceback.format_exc()}), 500
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
 
     filename = f"money_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     return Response(
