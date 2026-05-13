@@ -2022,6 +2022,13 @@ def api_tech_tree_goal():
 # ── API: 자산별 연도별 성장 통계 (Flow Rate & Milestone) ─────────
 @app.route('/api/tech-tree-yearly-stats')
 def api_tech_tree_yearly_stats():
+    try:
+        return _api_tech_tree_yearly_stats_inner()
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+def _api_tech_tree_yearly_stats_inner():
     db = get_db()
     today = date.today()
     
@@ -2035,48 +2042,48 @@ def api_tech_tree_yearly_stats():
     # 2. 실시간 현재 자산 가져오기
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(s.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id)), 0) FROM stocks s")
-    stocks_val = cur.fetchone()[0] or 0
+    stocks_val = float(cur.fetchone()[0] or 0)
     cur.close()
-    
+
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id)),0) FROM etf e")
-    etf_val = cur.fetchone()[0] or 0
+    etf_val = float(cur.fetchone()[0] or 0)
     cur.close()
-    
+
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
-    crypto_val = cur.fetchone()[0] or 0
+    crypto_val = float(cur.fetchone()[0] or 0)
     cur.close()
-    
+
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
-    re_total_price = cur.fetchone()[0] or 0
+    re_total_price = float(cur.fetchone()[0] or 0)
     cur.close()
-    
+
     cur = db.cursor()
     cur.execute("""
-    SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts 
+    SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts
     WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
     """)
-    re_total_deposit = cur.fetchone()[0] or 0
+    re_total_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
-    
+
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
-    residence_deposit = cur.fetchone()[0] or 0
+    residence_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
     re_val = re_total_price - re_total_deposit + residence_deposit
-    
+
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
-    cash_val = cur.fetchone()[0] or 0
+    cash_val = float(cur.fetchone()[0] or 0)
     cur.close()
 
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
-    pension_val = cur.fetchone()[0] or 0
+    pension_val = float(cur.fetchone()[0] or 0)
     cur.close()
-    
+
     current_total = int(cash_val + stocks_val + etf_val + re_val + crypto_val + pension_val)
     current_percent = round((current_total / target_amount) * 100, 1) if target_amount > 0 else 0
     
