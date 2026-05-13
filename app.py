@@ -778,8 +778,36 @@ def _is_krx_ticker(ticker: str) -> bool:
     return bool(re.match(r'^\d{6}$', ticker))
 
 
+import sys
+
+def _fetch_alphavantage_price(ticker: str) -> float | None:
+    """Alpha Vantage API로 현재가 조회 (env: ALPHAVANTAGE_API_KEY 필요)"""
+    api_key = os.environ.get('ALPHAVANTAGE_API_KEY', '').strip()
+    if not api_key:
+        return None
+    # 국내 6자리 → .KS 접미사
+    av_sym = (ticker + '.KSC') if _is_krx_ticker(ticker) else ticker
+    try:
+        res = http_req.get(
+            'https://www.alphavantage.co/query',
+            params={'function': 'GLOBAL_QUOTE', 'symbol': av_sym, 'apikey': api_key},
+            timeout=10
+        )
+        if not res.ok:
+            print(f'[price] alphavantage HTTP {res.status_code} for {av_sym}', file=sys.stderr)
+            return None
+        data = res.json().get('Global Quote', {})
+        price_str = data.get('05. price', '')
+        if price_str:
+            return float(price_str)
+        print(f'[price] alphavantage no price for {av_sym}: {res.text[:200]}', file=sys.stderr)
+    except Exception as e:
+        print(f'[price] alphavantage error {ticker}: {e}', file=sys.stderr)
+    return None
+
+
 def _fetch_stooq_price(ticker: str) -> float | None:
-    """Stooq CSV 피드로 주식 현재가 조회 (국내/해외 모두 지원, API 키 불필요)"""
+    """Stooq CSV 피드로 주식 현재가 조회"""
     try:
         stooq_sym = (ticker + '.kr') if _is_krx_ticker(ticker) else ticker
         res = http_req.get(
@@ -787,41 +815,57 @@ def _fetch_stooq_price(ticker: str) -> float | None:
             timeout=8,
             headers={'User-Agent': 'Mozilla/5.0'}
         )
+        print(f'[price] stooq {stooq_sym}: status={res.status_code} body={res.text[:100]}', file=sys.stderr)
         if not res.ok:
             return None
         lines = res.text.strip().split('\n')
         if len(lines) < 2:
             return None
-        # CSV: Symbol,Date,Time,Open,High,Low,Close,Volume
         parts = lines[1].split(',')
         if len(parts) >= 7:
             close = parts[6].strip()
             if close and close not in ('N/D', '0', ''):
                 return float(close)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f'[price] stooq error {ticker}: {e}', file=sys.stderr)
+    return None
+
+
+def _fetch_yf_direct_price(ticker: str) -> float | None:
+    """Yahoo Finance v8 API 직접 호출 (yfinance 라이브러리 미사용)"""
+    try:
+        yf_sym = (ticker + '.KS') if _is_krx_ticker(ticker) else ticker
+        res = http_req.get(
+            f'https://query2.finance.yahoo.com/v8/finance/chart/{yf_sym}',
+            params={'interval': '1d', 'range': '5d'},
+            headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
+            timeout=8
+        )
+        print(f'[price] yf_direct {yf_sym}: status={res.status_code} body={res.text[:100]}', file=sys.stderr)
+        if not res.ok:
+            return None
+        result = res.json().get('chart', {}).get('result', [])
+        if result:
+            closes = result[0].get('indicators', {}).get('quote', [{}])[0].get('close', [])
+            closes = [c for c in closes if c is not None]
+            if closes:
+                return float(closes[-1])
+    except Exception as e:
+        print(f'[price] yf_direct error {ticker}: {e}', file=sys.stderr)
     return None
 
 
 def _fetch_stock_price(ticker: str) -> float | None:
-    """Stooq 우선, 실패 시 yfinance fallback."""
+    """Alpha Vantage(키 있을 때) → Stooq → Yahoo Finance 직접 순서로 시도"""
+    price = _fetch_alphavantage_price(ticker)
+    if price:
+        return price
     price = _fetch_stooq_price(ticker)
     if price:
         return price
-    # yfinance fallback (해외 주식)
-    if HAS_YFINANCE and not _is_krx_ticker(ticker):
-        import requests
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        })
-        try:
-            t_obj = yf.Ticker(ticker, session=session)
-            df = t_obj.history(period='5d')
-            if not df.empty:
-                return float(df['Close'].iloc[-1])
-        except Exception:
-            pass
+    price = _fetch_yf_direct_price(ticker)
+    if price:
+        return price
     return None
 
 
