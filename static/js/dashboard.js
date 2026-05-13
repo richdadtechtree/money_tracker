@@ -242,66 +242,36 @@ function renderReturnsMonthly(data) {
     const [y, m] = d.ym.split('-');
     return `${y.slice(2)}년 ${parseInt(m)}월`;
   });
-  const rates = data.map(d => d.return_rate);
-  const pnls  = data.map(d => d.realized_pnl);
-  const hasRealizedPnl = pnls.some(v => v !== 0);
-
-  const datasets = [
-    {
-      type: 'bar',
-      label: '실현수익률 (%)',
-      data: rates,
-      backgroundColor: rates.map(v => v > 0 ? 'rgba(220,53,69,0.75)' : v < 0 ? 'rgba(13,110,253,0.75)' : 'rgba(160,160,160,0.4)'),
-      borderRadius: 4,
-      yAxisID: 'y',
-      order: 2,
-    }
-  ];
-
-  const scales = {
-    x: { grid: { display: false } },
-    y: {
-      ticks: { callback: v => v + '%' },
-      grid:  { color: '#f0f0f0' },
-    },
-  };
-
-  if (hasRealizedPnl) {
-    datasets.push({
-      type: 'bar',
-      label: '실현손익 (원)',
-      data: pnls,
-      backgroundColor: pnls.map(v => v > 0 ? 'rgba(220,53,69,0.18)' : v < 0 ? 'rgba(13,110,253,0.18)' : 'transparent'),
-      borderColor:     pnls.map(v => v > 0 ? 'rgba(220,53,69,0.7)'  : v < 0 ? 'rgba(13,110,253,0.7)'  : 'transparent'),
-      borderWidth: 1,
-      borderRadius: 4,
-      yAxisID: 'y2',
-      order: 1,
-    });
-    scales.y2 = {
-      position: 'right',
-      grid: { drawOnChartArea: false },
-      ticks: { callback: v => (v >= 0 ? '' : '-') + Math.abs(v / 10000).toFixed(0) + '만' },
-    };
-  }
+  const pnls = data.map(d => d.realized_pnl);
 
   _charts['chartReturns'] = new Chart(document.getElementById('chartReturns'), {
     type: 'bar',
-    data: { labels, datasets },
+    data: {
+      labels,
+      datasets: [{
+        label: '실현손익 (원)',
+        data: pnls,
+        backgroundColor: pnls.map(v => v > 0 ? 'rgba(220,53,69,0.75)' : v < 0 ? 'rgba(13,110,253,0.75)' : 'rgba(160,160,160,0.3)'),
+        borderRadius: 4,
+      }]
+    },
     options: {
       responsive: true,
       plugins: {
-        legend: { display: hasRealizedPnl, position: 'top' },
+        legend: { display: false },
         tooltip: {
           callbacks: {
-            label: ctx => {
-              if (ctx.dataset.yAxisID === 'y2') return ` 실현손익: ${fmt(ctx.raw)}원`;
-              return ` 실현수익률: ${ctx.raw}%`;
-            }
+            label: ctx => ` 실현손익: ${fmt(ctx.raw)}원`
           }
         }
       },
-      scales,
+      scales: {
+        x: { grid: { display: false } },
+        y: {
+          ticks: { callback: v => (v / 10000).toFixed(0) + '만' },
+          grid:  { color: '#f0f0f0' },
+        },
+      },
     }
   });
 }

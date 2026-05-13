@@ -1658,14 +1658,13 @@ def api_investment_monthly():
             FROM stock_tx GROUP BY stock_id
         )
         SELECT to_char(t.tx_date::date, 'YYYY-MM') AS ym,
-            COALESCE(SUM((t.price - ac.avg_cost) * t.quantity - t.fee), 0) AS realized_pnl,
-            COALESCE(SUM(ac.avg_cost * t.quantity), 0) AS sell_cost
+            COALESCE(SUM((t.price - ac.avg_cost) * t.quantity - t.fee), 0) AS realized_pnl
         FROM stock_tx t
         JOIN avg_costs ac ON ac.stock_id = t.stock_id
         WHERE t.tx_type = 'sell'
         GROUP BY ym ORDER BY ym
     """)
-    stocks_by_month = {r['ym']: {'pnl': float(r['realized_pnl']), 'cost': float(r['sell_cost'])} for r in cur.fetchall()}
+    stocks_by_month = {r['ym']: float(r['realized_pnl']) for r in cur.fetchall()}
     cur.close()
 
     cur = db.cursor()
@@ -1677,14 +1676,13 @@ def api_investment_monthly():
             FROM etf_tx GROUP BY etf_id
         )
         SELECT to_char(t.tx_date::date, 'YYYY-MM') AS ym,
-            COALESCE(SUM((t.price - ac.avg_cost) * t.quantity - t.fee), 0) AS realized_pnl,
-            COALESCE(SUM(ac.avg_cost * t.quantity), 0) AS sell_cost
+            COALESCE(SUM((t.price - ac.avg_cost) * t.quantity - t.fee), 0) AS realized_pnl
         FROM etf_tx t
         JOIN avg_costs ac ON ac.etf_id = t.etf_id
         WHERE t.tx_type = 'sell'
         GROUP BY ym ORDER BY ym
     """)
-    etf_by_month = {r['ym']: {'pnl': float(r['realized_pnl']), 'cost': float(r['sell_cost'])} for r in cur.fetchall()}
+    etf_by_month = {r['ym']: float(r['realized_pnl']) for r in cur.fetchall()}
     cur.close()
     db.close()
 
@@ -1698,13 +1696,9 @@ def api_investment_monthly():
             mo += 12
             yr -= 1
         ym = f"{yr}-{mo:02d}"
-        s    = stocks_by_month.get(ym, {'pnl': 0, 'cost': 0})
-        e    = etf_by_month.get(ym, {'pnl': 0, 'cost': 0})
-        pnl  = round(s['pnl'] + e['pnl'])
-        cost = s['cost'] + e['cost']
-        rate = round((s['pnl'] + e['pnl']) / cost * 100, 2) if cost else 0
+        pnl = round(stocks_by_month.get(ym, 0) + etf_by_month.get(ym, 0))
         cumulative += pnl
-        months.append({'ym': ym, 'realized_pnl': pnl, 'return_rate': rate, 'cumulative_pnl': cumulative})
+        months.append({'ym': ym, 'realized_pnl': pnl, 'cumulative_pnl': cumulative})
 
     return jsonify(months)
 
