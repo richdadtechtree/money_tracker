@@ -1339,7 +1339,7 @@ def _fetch_alphavantage_price(ticker: str) -> float | None:
 
 
 def _fetch_stooq_price(ticker: str) -> float | None:
-    """Stooq CSV 피드로 주식 현재가 조회"""
+    """Stooq CSV 피드로 주식 현재가(종가) 조회"""
     try:
         stooq_sym = (ticker + '.kr') if _is_krx_ticker(ticker) else ticker
         res = http_req.get(
@@ -1350,21 +1350,24 @@ def _fetch_stooq_price(ticker: str) -> float | None:
         print(f'[price] stooq {stooq_sym}: status={res.status_code} body={res.text[:100]}', file=sys.stderr)
         if not res.ok:
             return None
-        lines = res.text.strip().split('\n')
+        lines = [line.strip() for line in res.text.strip().split('\n') if line.strip()]
         if len(lines) < 2:
             return None
-        parts = lines[1].split(',')
-        if len(parts) >= 7:
-            close = parts[6].strip()
-            if close and close not in ('N/D', '0', ''):
-                return float(close)
+        headers = [h.strip().lower() for h in lines[0].split(',')]
+        parts = [p.strip() for p in lines[1].split(',')]
+        if 'close' in headers:
+            idx = headers.index('close')
+            if idx < len(parts):
+                close = parts[idx]
+                if close and close not in ('N/D', '0', ''):
+                    return float(close)
     except Exception as e:
         print(f'[price] stooq error {ticker}: {e}', file=sys.stderr)
     return None
 
 
 def _fetch_yf_direct_price(ticker: str) -> float | None:
-    """Yahoo Finance v8 API 직접 호출 (yfinance 라이브러리 미사용)"""
+    """Yahoo Finance v8 API 직접 호출 (regularMarketPrice 또는 Close 종가 반영)"""
     try:
         yf_sym = (ticker + '.KS') if _is_krx_ticker(ticker) else ticker
         res = http_req.get(
@@ -1378,6 +1381,9 @@ def _fetch_yf_direct_price(ticker: str) -> float | None:
             return None
         result = res.json().get('chart', {}).get('result', [])
         if result:
+            market_price = result[0].get('meta', {}).get('regularMarketPrice')
+            if market_price is not None:
+                return float(market_price)
             closes = result[0].get('indicators', {}).get('quote', [{}])[0].get('close', [])
             closes = [c for c in closes if c is not None]
             if closes:
@@ -1388,7 +1394,39 @@ def _fetch_yf_direct_price(ticker: str) -> float | None:
 
 
 def _fetch_stock_price(ticker: str) -> float | None:
-    """Alpha Vantage(키 있을 때) → Stooq → Yahoo Finance 직접 순서로 시도"""
+    """pykrx (국내) / yfinance (해외) 우선 시도 후 외부 HTTP API 순차 시도"""
+    if _is_krx_ticker(ticker):
+        if HAS_PYKRX:
+            try:
+                import datetime
+                today_str = datetime.date.today().strftime("%Y%m%d")
+                prev_str = (datetime.date.today() - datetime.timedelta(days=7)).strftime("%Y%m%d")
+                df = krx_stock.get_market_ohlcv_by_date(prev_str, today_str, ticker)
+                if not df.empty and '종가' in df.columns:
+                    return float(df['종가'].iloc[-1])
+            except Exception as e:
+                print(f'[price] pykrx error {ticker}: {e}', file=sys.stderr)
+        
+        try:
+            res = http_req.get(
+                f"https://finance.naver.com/item/main.naver?code={ticker}",
+                headers={'User-Agent': 'Mozilla/5.0'}, timeout=5
+            )
+            m = re.search(r'<em class="no_today">.*?<span class="blind">([\d,]+)</span>', res.text, re.DOTALL)
+            if m:
+                return float(m.group(1).replace(',', ''))
+        except Exception as e:
+            print(f'[price] naver finance error {ticker}: {e}', file=sys.stderr)
+    else:
+        if HAS_YFINANCE:
+            try:
+                t = yf.Ticker(ticker)
+                hist = t.history(period="5d")
+                if not hist.empty and 'Close' in hist.columns:
+                    return float(hist['Close'].iloc[-1])
+            except Exception as e:
+                print(f'[price] yfinance error {ticker}: {e}', file=sys.stderr)
+
     price = _fetch_alphavantage_price(ticker)
     if price:
         return price
