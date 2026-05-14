@@ -1677,15 +1677,13 @@ def api_price_test():
 
 
 # ── API: USD/KRW 환율 ────────────────────────────────────────
-@app.route('/api/exchange-rate')
-def api_exchange_rate():
-    """Yahoo Finance에서 USD/KRW 환율 조회. 실패 시 1380 반환"""
+def get_current_exchange_rate():
     try:
         r = http_req.get(
             'https://query2.finance.yahoo.com/v8/finance/chart/USDKRW=X',
             params={'interval': '1d', 'range': '5d'},
             headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
-            timeout=8
+            timeout=3
         )
         if r.ok:
             result = r.json().get('chart', {}).get('result', [])
@@ -1693,10 +1691,62 @@ def api_exchange_rate():
                 closes = result[0].get('indicators', {}).get('quote', [{}])[0].get('close', [])
                 closes = [c for c in closes if c is not None]
                 if closes:
-                    return jsonify({'rate': round(closes[-1], 2)})
+                    return round(closes[-1], 2)
     except Exception:
         pass
-    return jsonify({'rate': 1380})
+    return 1380.0
+
+def is_foreign_ticker(ticker):
+    return bool(ticker) and not bool(re.match(r'^\d{6}$', str(ticker)))
+
+def get_stocks_total_value(db, ex_rate):
+    cur = db.cursor()
+    cur.execute("""
+    SELECT s.ticker, s.current_price,
+    COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+    COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty
+    FROM stocks s
+    LEFT JOIN stock_tx t ON t.stock_id = s.id
+    GROUP BY s.id
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    total = 0.0
+    for r in rows:
+        qty = r['buy_qty'] - r['sell_qty']
+        eval_amt = round(qty * r['current_price'])
+        if is_foreign_ticker(r['ticker']):
+            total += eval_amt * ex_rate
+        else:
+            total += eval_amt
+    return float(total)
+
+def get_etf_total_value(db, ex_rate):
+    cur = db.cursor()
+    cur.execute("""
+    SELECT e.ticker, e.current_price,
+    COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+    COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty
+    FROM etf e
+    LEFT JOIN etf_tx t ON t.etf_id = e.id
+    GROUP BY e.id
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    total = 0.0
+    for r in rows:
+        qty = r['buy_qty'] - r['sell_qty']
+        eval_amt = round(qty * r['current_price'])
+        if is_foreign_ticker(r['ticker']):
+            total += eval_amt * ex_rate
+        else:
+            total += eval_amt
+    return float(total)
+
+@app.route('/api/exchange-rate')
+def api_exchange_rate():
+    """Yahoo Finance에서 USD/KRW 환율 조회. 실패 시 1380 반환"""
+    return jsonify({'rate': get_current_exchange_rate()})
 
 
 # ── API: 거주지 ──────────────────────────────────────────────
@@ -2490,24 +2540,9 @@ def _api_dashboard_inner():
     card_total = cur.fetchone()['total']
     cur.close()
 
-    # 주식 평가액 (stock_tx 기반)
-    cur = db.cursor()
-    cur.execute("""
-    SELECT COALESCE(SUM(s.current_price * (
-    SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0)
-    FROM stock_tx WHERE stock_id = s.id
-    )), 0) AS val FROM stocks s
-    """)
-    stocks_val = float(cur.fetchone()['val'] or 0)
-    cur.close()
-
-    # ETF 평가액
-    cur = db.cursor()
-    cur.execute(
-    "SELECT COALESCE(SUM(e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id)),0) as val FROM etf e"
-    )
-    etf_val = float(cur.fetchone()['val'] or 0)
-    cur.close()
+    ex_rate = get_current_exchange_rate()
+    stocks_val = get_stocks_total_value(db, ex_rate)
+    etf_val = get_etf_total_value(db, ex_rate)
 
     # 코인 평가액
     cur = db.cursor()
@@ -2525,7 +2560,7 @@ def _api_dashboard_inner():
     cur = db.cursor()
     cur.execute("""
     SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts
-    WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+    WHERE id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
     """)
     re_total_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
@@ -2664,15 +2699,9 @@ def api_tech_tree_data():
 
 def _api_tech_tree_data_inner():
     db = get_db()
-    # 자산 현황
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(s.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id)), 0) FROM stocks s")
-    stocks_val = float(cur.fetchone()[0] or 0)
-    cur.close()
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id)),0) FROM etf e")
-    etf_val = float(cur.fetchone()[0] or 0)
-    cur.close()
+    ex_rate = get_current_exchange_rate()
+    stocks_val = get_stocks_total_value(db, ex_rate)
+    etf_val = get_etf_total_value(db, ex_rate)
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
     crypto_val = float(cur.fetchone()[0] or 0)
@@ -2686,7 +2715,7 @@ def _api_tech_tree_data_inner():
     cur = db.cursor()
     cur.execute("""
     SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts
-    WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+    WHERE id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
     """)
     re_total_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
@@ -2739,7 +2768,7 @@ def _api_tech_tree_data_inner():
     SELECT COALESCE(SUM(monthly_rent), 0)
     FROM tenant_contracts
     WHERE contract_type = '월세'
-    AND id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+    AND id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
     """)
     rental_inc = float(cur.fetchone()[0] or 0)
     cur.close()
@@ -2750,7 +2779,7 @@ def _api_tech_tree_data_inner():
     SELECT COALESCE(SUM(deposit * 0.04 / 12), 0)
     FROM tenant_contracts
     WHERE contract_type = '전세'
-    AND id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+    AND id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
     """)
     leverage_inc = float(cur.fetchone()[0] or 0)
     cur.close()
@@ -2920,15 +2949,9 @@ def _api_tech_tree_yearly_stats_inner():
     target_amount = int(goal['value']) if goal and goal['value'] else 1000000000
     
     # 2. 실시간 현재 자산 가져오기
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(s.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id)), 0) FROM stocks s")
-    stocks_val = float(cur.fetchone()[0] or 0)
-    cur.close()
-
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id)),0) FROM etf e")
-    etf_val = float(cur.fetchone()[0] or 0)
-    cur.close()
+    ex_rate = get_current_exchange_rate()
+    stocks_val = get_stocks_total_value(db, ex_rate)
+    etf_val = get_etf_total_value(db, ex_rate)
 
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
@@ -2943,7 +2966,7 @@ def _api_tech_tree_yearly_stats_inner():
     cur = db.cursor()
     cur.execute("""
     SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts
-    WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+    WHERE id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
     """)
     re_total_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
@@ -3047,7 +3070,7 @@ def _api_tech_tree_yearly_stats_inner():
         cur = db.cursor()
         cur.execute("""
         SELECT COALESCE(SUM(monthly_rent), 0) FROM tenant_contracts 
-        WHERE contract_type = '월세' AND id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+        WHERE contract_type = '월세' AND id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
         """)
         rental_inc = cur.fetchone()[0] or 0
         cur.close()
@@ -3055,7 +3078,7 @@ def _api_tech_tree_yearly_stats_inner():
         cur = db.cursor()
         cur.execute("""
         SELECT COALESCE(SUM(deposit * 0.04 / 12), 0) FROM tenant_contracts 
-        WHERE contract_type = '전세' AND id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+        WHERE contract_type = '전세' AND id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
         """)
         leverage_inc = cur.fetchone()[0] or 0
         cur.close()
@@ -3151,14 +3174,8 @@ def api_asset_history():
     cur.execute("SELECT COALESCE(SUM(monthly_payment),0) FROM pension")
     p_monthly = float(cur.fetchone()[0] or 0)
     cur.close()
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(s.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id)), 0) FROM stocks s")
-    curr_stocks = float(cur.fetchone()[0] or 0)
-    cur.close()
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id)),0) FROM etf e")
-    curr_stocks += float(cur.fetchone()[0] or 0)
-    cur.close()
+    ex_rate = get_current_exchange_rate()
+    curr_stocks = get_stocks_total_value(db, ex_rate) + get_etf_total_value(db, ex_rate)
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
     curr_crypto = float(cur.fetchone()[0] or 0)
@@ -3168,7 +3185,7 @@ def api_asset_history():
     re_price = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts WHERE id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)")
+    cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts WHERE id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)")
     re_dep = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
@@ -3310,7 +3327,7 @@ def api_tech_tree_detail():
         FROM tenant_contracts tc
         JOIN real_estate r ON tc.real_estate_id = r.id
         WHERE tc.contract_type = '월세' 
-        AND tc.id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+        AND tc.id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
         """)
         rentals = cur.fetchall()
         cur.close()
@@ -3325,7 +3342,7 @@ def api_tech_tree_detail():
         FROM tenant_contracts tc
         JOIN real_estate r ON tc.real_estate_id = r.id
         WHERE tc.contract_type = '전세' 
-        AND tc.id IN (SELECT MAX(id) FROM tenant_contracts GROUP BY real_estate_id)
+        AND tc.id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
         """)
         leverages = cur.fetchall()
         cur.close()
@@ -3357,15 +3374,42 @@ def api_tech_tree_detail():
         cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in c + g]
     elif ttype == 'stocks':
+        ex_rate = get_current_exchange_rate()
         cur = db.cursor()
-        cur.execute("SELECT '주식' as date, name, (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END), 0) FROM stock_tx WHERE stock_id = s.id) * current_price as amount, ticker as memo FROM stocks s")
-        s = cur.fetchall()
+        cur.execute("""
+        SELECT s.name, s.ticker, s.current_price,
+        COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+        COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty
+        FROM stocks s
+        LEFT JOIN stock_tx t ON t.stock_id = s.id
+        GROUP BY s.id
+        """)
+        s_rows = cur.fetchall()
         cur.close()
+        for r in s_rows:
+            qty = r['buy_qty'] - r['sell_qty']
+            if qty > 0:
+                eval_amt = round(qty * r['current_price'])
+                mul = ex_rate if is_foreign_ticker(r['ticker']) else 1
+                res.append({'date': '주식', 'name': r['name'], 'amount': float(eval_amt * mul), 'memo': r['ticker']})
+
         cur = db.cursor()
-        cur.execute("SELECT 'ETF' as date, e.name, e.current_price * (SELECT COALESCE(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE -quantity END),0) FROM etf_tx WHERE etf_id=e.id) as amount, e.ticker as memo FROM etf e")
-        e = cur.fetchall()
+        cur.execute("""
+        SELECT e.name, e.ticker, e.current_price,
+        COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+        COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty
+        FROM etf e
+        LEFT JOIN etf_tx t ON t.etf_id = e.id
+        GROUP BY e.id
+        """)
+        e_rows = cur.fetchall()
         cur.close()
-        res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in s + e if r[2] > 0]
+        for r in e_rows:
+            qty = r['buy_qty'] - r['sell_qty']
+            if qty > 0:
+                eval_amt = round(qty * r['current_price'])
+                mul = ex_rate if is_foreign_ticker(r['ticker']) else 1
+                res.append({'date': 'ETF', 'name': r['name'], 'amount': float(eval_amt * mul), 'memo': r['ticker']})
     elif ttype == 'real_estate':
         # 각 매물별 시세 - 최신 보증금(부채) 계산
         cur = db.cursor()
