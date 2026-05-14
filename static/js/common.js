@@ -251,9 +251,9 @@ class GridTable {
     this._tr = null;
     const method = id === 'new' ? 'POST' : 'PUT';
     const url    = id === 'new' ? this.apiUrl : `${this.apiUrl}/${id}`;
-    await fetchJSON(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    const result = await fetchJSON(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
     await this.load();
-    this.onSave?.();
+    this.onSave?.(result, method, data);
   }
 
   async _delete(id) {

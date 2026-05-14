@@ -268,6 +268,12 @@ def api_budget():
     type_ = data.get('type', '')
     recurring_id = None
 
+    # 카테고리 미설정 시 규칙 자동 적용
+    if not data.get('category'):
+        auto_cat = _apply_budget_category_rule(db, data.get('name', ''))
+        if auto_cat:
+            data['category'] = auto_cat
+
     # 고정/변동지출이면 반복 마스터 생성 (테이블 미존재 시 무시)
     if type_ in ('고정지출', '변동지출'):
         try:
@@ -365,9 +371,21 @@ def api_budget_detail(rid):
                 db.rollback()
 
         _sync_card_tx(db, rid, data)
+
+        # 카테고리가 설정된 경우 항목명을 키워드로 학습
+        new_category = data.get('category', '')
+        new_name     = data.get('name', '')
+        rule_id = None
+        if new_category and new_name:
+            rule_id = _learn_budget_category(db, new_name, new_category)
+
         db.commit()
         db.close()
-        return jsonify({'ok': True})
+        return jsonify({'ok': True,
+                        'learned':   rule_id is not None,
+                        'rule_id':   rule_id,
+                        'keyword':   new_name     if rule_id else None,
+                        'category':  new_category if rule_id else None})
 
     # DELETE
     mode = request.args.get('mode', 'single')  # 'single' | 'forward'
@@ -404,6 +422,134 @@ def api_budget_detail(rid):
     db.commit()
     db.close()
     return jsonify({'ok': True})
+
+
+# ── API: 가계부 카테고리 ─────────────────────────────────────
+@app.route('/api/budget-categories', methods=['GET', 'POST'])
+def api_budget_categories():
+    db = get_db()
+    cur = db.cursor()
+    if request.method == 'GET':
+        cur.execute("SELECT id, name FROM budget_categories ORDER BY sort_order, id")
+        rows = cur.fetchall()
+        db.close()
+        return jsonify([{'id': r['id'], 'name': r['name']} for r in rows])
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        db.close()
+        return jsonify({'error': 'name required'}), 400
+    cur.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM budget_categories")
+    next_order = cur.fetchone()[0]
+    cur.execute(
+        "INSERT INTO budget_categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING",
+        (name, next_order)
+    )
+    db.commit()
+    db.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/budget-categories/<int:cid>', methods=['DELETE'])
+def api_budget_category_delete(cid):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("DELETE FROM budget_categories WHERE id=%s", (cid,))
+    db.commit()
+    db.close()
+    return jsonify({'ok': True})
+
+
+# ── API: 가계부 자동 분류 규칙 ──────────────────────────────────
+@app.route('/api/budget-category-rules', methods=['GET', 'POST'])
+def api_budget_category_rules():
+    db = get_db()
+    cur = db.cursor()
+    if request.method == 'GET':
+        cur.execute("SELECT id, keyword, category FROM budget_category_rules ORDER BY id DESC")
+        rows = cur.fetchall()
+        db.close()
+        return jsonify(rows_to_list(rows))
+    data = request.json or {}
+    kw  = (data.get('keyword') or '').strip()
+    cat = (data.get('category') or '').strip()
+    if not kw or not cat:
+        db.close()
+        return jsonify({'error': 'keyword and category required'}), 400
+    cur.execute(
+        "INSERT INTO budget_category_rules (keyword, category) VALUES (%s, %s) "
+        "ON CONFLICT (keyword) DO UPDATE SET category = EXCLUDED.category",
+        (kw, cat)
+    )
+    db.commit()
+    db.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/budget-category-rules/<int:rid>', methods=['DELETE', 'PUT'])
+def api_budget_category_rule_detail(rid):
+    db = get_db()
+    cur = db.cursor()
+    if request.method == 'PUT':
+        data = request.json or {}
+        kw  = (data.get('keyword') or '').strip()
+        cat = (data.get('category') or '').strip()
+        if kw and cat:
+            cur.execute("DELETE FROM budget_category_rules WHERE id=%s", (rid,))
+            cur.execute(
+                "INSERT INTO budget_category_rules (keyword, category) VALUES (%s, %s) "
+                "ON CONFLICT (keyword) DO UPDATE SET category = EXCLUDED.category",
+                (kw, cat)
+            )
+    else:
+        cur.execute("DELETE FROM budget_category_rules WHERE id=%s", (rid,))
+    db.commit()
+    db.close()
+    return jsonify({'ok': True})
+
+
+def _apply_budget_category_rule(db, name):
+    """항목명에 매칭되는 규칙이 있으면 카테고리를 반환."""
+    if not name:
+        return None
+    try:
+        cur = db.cursor()
+        cur.execute(
+            "SELECT keyword, category FROM budget_category_rules ORDER BY LENGTH(keyword) DESC"
+        )
+        rules = cur.fetchall()
+        cur.close()
+        name_lower = name.lower()
+        for r in rules:
+            if r['keyword'].lower() in name_lower:
+                return r['category']
+    except Exception:
+        pass
+    return None
+
+
+def _learn_budget_category(db, name, category):
+    """항목명을 키워드로 학습. 새로 등록된 경우 rule_id 반환, 아니면 None."""
+    if not name or not category:
+        return None
+    try:
+        cur = db.cursor()
+        cur.execute("SELECT keyword FROM budget_category_rules")
+        rules = cur.fetchall()
+        cur.close()
+        name_lower = name.lower()
+        # 이미 커버되는 규칙이 있으면 등록하지 않음
+        if any(r['keyword'].lower() in name_lower for r in rules):
+            return None
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO budget_category_rules (keyword, category) VALUES (%s, %s) "
+            "ON CONFLICT (keyword) DO UPDATE SET category = EXCLUDED.category RETURNING id",
+            (name, category)
+        )
+        row = cur.fetchone()
+        cur.close()
+        return row[0] if row else None
+    except Exception:
+        return None
 
 
 # ── API: 카드 정보 ───────────────────────────────────────────
@@ -563,6 +709,99 @@ def api_card_tx_bulk_delete():
     return jsonify({'ok': True, 'deleted': deleted})
 
 
+# ── API: 가계부 대조 ──────────────────────────────────────────
+@app.route('/api/card-reconcile')
+def api_card_reconcile():
+    """카드 거래내역 ↔ 가계부 자동 매칭"""
+    card_id = request.args.get('card_id', type=int)
+    year    = request.args.get('year',    type=int)
+    month   = request.args.get('month',   type=int)
+    if not all([card_id, year, month]):
+        return jsonify({'error': 'card_id, year, month 필요'}), 400
+
+    from datetime import timedelta
+    first_day   = date(year, month, 1)
+    last_month  = month % 12 + 1
+    last_year   = year + (1 if month == 12 else 0)
+    last_day    = date(last_year, last_month, 1) - timedelta(days=1)
+    range_start = (first_day - timedelta(days=3)).isoformat()
+    range_end   = (last_day  + timedelta(days=3)).isoformat()
+    ym = f"{year}-{month:02d}"
+
+    db  = get_db()
+    cur = db.cursor()
+
+    cur.execute("""
+        SELECT id, date, name, category, amount, installment, memo
+        FROM card_tx
+        WHERE card_id = %s AND to_char(date::date, 'YYYY-MM') = %s
+        ORDER BY date, id
+    """, (card_id, ym))
+    card_txs = rows_to_list(cur.fetchall())
+
+    cur.execute("""
+        SELECT id, date, name, category, amount, payment_method, memo
+        FROM budget
+        WHERE date >= %s AND date <= %s AND amount > 0
+        ORDER BY date, id
+    """, (range_start, range_end))
+    budget_entries = rows_to_list(cur.fetchall())
+    cur.close(); db.close()
+
+    used = set()
+    result = []
+    for tx in card_txs:
+        tx_date   = date.fromisoformat(str(tx['date'])[:10])
+        tx_amount = int(tx['amount'])
+        best = None; best_days = 999
+        for b in budget_entries:
+            if b['id'] in used or int(b['amount']) != tx_amount:
+                continue
+            diff = abs((tx_date - date.fromisoformat(str(b['date'])[:10])).days)
+            if diff <= 3 and diff < best_days:
+                best_days = diff; best = b
+        if best:
+            used.add(best['id'])
+            result.append({**tx, 'status': 'matched',
+                           'budget_id': best['id'], 'budget_name': best['name'],
+                           'budget_date': str(best['date'])[:10],
+                           'budget_cat': best.get('category',''), 'date_diff': best_days})
+        else:
+            result.append({**tx, 'status': 'unmatched', 'budget_id': None})
+
+    matched   = sum(1 for r in result if r['status'] == 'matched')
+    unmatched = len(result) - matched
+    return jsonify({'items': result, 'matched': matched,
+                    'unmatched': unmatched, 'total': len(result)})
+
+
+@app.route('/api/card-reconcile/add-budget', methods=['POST'])
+def api_card_reconcile_add_budget():
+    """미매칭 카드 거래를 가계부에 일괄 추가"""
+    data        = request.json or {}
+    card_tx_ids = data.get('card_tx_ids', [])
+    card_id     = data.get('card_id')
+    if not card_tx_ids:
+        return jsonify({'ok': True, 'added': 0})
+
+    db  = get_db()
+    cur = db.cursor()
+    placeholders = ','.join(['%s'] * len(card_tx_ids))
+    cur.execute(f"SELECT id, date, name, category, amount, memo FROM card_tx WHERE id IN ({placeholders})",
+                card_tx_ids)
+    txs = rows_to_list(cur.fetchall())
+    added = 0
+    for tx in txs:
+        cur.execute("""
+            INSERT INTO budget (date, category, name, type, payment_method, amount, memo, card_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """, (str(tx['date'])[:10], tx.get('category') or '', tx.get('name') or '',
+              '변동', '카드', int(tx['amount']), tx.get('memo') or '', card_id))
+        added += 1
+    cur.close(); db.commit(); db.close()
+    return jsonify({'ok': True, 'added': added})
+
+
 @app.route('/api/card-tx/auto-categorize', methods=['POST'])
 def api_card_tx_auto_categorize():
     data    = request.json or {}
@@ -603,7 +842,7 @@ def api_stocks():
     if request.method == 'GET':
         cur = db.cursor()
         cur.execute("""
-        SELECT s.id, s.name, s.ticker, s.current_price, s.dividend, s.memo,
+        SELECT s.id, s.name, s.ticker, s.current_price, s.dividend, s.memo, s.category,
         COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
         COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
         COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity + t.fee ELSE 0 END), 0) AS total_buy_amount,
@@ -635,9 +874,9 @@ def api_stocks():
     data = request.json
     cur = db.cursor()
     cur.execute(
-    "INSERT INTO stocks (name, ticker, current_price, dividend, memo) VALUES (%s,%s,%s,%s,%s)",
+    "INSERT INTO stocks (name, ticker, current_price, dividend, memo, category) VALUES (%s,%s,%s,%s,%s,%s)",
     (data.get('name'), data.get('ticker'),
-    data.get('current_price', 0), data.get('dividend', 0), data.get('memo'))
+    data.get('current_price', 0), data.get('dividend', 0), data.get('memo'), data.get('category'))
     )
     cur.close()
     db.commit()
@@ -652,9 +891,9 @@ def api_stocks_detail(rid):
         data = request.json
         cur = db.cursor()
         cur.execute(
-        "UPDATE stocks SET name=%s, ticker=%s, current_price=%s, dividend=%s, memo=%s WHERE id=%s",
+        "UPDATE stocks SET name=%s, ticker=%s, current_price=%s, dividend=%s, memo=%s, category=%s WHERE id=%s",
         (data.get('name'), data.get('ticker'),
-        data.get('current_price', 0), data.get('dividend', 0), data.get('memo'), rid)
+        data.get('current_price', 0), data.get('dividend', 0), data.get('memo'), data.get('category'), rid)
         )
         cur.close()
         db.commit()
@@ -668,6 +907,35 @@ def api_stocks_detail(rid):
     cur.close()
     db.commit()
     db.close()
+    return jsonify({'ok': True})
+
+
+# ── API: 주식 구분 카테고리 ──────────────────────────────────
+@app.route('/api/stock-categories', methods=['GET', 'POST'])
+def api_stock_categories():
+    db = get_db()
+    cur = db.cursor()
+    if request.method == 'GET':
+        cur.execute("SELECT id, name FROM stock_categories ORDER BY sort_order, id")
+        rows = rows_to_list(cur.fetchall())
+        cur.close(); db.close()
+        return jsonify(rows)
+    data = request.json
+    cur.execute("SELECT COALESCE(MAX(sort_order),0)+1 FROM stock_categories")
+    order = cur.fetchone()[0]
+    cur.execute(
+        "INSERT INTO stock_categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING",
+        (data.get('name'), order)
+    )
+    cur.close(); db.commit(); db.close()
+    return jsonify({'ok': True}), 201
+
+@app.route('/api/stock-categories/<int:cid>', methods=['DELETE'])
+def api_stock_category_delete(cid):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("DELETE FROM stock_categories WHERE id=%s", (cid,))
+    cur.close(); db.commit(); db.close()
     return jsonify({'ok': True})
 
 
@@ -1772,6 +2040,84 @@ def api_cash_deposits_detail(rid):
     db.commit()
     db.close()
     return jsonify({'ok': True})
+
+# ── API: 구분별 실현손익 ─────────────────────────────────────
+@app.route('/api/stock-category-pnl')
+def api_stock_category_pnl():
+    """구분(category)별 실현손익 – period: monthly(최근12개월) | yearly | all"""
+    category = request.args.get('category', '전체')
+    period   = request.args.get('period', 'monthly')
+
+    date_fmt = 'YYYY' if period == 'yearly' else 'YYYY-MM'
+
+    if category and category != '전체':
+        inner_where = "WHERE s.category = %s"
+        outer_where = "AND s.category = %s"
+        params = [date_fmt, category, category]
+    else:
+        inner_where = ""
+        outer_where = ""
+        params = [date_fmt]
+
+    db  = get_db()
+    cur = db.cursor()
+    cur.execute(f"""
+        WITH avg_costs AS (
+            SELECT t.stock_id,
+                SUM(CASE WHEN t.tx_type='buy' THEN t.price*t.quantity+t.fee ELSE 0 END) /
+                NULLIF(SUM(CASE WHEN t.tx_type='buy' THEN t.quantity ELSE 0 END), 0) AS avg_cost
+            FROM stock_tx t
+            JOIN stocks s ON s.id = t.stock_id
+            {inner_where}
+            GROUP BY t.stock_id
+        )
+        SELECT
+            to_char(t.tx_date::date, %s) AS period_key,
+            COALESCE(SUM((t.price - ac.avg_cost) * t.quantity - t.fee), 0) AS realized_pnl,
+            COALESCE(SUM(ac.avg_cost * t.quantity), 0) AS cost_basis
+        FROM stock_tx t
+        JOIN avg_costs ac ON ac.stock_id = t.stock_id
+        JOIN stocks s ON s.id = t.stock_id
+        WHERE t.tx_type = 'sell'
+        {outer_where}
+        GROUP BY period_key
+        ORDER BY period_key
+    """, params)
+    rows = cur.fetchall()
+    cur.close()
+    db.close()
+
+    data_map = {r['period_key']: {'pnl': float(r['realized_pnl']), 'cost': float(r['cost_basis'])} for r in rows}
+
+    if period == 'monthly':
+        today = date.today()
+        keys = []
+        for i in range(11, -1, -1):
+            mo = today.month - i
+            yr = today.year
+            while mo <= 0:
+                mo += 12; yr -= 1
+            keys.append(f"{yr}-{mo:02d}")
+        # cumulative includes all history before our 12-month window
+        cumulative = sum(v['pnl'] for k, v in data_map.items() if k < keys[0])
+    else:
+        keys = sorted(data_map.keys())
+        cumulative = 0
+
+    result = []
+    for k in keys:
+        d = data_map.get(k, {'pnl': 0, 'cost': 0})
+        cumulative += d['pnl']
+        result.append({
+            'label':          k,
+            'realized_pnl':   round(d['pnl']),
+            'cost_basis':     round(d['cost']),
+            'return_rate':    round(d['pnl'] / d['cost'] * 100, 2) if d['cost'] else 0,
+            'cumulative_pnl': round(cumulative),
+        })
+
+    return jsonify(result)
+
 
 # ── API: 월별 실현손익 ───────────────────────────────────────
 @app.route('/api/investment-monthly')
@@ -3447,11 +3793,13 @@ _BACKUP_DELETE_ORDER = [
     'income', 'budget', 'budget_recurring', 'crypto', 'loans', 'pension', 'goals',
     'cash_deposits', 'residence',
     'stocks', 'etf', 'real_estate', 'card_info',
-    'fund_groups', 'categories', 'app_settings',
+    'fund_groups', 'categories', 'budget_categories', 'budget_category_rules',
+    'stock_categories', 'app_settings',
 ]
 # 삽입 순서 (부모 → 자식)
 _BACKUP_INSERT_ORDER = [
-    'categories', 'card_info', 'fund_groups',
+    'categories', 'budget_categories', 'budget_category_rules',
+    'stock_categories', 'card_info', 'fund_groups',
     'stocks', 'etf', 'real_estate',
     'budget_recurring',
     'income', 'budget', 'crypto', 'loans', 'pension', 'goals',

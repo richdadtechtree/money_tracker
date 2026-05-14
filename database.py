@@ -281,6 +281,24 @@ def init_db():
             value TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS budget_categories (
+            id         SERIAL PRIMARY KEY,
+            name       TEXT NOT NULL UNIQUE,
+            sort_order INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS budget_category_rules (
+            id       SERIAL PRIMARY KEY,
+            keyword  TEXT NOT NULL UNIQUE,
+            category TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS stock_categories (
+            id         SERIAL PRIMARY KEY,
+            name       TEXT NOT NULL UNIQUE,
+            sort_order INTEGER DEFAULT 0
+        );
+
         CREATE TABLE IF NOT EXISTS sold_real_estate (
             id              SERIAL PRIMARY KEY,
             name            TEXT,
@@ -309,6 +327,7 @@ def init_db():
         "ALTER TABLE card_tx  ADD COLUMN category_locked   INTEGER DEFAULT 0",
         "ALTER TABLE card_tx  ADD COLUMN fund_group_id     INTEGER REFERENCES fund_groups(id)",
         "ALTER TABLE card_tx  ADD COLUMN fund_group_locked INTEGER DEFAULT 0",
+        "ALTER TABLE stocks   ADD COLUMN category          TEXT",
         # ETF 기존 데이터 → etf_tx 이전
         "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo) "
         "SELECT id, COALESCE(NULLIF(buy_date,''), TO_CHAR(NOW(),'YYYY-MM-DD')), 'buy', buy_price, quantity, 0, '기존데이터' "
@@ -325,6 +344,14 @@ def init_db():
     try:
         with conn:
             with conn.cursor() as cur:
+                # 가계부 기본 카테고리 삽입
+                _budget_cats = ['식비','교통비','주거비','의료비','교육비','문화/여가','쇼핑','통신비','보험','술','기타']
+                for i, n in enumerate(_budget_cats):
+                    cur.execute("INSERT INTO budget_categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING", (n, i))
+                # 주식 구분 기본값 삽입
+                _stock_cats = ['스윙','올웨더','지수투자','TQQQ','공모주','사이클','해외스윙']
+                for i, n in enumerate(_stock_cats):
+                    cur.execute("INSERT INTO stock_categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING", (n, i))
                 # 기본 카테고리 삽입
                 for i, n in enumerate(['식비', '쇼핑', '교통', '의료', '문화', '기타']):
                     cur.execute("INSERT INTO categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING", (n, i))

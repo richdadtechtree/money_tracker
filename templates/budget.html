@@ -5,6 +5,10 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2 class="fw-bold mb-0"><i class="bi bi-receipt me-2 text-danger"></i>가계부</h2>
   <div class="d-flex gap-2">
+    <button class="btn btn-outline-secondary" onclick="openCatModal()" title="카테고리 관리">
+      <i class="bi bi-tags"></i>
+      <span class="ms-1 d-none d-sm-inline">카테고리</span>
+    </button>
     <button class="btn btn-outline-danger" id="voiceBtn" onclick="toggleVoice()" title="음성으로 항목 추가">
       <i class="bi bi-mic" id="voiceIcon"></i>
       <span class="ms-1 d-none d-sm-inline" id="voiceLabel">음성 입력</span>
@@ -36,6 +40,36 @@
       </div>
       <div class="col-auto ms-auto">
         <span class="text-muted small">합계: <strong class="text-danger" id="totalAmount">0원</strong></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 카테고리 관리 모달 -->
+<div class="modal fade" id="catModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered" style="max-width:360px">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-1">
+        <h5 class="modal-title fw-bold"><i class="bi bi-tags me-2 text-secondary"></i>카테고리 관리</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="max-height:80vh;overflow-y:auto">
+        <!-- 카테고리 목록 -->
+        <div class="fw-semibold small text-secondary mb-2"><i class="bi bi-tags me-1"></i>카테고리</div>
+        <div id="catList" class="mb-3 d-flex flex-wrap gap-2"></div>
+        <div class="input-group input-group-sm mb-4">
+          <input type="text" id="catNewName" class="form-control" placeholder="새 카테고리명" maxlength="20">
+          <button class="btn btn-primary" onclick="addCategory()">추가</button>
+        </div>
+        <!-- 자동 분류 규칙 -->
+        <div class="border-top pt-3">
+          <div class="fw-semibold small text-secondary mb-2">
+            <i class="bi bi-magic me-1"></i>자동 분류 규칙
+            <span class="text-muted fw-normal">(카테고리 저장 시 자동 학습)</span>
+          </div>
+          <div id="ruleList" class="d-flex flex-column gap-1"></div>
+          <p id="ruleEmpty" class="text-muted small mb-0 d-none">학습된 규칙이 없습니다.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -100,15 +134,157 @@
 <script>
 const today = new Date();
 let allCards = [];
+let allCategories = [];  // API에서 동적 로드
 
 initYearMonthFilters('filterYear', 'filterMonth', today.getFullYear(), today.getMonth() + 1);
 
 let _rdmDoDelete = null;
 let _rdmModal    = null;
+let _catModal    = null;
 
 function confirmRecurringDelete(mode) {
   _rdmModal?.hide();
   _rdmDoDelete?.(mode);
+}
+
+// ── 카테고리 관리 ──────────────────────────────────────────────
+async function loadCategories() {
+  allCategories = await fetchJSON('/api/budget-categories') || [];
+  renderCatList();
+}
+
+function renderCatList() {
+  const el = document.getElementById('catList');
+  if (!el) return;
+  el.innerHTML = allCategories.map(c => `
+    <span class="badge bg-danger-subtle text-danger d-flex align-items-center gap-1 px-2 py-2" style="font-size:0.82rem">
+      ${c.name}
+      <i class="bi bi-x-circle-fill ms-1" style="cursor:pointer;font-size:0.75rem" onclick="deleteCategory(${c.id},'${c.name}')"></i>
+    </span>
+  `).join('');
+}
+
+// ── 자동 분류 규칙 ─────────────────────────────────────────────
+let allRules = [];
+
+async function loadRules() {
+  allRules = await fetchJSON('/api/budget-category-rules') || [];
+  renderRuleList();
+}
+
+function renderRuleList() {
+  const el    = document.getElementById('ruleList');
+  const empty = document.getElementById('ruleEmpty');
+  if (!el) return;
+  if (!allRules.length) {
+    el.innerHTML = '';
+    empty?.classList.remove('d-none');
+    return;
+  }
+  empty?.classList.add('d-none');
+  el.innerHTML = allRules.map(r => `
+    <div class="d-flex align-items-center justify-content-between rounded px-2 py-1 bg-light">
+      <span class="small text-truncate me-2" style="max-width:200px" title="${r.keyword}">
+        <i class="bi bi-key me-1 text-secondary"></i>${r.keyword}
+      </span>
+      <div class="d-flex align-items-center gap-2">
+        <span class="badge bg-danger-subtle text-danger">${r.category}</span>
+        <i class="bi bi-trash text-danger" style="cursor:pointer;font-size:0.8rem" onclick="deleteRule(${r.id})"></i>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function deleteRule(id) {
+  await fetchJSON(`/api/budget-category-rules/${id}`, { method: 'DELETE' });
+  await loadRules();
+}
+
+async function openCatModal() {
+  await Promise.all([loadCategories(), loadRules()]);
+  if (!_catModal) _catModal = new bootstrap.Modal(document.getElementById('catModal'));
+  document.getElementById('catNewName').value = '';
+  _catModal.show();
+}
+
+async function addCategory() {
+  const name = document.getElementById('catNewName').value.trim();
+  if (!name) return;
+  await fetchJSON('/api/budget-categories', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+  await loadCategories();
+  document.getElementById('catNewName').value = '';
+  grid.load();
+}
+
+async function deleteCategory(id, name) {
+  if (!confirm(`"${name}" 카테고리를 삭제할까요?`)) return;
+  await fetchJSON(`/api/budget-categories/${id}`, { method: 'DELETE' });
+  await loadCategories();
+  grid.load();
+}
+
+document.getElementById('catNewName')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') addCategory();
+});
+
+// ── 학습 알림 토스트 (키워드 즉시 수정 가능) ──────────────────
+function showLearnedToast(keyword, category, ruleId) {
+  const id    = 'learnToast_' + Date.now();
+  const kwId  = 'kw_' + id;
+  const html = `
+    <div id="${id}" class="toast border-0 shadow" role="alert" style="min-width:300px;background:#1a3a2a">
+      <div class="toast-body p-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="text-white small fw-semibold">
+            <i class="bi bi-magic me-1 text-success"></i>자동 분류 규칙 등록됨
+          </span>
+          <button type="button" class="btn-close btn-close-white btn-sm" data-bs-dismiss="toast"></button>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <input id="${kwId}" type="text" class="form-control form-control-sm"
+                 value="${keyword.replace(/"/g, '&quot;')}"
+                 style="min-width:0;flex:1;font-size:0.8rem"
+                 title="키워드를 짧게 수정하면 더 넓게 적용됩니다">
+          <span class="text-white-50 small flex-shrink-0">→</span>
+          <span class="badge bg-danger-subtle text-danger flex-shrink-0">${category}</span>
+          <button class="btn btn-sm btn-success flex-shrink-0"
+                  onclick="applyRuleEdit('${id}','${kwId}',${ruleId},'${category}')">
+            적용
+          </button>
+        </div>
+        <div class="text-white-50 mt-1" style="font-size:0.72rem">
+          키워드를 짧게 수정하면 더 넓게 자동 분류됩니다 (예: 스타벅스)
+        </div>
+      </div>
+    </div>`;
+
+  let container = document.getElementById('toastContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+    container.style.zIndex = 9999;
+    document.body.appendChild(container);
+  }
+  container.insertAdjacentHTML('beforeend', html);
+  const toastEl = document.getElementById(id);
+  const toast = new bootstrap.Toast(toastEl, { delay: 8000 });
+  toast.show();
+  toastEl.addEventListener('hidden.bs.toast', () => toastEl.remove());
+}
+
+async function applyRuleEdit(toastId, kwId, ruleId, category) {
+  const newKeyword = document.getElementById(kwId)?.value.trim();
+  if (!newKeyword) return;
+  await fetchJSON(`/api/budget-category-rules/${ruleId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keyword: newKeyword, category })
+  });
+  bootstrap.Toast.getInstance(document.getElementById(toastId))?.hide();
 }
 
 const grid = new GridTable({
@@ -116,7 +292,7 @@ const grid = new GridTable({
   columns: [
     { key: 'date',           type: 'date' },
     { key: 'category',       type: 'select',
-      options: ['식비','교통비','주거비','의료비','교육비','문화/여가','쇼핑','통신비','보험','기타'],
+      options: () => allCategories.map(c => c.name),
       render: v => v ? `<span class="badge bg-danger-subtle text-danger">${v}</span>` : '-' },
     { key: 'name', type: 'text',
       render: (v, r) => {
@@ -151,6 +327,11 @@ const grid = new GridTable({
     const total = rows.reduce((s, r) => s + r.amount, 0);
     document.getElementById('totalAmount').textContent = fmt(total) + '원';
   },
+  onSave: (result, method) => {
+    if (method === 'PUT' && result?.learned && result?.keyword) {
+      showLearnedToast(result.keyword, result.category || '', result.rule_id);
+    }
+  },
   onBeforeDelete: (id, doDelete) => {
     const row = grid.rows.find(r => String(r.id) === String(id));
     if (row?.recurring_id) {
@@ -170,7 +351,10 @@ const grid = new GridTable({
 });
 
 async function init() {
-  allCards = await fetchJSON('/api/cards') || [];
+  [allCards, allCategories] = await Promise.all([
+    fetchJSON('/api/cards').then(r => r || []),
+    fetchJSON('/api/budget-categories').then(r => r || []),
+  ]);
   grid.load();
 }
 

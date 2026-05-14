@@ -492,6 +492,11 @@ body {
   /* 필터 영역 줄바꿈 */
   .row.g-2.align-items-center { flex-wrap: wrap; }
 
+  /* 탭: 많을 때 가로 스크롤 */
+  .nav-tabs { flex-wrap: nowrap !important; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .nav-tabs::-webkit-scrollbar { display: none; }
+  .nav-tabs .nav-item { flex-shrink: 0; }
+
   /* 탭 레이블 */
   .nav-tabs .nav-link { font-size: 0.78rem; padding: 6px 10px; }
 
@@ -502,6 +507,33 @@ body {
   .modal-body  { padding: 14px 16px !important; }
   .modal-header { padding: 14px 16px 10px !important; }
   .modal-footer { padding: 10px 16px !important; }
+
+  /* 페이지·섹션 헤더: 줄바꿈 허용 */
+  .d-flex.justify-content-between.align-items-center {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  /* 일반(non-sm) 버튼 → 모바일에서 btn-sm 크기로 축소 */
+  .btn:not(.btn-sm):not(.btn-close):not(.btn-link) {
+    font-size: 0.8rem !important;
+    padding: 5px 10px !important;
+  }
+
+  /* 카드 헤더 내 btn-group */
+  .card-header .btn-group .btn {
+    font-size: 0.72rem !important;
+    padding: 3px 8px !important;
+  }
+
+  /* 카드 헤더 flex-wrap */
+  .card-header.d-flex { flex-wrap: wrap !important; gap: 6px !important; }
+
+  /* 필터 select 크기 */
+  .form-select-sm { font-size: 0.78rem !important; }
+
+  /* 투자수익률 카드헤더 btn-group 정렬 유지 */
+  .card-header .btn-group { flex-shrink: 0; }
 }
 
 /* ── Dark Mode ───────────────────────────────────────────────── */

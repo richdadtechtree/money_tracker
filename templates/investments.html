@@ -23,12 +23,20 @@
         실현손익: <strong id="stocks-realized">-</strong>
         &nbsp;<span id="usdkrw-badge" class="badge bg-secondary-subtle text-secondary" style="font-size:0.7rem"></span>
       </div>
-      <button class="btn btn-outline-primary btn-sm" onclick="stockGrid.addRow()">
-        <i class="bi bi-plus-lg me-1"></i>종목 등록
-      </button>
-      <button class="btn btn-success btn-sm" id="priceUpdateBtn" onclick="updateAllPrices()">
-        <i class="bi bi-arrow-repeat me-1"></i>현재가 업데이트
-      </button>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-info btn-sm" onclick="openCatPnlModal()">
+          <i class="bi bi-graph-up me-1"></i>구분별 수익률
+        </button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="openStockCatModal()">
+          <i class="bi bi-tag me-1"></i>구분 관리
+        </button>
+        <button class="btn btn-outline-primary btn-sm" onclick="stockGrid.addRow()">
+          <i class="bi bi-plus-lg me-1"></i>종목 등록
+        </button>
+        <button class="btn btn-success btn-sm" id="priceUpdateBtn" onclick="updateAllPrices()">
+          <i class="bi bi-arrow-repeat me-1"></i>현재가 업데이트
+        </button>
+      </div>
     </div>
 
     <!-- 포지션 현황 -->
@@ -41,7 +49,7 @@
           <table class="table table-hover mb-0" id="stockTable">
             <thead class="table-light">
               <tr>
-                <th>종목명</th><th>티커</th>
+                <th>종목명</th><th>티커</th><th>구분</th>
                 <th class="text-end">보유수량</th>
                 <th class="text-end">평균단가</th>
                 <th class="text-end">현재가</th>
@@ -201,11 +209,93 @@
     </div>
   </div>
 </div>
+
+<!-- 구분별 수익률 모달 -->
+<div class="modal fade" id="catPnlModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold"><i class="bi bi-graph-up me-2 text-info"></i>구분별 수익률</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- 컨트롤 -->
+        <div class="d-flex gap-3 align-items-end mb-3 flex-wrap">
+          <div>
+            <div class="small text-muted mb-1">구분</div>
+            <select id="catPnlCategory" class="form-select form-select-sm" style="min-width:130px" onchange="loadCatPnl()">
+              <option value="전체">전체</option>
+            </select>
+          </div>
+          <div>
+            <div class="small text-muted mb-1">기간</div>
+            <div class="btn-group btn-group-sm" id="catPnlPeriodBtns">
+              <button class="btn btn-outline-secondary active" data-period="monthly"  onclick="setCatPnlPeriod(this)">월별</button>
+              <button class="btn btn-outline-secondary"        data-period="yearly"   onclick="setCatPnlPeriod(this)">연도별</button>
+              <button class="btn btn-outline-secondary"        data-period="all"      onclick="setCatPnlPeriod(this)">전체 누계</button>
+            </div>
+          </div>
+        </div>
+        <!-- 요약 카드 -->
+        <div class="row g-2 mb-3">
+          <div class="col-6 col-sm-3">
+            <div class="rounded bg-light p-2 text-center">
+              <div class="small text-muted">총 실현손익</div>
+              <div id="catSumPnl" class="fw-bold">-</div>
+            </div>
+          </div>
+          <div class="col-6 col-sm-3">
+            <div class="rounded bg-light p-2 text-center">
+              <div class="small text-muted">수익률</div>
+              <div id="catSumRate" class="fw-bold">-</div>
+            </div>
+          </div>
+          <div class="col-6 col-sm-3">
+            <div class="rounded bg-light p-2 text-center">
+              <div class="small text-muted">최고 기간</div>
+              <div id="catSumBest" class="fw-bold small text-truncate">-</div>
+            </div>
+          </div>
+          <div class="col-6 col-sm-3">
+            <div class="rounded bg-light p-2 text-center">
+              <div class="small text-muted">수익/손실 횟수</div>
+              <div id="catSumWinLoss" class="fw-bold">-</div>
+            </div>
+          </div>
+        </div>
+        <!-- 차트 -->
+        <div style="position:relative; height:320px">
+          <canvas id="catPnlChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 주식 구분 관리 모달 -->
+<div class="modal fade" id="stockCatModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">주식 구분 관리</h6>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="input-group input-group-sm mb-2">
+          <input id="newStockCatInput" class="form-control" placeholder="새 구분 이름">
+          <button class="btn btn-primary" onclick="addStockCat()">추가</button>
+        </div>
+        <ul id="stockCatList" class="list-group list-group-flush"></ul>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 let allStocks = [];
+let allStockCategories = [];
 let usdKrw = 1380;  // 환율 기본값, 페이지 로드 시 갱신
 
 function isForeign(ticker) {
@@ -237,6 +327,9 @@ const stockGrid = new GridTable({
   columns: [
     { key: 'name',    type: 'text' },
     { key: 'ticker',  type: 'text' },
+    { key: 'category', type: 'select',
+      options: () => allStockCategories.map(c => c.name),
+      render: v => v ? `<span class="badge bg-secondary-subtle text-secondary-emphasis">${v}</span>` : '-' },
     { key: '_qty',    type: 'computed', align: 'end',
       compute: r => (r.quantity == null ? '-' : r.quantity % 1 === 0 ? r.quantity : r.quantity.toFixed(4)) },
     { key: '_avg',    type: 'computed', align: 'end',
@@ -418,8 +511,172 @@ const cryptoGrid = new GridTable({
   },
 });
 
+// ── 구분별 수익률 차트 ──
+let catPnlChart = null;
+let _catPnlPeriod = 'monthly';
+
+function openCatPnlModal() {
+  const sel = document.getElementById('catPnlCategory');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="전체">전체</option>' +
+    allStockCategories.map(c => `<option value="${c.name}"${c.name === prev ? ' selected' : ''}>${c.name}</option>`).join('');
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('catPnlModal')).show();
+  loadCatPnl();
+}
+
+function setCatPnlPeriod(btn) {
+  document.querySelectorAll('#catPnlPeriodBtns .btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  _catPnlPeriod = btn.dataset.period;
+  loadCatPnl();
+}
+
+async function loadCatPnl() {
+  const category = document.getElementById('catPnlCategory').value;
+  const data = await fetchJSON(
+    `/api/stock-category-pnl?category=${encodeURIComponent(category)}&period=${_catPnlPeriod}`
+  );
+  if (!data) return;
+
+  // 요약 통계
+  const totalPnl  = data.reduce((s, d) => s + d.realized_pnl, 0);
+  const totalCost = data.reduce((s, d) => s + d.cost_basis, 0);
+  const overallRate = totalCost ? totalPnl / totalCost * 100 : 0;
+  const best = data.reduce((b, d) => d.realized_pnl > (b ? b.realized_pnl : -Infinity) ? d : b, null);
+  const wins   = data.filter(d => d.realized_pnl > 0).length;
+  const losses = data.filter(d => d.realized_pnl < 0).length;
+
+  const pnlSpan = v => {
+    const cls = v > 0 ? 'text-danger' : v < 0 ? 'text-primary' : 'text-muted';
+    return `<span class="${cls}">${v >= 0 ? '+' : ''}${fmt(Math.round(v))}원</span>`;
+  };
+
+  document.getElementById('catSumPnl').innerHTML    = pnlSpan(totalPnl);
+  document.getElementById('catSumRate').innerHTML   = rateHtml(overallRate);
+  document.getElementById('catSumBest').textContent =
+    best && best.realized_pnl !== 0 ? `${best.label}  (${best.realized_pnl >= 0 ? '+' : ''}${fmt(best.realized_pnl)}원)` : '-';
+  document.getElementById('catSumWinLoss').innerHTML =
+    `<span class="text-danger">${wins}승</span> / <span class="text-primary">${losses}패</span>`;
+
+  // 차트 데이터
+  const labels  = data.map(d => d.label);
+  const pnlVals = data.map(d => d.realized_pnl);
+  const cumVals = data.map(d => d.cumulative_pnl);
+
+  const barColors    = pnlVals.map(v => v >= 0 ? 'rgba(220,53,69,0.72)' : 'rgba(13,110,253,0.72)');
+  const barBorders   = pnlVals.map(v => v >= 0 ? 'rgb(220,53,69)' : 'rgb(13,110,253)');
+
+  const ctx = document.getElementById('catPnlChart').getContext('2d');
+  if (catPnlChart) catPnlChart.destroy();
+  catPnlChart = new Chart(ctx, {
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'bar',
+          label: '실현손익',
+          data: pnlVals,
+          backgroundColor: barColors,
+          borderColor: barBorders,
+          borderWidth: 1,
+          borderRadius: 4,
+          yAxisID: 'y',
+          order: 2,
+        },
+        {
+          type: 'line',
+          label: '누계손익',
+          data: cumVals,
+          borderColor: '#fd7e14',
+          backgroundColor: 'rgba(253,126,20,0.08)',
+          tension: 0.3,
+          pointRadius: data.length > 24 ? 2 : 4,
+          pointHoverRadius: 6,
+          fill: true,
+          yAxisID: 'y',
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 12, padding: 16 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const v = ctx.parsed.y;
+              return ` ${ctx.dataset.label}: ${v >= 0 ? '+' : ''}${Math.round(v).toLocaleString('ko-KR')}원`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false } },
+        y: {
+          grid: { color: 'rgba(0,0,0,0.05)' },
+          ticks: {
+            callback: v => {
+              const abs = Math.abs(v);
+              if (abs >= 100000000) return (v / 100000000).toFixed(1) + '억';
+              if (abs >= 10000)     return (v / 10000).toFixed(0) + '만';
+              return v.toLocaleString('ko-KR');
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+// ── 주식 구분 관리 ──
+async function loadStockCategories() {
+  allStockCategories = await fetchJSON('/api/stock-categories') || [];
+}
+
+function renderStockCatList() {
+  const ul = document.getElementById('stockCatList');
+  ul.innerHTML = allStockCategories.map(c =>
+    `<li class="list-group-item d-flex justify-content-between align-items-center py-1 px-2">
+      <span>${c.name}</span>
+      <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deleteStockCat(${c.id})">
+        <i class="bi bi-x"></i>
+      </button>
+    </li>`
+  ).join('') || '<li class="list-group-item text-muted small py-1">항목 없음</li>';
+}
+
+function openStockCatModal() {
+  renderStockCatList();
+  new bootstrap.Modal(document.getElementById('stockCatModal')).show();
+}
+
+async function addStockCat() {
+  const inp = document.getElementById('newStockCatInput');
+  const name = inp.value.trim();
+  if (!name) return;
+  await fetchJSON('/api/stock-categories', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name })
+  });
+  inp.value = '';
+  await loadStockCategories();
+  renderStockCatList();
+}
+
+async function deleteStockCat(id) {
+  if (!confirm('삭제하시겠습니까?')) return;
+  await fetchJSON(`/api/stock-categories/${id}`, { method: 'DELETE' });
+  await loadStockCategories();
+  renderStockCatList();
+}
+
 async function initPage() {
-  const rate = await fetchJSON('/api/exchange-rate');
+  const [rate] = await Promise.all([
+    fetchJSON('/api/exchange-rate'),
+    loadStockCategories(),
+  ]);
   if (rate?.rate) {
     usdKrw = rate.rate;
     const badge = document.getElementById('usdkrw-badge');

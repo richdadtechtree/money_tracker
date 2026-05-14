@@ -9,6 +9,7 @@
 <ul class="nav nav-tabs mb-3" id="cardTabs">
   <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-info">카드 정보</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-tx">거래 내역</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-reconcile">가계부 대조</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-excel">엑셀 가져오기</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-rules">카테고리 규칙</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-categories">카테고리 관리</a></li>
@@ -181,6 +182,92 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- 가계부 대조 탭 -->
+  <div class="tab-pane fade" id="tab-reconcile">
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+          <div class="col-auto">
+            <div class="small text-muted mb-1">카드</div>
+            <select id="rcCardSel" class="form-select form-select-sm" style="min-width:140px">
+              <option value="">카드를 선택하세요</option>
+            </select>
+          </div>
+          <div class="col-auto">
+            <div class="small text-muted mb-1">연도</div>
+            <select id="rcYear"  class="form-select form-select-sm"></select>
+          </div>
+          <div class="col-auto">
+            <div class="small text-muted mb-1">월</div>
+            <select id="rcMonth" class="form-select form-select-sm"></select>
+          </div>
+          <div class="col-auto">
+            <button class="btn btn-primary btn-sm" onclick="runReconcile()">
+              <i class="bi bi-arrow-left-right me-1"></i>대조 실행
+            </button>
+          </div>
+          <div class="col-auto ms-auto" id="rcAddArea" style="display:none">
+            <button class="btn btn-success btn-sm" onclick="addUnmatchedToBudget()">
+              <i class="bi bi-plus-lg me-1"></i>누락 항목 가계부에 추가
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 요약 -->
+    <div id="rcSummary" style="display:none">
+      <div class="row g-2 mb-3">
+        <div class="col-4">
+          <div class="rounded text-center p-2 bg-success-subtle">
+            <div class="small text-muted">기록됨 ✓</div>
+            <div class="fw-bold text-success" id="rcMatchedCnt">-</div>
+          </div>
+        </div>
+        <div class="col-4">
+          <div class="rounded text-center p-2 bg-warning-subtle">
+            <div class="small text-muted">누락됨 ⚠️</div>
+            <div class="fw-bold text-warning-emphasis" id="rcUnmatchedCnt">-</div>
+          </div>
+        </div>
+        <div class="col-4">
+          <div class="rounded text-center p-2 bg-light">
+            <div class="small text-muted">전체</div>
+            <div class="fw-bold" id="rcTotalCnt">-</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 대조 결과 테이블 -->
+    <div class="card border-0 shadow-sm" id="rcResultCard" style="display:none">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="rcTable">
+            <thead class="table-light">
+              <tr>
+                <th class="text-center" style="width:36px">
+                  <input type="checkbox" class="form-check-input" id="rcCheckAll" onchange="rcToggleAll(this.checked)">
+                </th>
+                <th>날짜</th>
+                <th>가맹점</th>
+                <th class="text-end">금액</th>
+                <th class="text-center">상태</th>
+                <th>가계부 항목</th>
+                <th class="text-center">날짜차이</th>
+              </tr>
+            </thead>
+            <tbody id="rcTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="rcEmpty" class="text-center text-muted py-5" style="display:none">
+      해당 월의 카드 거래내역이 없습니다.
     </div>
   </div>
 
@@ -633,5 +720,120 @@ function resetUpload() {
   document.getElementById('xl-step3').style.display = 'none';
   document.getElementById('xl-step1').style.display = '';
 }
+
+// ── 가계부 대조 ──────────────────────────────────────────────
+initYearMonthFilters('rcYear', 'rcMonth', today.getFullYear(), today.getMonth() + 1);
+
+// 카드 목록 로드 시 대조 카드 셀렉트도 함께 채우기
+const _origCardOnLoad = cardGrid.onLoad;
+cardGrid.onLoad = (rows, meta) => {
+  _origCardOnLoad?.(rows, meta);
+  const sel = document.getElementById('rcCardSel');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">카드를 선택하세요</option>' +
+    rows.map(c => `<option value="${c.id}">${c.card_name || '카드' + c.card_num}</option>`).join('');
+  if (prev) sel.value = prev;
+};
+
+let _rcData = [];  // 현재 대조 결과 캐시
+
+async function runReconcile() {
+  const cardId = document.getElementById('rcCardSel').value;
+  const year   = document.getElementById('rcYear').value;
+  const month  = document.getElementById('rcMonth').value;
+  if (!cardId) { alert('카드를 선택하세요.'); return; }
+
+  const data = await fetchJSON(
+    `/api/card-reconcile?card_id=${cardId}&year=${year}&month=${month}`
+  );
+  if (!data) return;
+  _rcData = data.items || [];
+
+  // 요약
+  document.getElementById('rcMatchedCnt').textContent   = data.matched + '건';
+  document.getElementById('rcUnmatchedCnt').textContent = data.unmatched + '건';
+  document.getElementById('rcTotalCnt').textContent     = data.total + '건';
+  document.getElementById('rcSummary').style.display    = '';
+
+  if (!_rcData.length) {
+    document.getElementById('rcResultCard').style.display = 'none';
+    document.getElementById('rcEmpty').style.display      = '';
+    document.getElementById('rcAddArea').style.display    = 'none';
+    return;
+  }
+
+  document.getElementById('rcEmpty').style.display      = 'none';
+  document.getElementById('rcResultCard').style.display = '';
+  document.getElementById('rcAddArea').style.display    = data.unmatched > 0 ? '' : 'none';
+  document.getElementById('rcCheckAll').checked         = false;
+
+  const tbody = document.getElementById('rcTbody');
+  tbody.innerHTML = _rcData.map(r => {
+    const isMatched = r.status === 'matched';
+    const statusBadge = isMatched
+      ? '<span class="badge bg-success-subtle text-success">✓ 기록됨</span>'
+      : '<span class="badge bg-warning-subtle text-warning-emphasis">⚠️ 누락</span>';
+    const budgetInfo = isMatched
+      ? `<span class="small text-muted">${r.budget_date} ${r.budget_name || r.name}${r.budget_cat ? ' · ' + r.budget_cat : ''}</span>`
+      : '<span class="text-muted small">-</span>';
+    const diffBadge = isMatched
+      ? (r.date_diff === 0
+          ? '<span class="badge bg-secondary-subtle text-secondary">당일</span>'
+          : `<span class="badge bg-light text-muted">${r.date_diff}일 차이</span>`)
+      : '-';
+    const dateStr = String(r.date).slice(0, 10);
+    const [y, m, d] = dateStr.split('-');
+    const weekdays = ['일','월','화','수','목','금','토'];
+    const w = weekdays[new Date(+y, +m-1, +d).getDay()];
+    const dateFmt = `${+m}/${+d}(${w})`;
+    const cb = isMatched
+      ? '<td class="text-center"><input type="checkbox" class="form-check-input rc-cb" value="" disabled></td>'
+      : `<td class="text-center"><input type="checkbox" class="form-check-input rc-cb" value="${r.id}"></td>`;
+    return `<tr class="${isMatched ? '' : 'table-warning bg-opacity-25'}">
+      ${cb}
+      <td class="small">${dateFmt}</td>
+      <td class="small">${r.name || ''}</td>
+      <td class="text-end small fw-semibold">${fmt(r.amount)}원</td>
+      <td class="text-center">${statusBadge}</td>
+      <td>${budgetInfo}</td>
+      <td class="text-center">${diffBadge}</td>
+    </tr>`;
+  }).join('');
+}
+
+function rcToggleAll(checked) {
+  document.querySelectorAll('#rcTbody .rc-cb:not([disabled])').forEach(cb => cb.checked = checked);
+}
+
+async function addUnmatchedToBudget() {
+  const cardId   = document.getElementById('rcCardSel').value;
+  const selected = [...document.querySelectorAll('#rcTbody .rc-cb:not([disabled]):checked')].map(cb => +cb.value);
+  const targets  = selected.length > 0 ? selected
+    : _rcData.filter(r => r.status === 'unmatched').map(r => r.id);
+
+  if (!targets.length) { alert('추가할 항목이 없습니다.'); return; }
+
+  const label = selected.length > 0 ? `선택한 ${targets.length}건` : `누락된 ${targets.length}건 전체`;
+  if (!confirm(`${label}을 가계부에 추가하시겠습니까?`)) return;
+
+  const res = await fetchJSON('/api/card-reconcile/add-budget', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ card_tx_ids: targets, card_id: +cardId }),
+  });
+  if (res?.ok) {
+    alert(`${res.added}건이 가계부에 추가되었습니다.`);
+    runReconcile();  // 결과 갱신
+  }
+}
+
+// 탭 전환 시 카드 셀렉트 동기화
+document.querySelector('[href="#tab-reconcile"]').addEventListener('shown.bs.tab', () => {
+  const sel = document.getElementById('rcCardSel');
+  if (sel.options.length <= 1 && allCards.length) {
+    sel.innerHTML = '<option value="">카드를 선택하세요</option>' +
+      allCards.map(c => `<option value="${c.id}">${c.card_name || '카드' + c.card_num}</option>`).join('');
+  }
+});
 </script>
 {% endblock %}
