@@ -63,12 +63,16 @@
     <label style="margin-top:14px;">채권 할인률 (%)
       <div style="display:flex; align-items:center; gap:10px; margin-top:6px;">
         <input type="number" id="할인률" value="10" min="0" max="100" step="0.1" oninput="updateAll()" style="width:140px; margin-top:0;"/>
+        <button type="button" id="fetchRateBtn" onclick="fetchBondRate()"
+           style="display:inline-flex; align-items:center; gap:5px; padding:8px 12px; background:#2762e7; color:#fff; border:none; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap;">
+          ↻ 최신 할인율 자동 가져오기
+        </button>
         <a href="https://nhuf.molit.go.kr/FP/FP07/FP0705/FP070503.jsp" target="_blank" rel="noopener"
-           style="display:inline-flex; align-items:center; gap:5px; padding:8px 12px; background:#2762e7; color:#fff; border-radius:8px; text-decoration:none; font-size:13px; font-weight:600; white-space:nowrap;">
-          ↗ 국민주택채권 할인율 조회
+           style="display:inline-flex; align-items:center; gap:5px; padding:8px 12px; background:#6c757d; color:#fff; border-radius:8px; text-decoration:none; font-size:13px; font-weight:600; white-space:nowrap;">
+          ↗ 직접 조회
         </a>
       </div>
-      <div style="margin-top:5px; font-size:12px; color:#888;">최신 할인률은 국토교통부 주택도시기금 사이트에서 확인 후 입력하세요.</div>
+      <div id="fetchRateStatus" style="margin-top:5px; font-size:12px; color:#888;">최신 할인률은 버튼을 눌러 자동으로 가져오거나, 국토교통부 주택도시기금 사이트에서 직접 확인하세요.</div>
     </label>
   </section>
 
@@ -293,6 +297,34 @@
 
     // 초기 표시
     updateAll();
+
+    // --- 채권 할인율 자동 조회 ---
+    async function fetchBondRate() {
+      const btn = document.getElementById('fetchRateBtn');
+      const status = document.getElementById('fetchRateStatus');
+      btn.disabled = true;
+      btn.textContent = '⏳ 조회 중...';
+      status.style.color = '#888';
+      status.textContent = '우리은행에서 최신 데이터를 가져오는 중...';
+      try {
+        const apiBase = location.protocol === 'file:' ? 'http://localhost:5000' : '';
+        const res = await fetch(apiBase + '/api/bond-rate');
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || '조회 실패');
+        const latest = data.latest;
+        const rate = latest.discount_rate;
+        document.getElementById('할인률').value = rate;
+        updateAll();
+        status.style.color = '#1a7a1a';
+        status.textContent = `✓ ${latest.date} 기준 할인율 ${rate}% 적용됨 (수익률 ${latest.yield_rate}%, 매도단가 ${latest.sell_price}원)`;
+      } catch(e) {
+        status.style.color = '#c0392b';
+        status.textContent = '⚠ 자동 조회 실패: ' + e.message + ' — 직접 조회 버튼으로 확인하세요.';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '↻ 최신 할인율 자동 가져오기';
+      }
+    }
   </script>
 <div style="margin-top:24px; padding-top:12px; border-top:1px solid #e6e6e6; font-size:14px; text-align:center;">
   <strong>협업 및 수정 문의</strong><br>

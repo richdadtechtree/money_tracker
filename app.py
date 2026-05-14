@@ -88,6 +88,10 @@ def monthly():
 def tech_tree():
     return render_template('tech_tree.html')
 
+@app.route('/analysis/calculator')
+def analysis_calculator():
+    return render_template('analysis_calculator.html')
+
 
 # ── 공통 헬퍼 ────────────────────────────────────────────────
 def rows_to_list(rows):
@@ -4309,6 +4313,127 @@ def api_reset():
     finally:
         db.close()
 
+
+@app.route('/api/bond-rate')
+def api_bond_rate():
+    """국민주택채권 할인율 자동 조회 (우리은행 경유)"""
+    import re as _re
+    from datetime import datetime as _dt
+    now = _dt.now()
+    year = str(now.year)
+    month = f'{now.month:02d}'
+
+    url = 'https://svc.wooribank.com/svc/Dream?withyou=HBNHB0087'
+    hdrs = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Referer': url,
+    }
+    try:
+        resp = http_req.post(url, headers=hdrs,
+                             data={'MODE': '1', 'BSDT_YM': year + month,
+                                   'STD_YEAR': year, 'STD_MONTH': month},
+                             timeout=15)
+        resp.raise_for_status()
+        text = resp.text
+
+        rows = _re.findall(
+            r'<tr[^>]*class="tableline"[^>]*>(.*?)</tr>', text, _re.DOTALL)
+        records = []
+        for row in rows:
+            tds = _re.findall(r'<td[^>]*>(.*?)</td>', row, _re.DOTALL)
+            tds = [_re.sub(r'<[^>]+>', '', td).strip() for td in tds]
+            if len(tds) >= 4:
+                try:
+                    records.append({
+                        'date':          tds[0],
+                        'sell_price':    tds[1],
+                        'yield_rate':    float(tds[2]),
+                        'discount_rate': round(float(tds[3]), 2),
+                    })
+                except ValueError:
+                    pass
+
+        if not records:
+            return jsonify({'error': '데이터를 찾을 수 없습니다.'}), 404
+
+        latest = records[-1]
+        return jsonify({'ok': True, 'records': records, 'latest': latest})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+
+
+
+# ── API: 상세 자산 목록 (계산기용) ──────────────────────────────
+@app.route('/api/assets-detailed')
+def api_assets_detailed():
+    import re
+    db = get_db()
+    ex_rate = get_current_exchange_rate()
+    
+    # 주식
+    cur = db.cursor()
+    cur.execute("SELECT name, ticker, current_price * quantity as val FROM stocks WHERE quantity > 0")
+    stocks = []
+    for r in cur.fetchall():
+        val = float(r['val'] or 0)
+        is_foreign = r['ticker'] and not re.match(r'^[0-9]{6}$', r['ticker'])
+        if is_foreign: val *= ex_rate
+        stocks.append({'name': r['name'], 'val': round(val)})
+    cur.close()
+
+    # ETF
+    cur = db.cursor()
+    cur.execute("SELECT name, ticker, current_price * quantity as val FROM etf WHERE quantity > 0")
+    etfs = []
+    for r in cur.fetchall():
+        val = float(r['val'] or 0)
+        is_foreign = r['ticker'] and not re.match(r'^[0-9]{6}$', r['ticker'])
+        if is_foreign: val *= ex_rate
+        etfs.append({'name': r['name'], 'val': round(val)})
+    cur.close()
+
+    # 코인
+    cur = db.cursor()
+    cur.execute("SELECT name, current_price * quantity as val FROM crypto WHERE quantity > 0")
+    crypto = [{'name': r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
+    cur.close()
+
+    # 현금/예금 + 거주보증금
+    cur = db.cursor()
+    cur.execute("SELECT name, amount as val FROM cash_deposits WHERE amount > 0")
+    cash = [{'name': r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
+    cur.close()
+    
+    cur = db.cursor()
+    cur.execute("SELECT name, deposit as val FROM residence WHERE deposit > 0")
+    residence = [{'name': "[거주]" + r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
+    cur.close()
+
+    # 부동산
+    cur = db.cursor()
+    cur.execute("SELECT name, current_price as val FROM real_estate")
+    re_list = [{'name': r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
+    cur.close()
+
+    # 연금
+    cur = db.cursor()
+    cur.execute("SELECT name, accumulated as val FROM pension WHERE accumulated > 0")
+    pension = [{'name': r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
+    cur.close()
+
+    db.close()
+    
+    return jsonify({
+        '주식': stocks,
+        'ETF': etfs,
+        '코인': crypto,
+        '현금/예금': cash + residence,
+        '부동산': re_list,
+        '연금': pension
+    })
 
 if __name__ == '__main__':
     init_db()

@@ -79,110 +79,67 @@
   </div>
 </div>
 
-<!-- 차트 및 가용자산 계산기 행 -->
-<div class="row g-4">
-  <!-- 왼쪽: 가용자산 계산기 -->
-  <div class="col-lg-3">
-    <div class="card border-0 shadow-sm sticky-top" style="top: 20px; z-index: 10;">
+<!-- 차트 행 1 -->
+<div class="row g-3 mb-4">
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm h-100">
       <div class="card-header bg-white fw-semibold border-0 pt-3">
-        <i class="bi bi-calculator me-2 text-primary"></i>가용자산 계산기
+        <i class="bi bi-bar-chart-line me-2 text-primary"></i><span id="label-chart-ie">이번달</span> 수입/지출 (카테고리별)
       </div>
       <div class="card-body">
-        <p class="text-muted small mb-3">자산을 아래로 드래그하여 투자 가능 금액을 계산해보세요.</p>
-        
-        <div class="mb-4">
-          <h6 class="fw-bold small text-uppercase text-muted mb-2">자산 목록</h6>
-          <div id="calc-source-list" class="d-flex flex-column gap-2">
-            <!-- JS로 채워짐 -->
-            <div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>
-          </div>
-        </div>
-
-        <div class="mb-3">
-          <h6 class="fw-bold small text-uppercase text-muted mb-2">계산기 (드롭 구역)</h6>
-          <div id="calc-drop-zone" class="calc-drop-zone d-flex flex-column gap-2 p-2 rounded border-2 border-dashed bg-light" style="min-height: 120px;">
-            <div class="text-muted small text-center my-auto drop-placeholder">여기에 드롭하세요</div>
-          </div>
-        </div>
-
-        <div class="border-top pt-3 mt-3">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <span class="fw-bold">합계</span>
-            <span class="fs-5 fw-bold text-primary" id="calc-total">0원</span>
-          </div>
-          <button class="btn btn-sm btn-outline-secondary w-100" onclick="resetCalculator()">
-            <i class="bi bi-arrow-counterclockwise me-1"></i>초기화
-          </button>
-        </div>
+        <canvas id="chartIncomeExpense" style="max-height:220px"></canvas>
       </div>
     </div>
   </div>
-
-  <!-- 오른쪽: 기존 콘텐츠 -->
-  <div class="col-lg-9">
-    <!-- 차트 행 1 -->
-    <div class="row g-3 mb-4">
-      <div class="col-lg-7">
-        <div class="card border-0 shadow-sm h-100">
-          <div class="card-header bg-white fw-semibold border-0 pt-3">
-            <i class="bi bi-bar-chart-line me-2 text-primary"></i><span id="label-chart-ie">이번달</span> 수입/지출 (카테고리별)
-          </div>
-          <div class="card-body">
-            <canvas id="chartIncomeExpense" style="max-height:220px"></canvas>
-          </div>
-        </div>
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white fw-semibold border-0 pt-3">
+        <i class="bi bi-pie-chart me-2 text-primary"></i>자산 배분
       </div>
-      <div class="col-lg-5">
-        <div class="card border-0 shadow-sm h-100">
-          <div class="card-header bg-white fw-semibold border-0 pt-3">
-            <i class="bi bi-pie-chart me-2 text-primary"></i>자산 배분
-          </div>
-          <div class="card-body d-flex align-items-center justify-content-center">
-            <canvas id="chartAssets" style="max-height:240px"></canvas>
-          </div>
-        </div>
+      <div class="card-body d-flex align-items-center justify-content-center">
+        <canvas id="chartAssets" style="max-height:240px"></canvas>
       </div>
     </div>
+  </div>
+</div>
 
-    <!-- 차트 행 2 -->
-    <div class="row g-3 mb-4">
-      <div class="col-lg-6">
-        <div class="card border-0 shadow-sm h-100">
-          <div class="card-header bg-white border-0 pt-3 d-flex align-items-center justify-content-between">
-            <span class="fw-semibold"><i class="bi bi-graph-up me-2 text-primary"></i>투자 수익률</span>
-            <div class="btn-group btn-group-sm" role="group">
-              <button id="btnReturnsCumul"   class="btn btn-outline-primary active" onclick="setReturnsMode('cumul')">누계</button>
-              <button id="btnReturnsMonthly" class="btn btn-outline-primary"        onclick="setReturnsMode('monthly')">월별</button>
-            </div>
-          </div>
-          <div class="card-body">
-            <canvas id="chartReturns" style="max-height:200px"></canvas>
-          </div>
+<!-- 차트 행 2 -->
+<div class="row g-3 mb-4">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white border-0 pt-3 d-flex align-items-center justify-content-between">
+        <span class="fw-semibold"><i class="bi bi-graph-up me-2 text-primary"></i>투자 수익률</span>
+        <div class="btn-group btn-group-sm" role="group">
+          <button id="btnReturnsCumul"   class="btn btn-outline-primary active" onclick="setReturnsMode('cumul')">누계</button>
+          <button id="btnReturnsMonthly" class="btn btn-outline-primary"        onclick="setReturnsMode('monthly')">월별</button>
         </div>
       </div>
-      <div class="col-lg-6">
-        <div class="card border-0 shadow-sm h-100">
-          <div class="card-header bg-white fw-semibold border-0 pt-3">
-            <i class="bi bi-bank me-2 text-primary"></i>대출 잔액 현황
-          </div>
-          <div class="card-body">
-            <canvas id="chartLoans" style="max-height:200px"></canvas>
-          </div>
-        </div>
+      <div class="card-body">
+        <canvas id="chartReturns" style="max-height:200px"></canvas>
       </div>
     </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white fw-semibold border-0 pt-3">
+        <i class="bi bi-bank me-2 text-primary"></i>대출 잔액 현황
+      </div>
+      <div class="card-body">
+        <canvas id="chartLoans" style="max-height:200px"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
 
-    <!-- 목표 자산 -->
-    <div class="row g-3">
-      <div class="col-12">
-        <div class="card border-0 shadow-sm">
-          <div class="card-header bg-white fw-semibold border-0 pt-3">
-            <i class="bi bi-trophy me-2 text-primary"></i>목표 자산 달성률
-          </div>
-          <div class="card-body" id="goals-progress">
-            <p class="text-muted text-center">데이터 로딩 중...</p>
-          </div>
-        </div>
+<!-- 목표 자산 -->
+<div class="row g-3">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white fw-semibold border-0 pt-3">
+        <i class="bi bi-trophy me-2 text-primary"></i>목표 자산 달성률
+      </div>
+      <div class="card-body" id="goals-progress">
+        <p class="text-muted text-center">데이터 로딩 중...</p>
       </div>
     </div>
   </div>
@@ -207,38 +164,6 @@
   background-color: var(--bs-secondary);
   color: #fff;
   border-color: var(--bs-secondary);
-}
-
-/* 계산기 스타일 */
-.calc-item {
-  cursor: grab;
-  padding: 8px 12px;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 0.85rem;
-  transition: all 0.1s;
-  user-select: none;
-}
-.calc-item:hover {
-  border-color: var(--primary);
-  background: var(--primary-light);
-}
-.calc-item:active { cursor: grabbing; }
-.calc-item.dragging { opacity: 0.5; }
-
-.calc-drop-zone {
-  transition: background-color 0.2s, border-color 0.2s;
-}
-.calc-drop-zone.drag-over {
-  background-color: var(--primary-light) !important;
-  border-color: var(--primary) !important;
-}
-.drop-placeholder {
-  pointer-events: none;
-}
-.cursor-pointer {
-  cursor: pointer;
 }
 </style>
 {% endblock %}
