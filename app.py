@@ -1440,12 +1440,32 @@ def _fetch_stock_price(ticker: str) -> float | None:
 
 
 
-def _fetch_coingecko_prices(symbols: list[str]) -> dict[str, float]:
-    """CoinGecko로 심볼 목록의 KRW 현재가 조회. {symbol_upper: price}"""
+def _fetch_crypto_prices(symbols: list[str]) -> dict[str, float]:
+    """업비트(Upbit) API 우선 조회 후, 실패 시 CoinGecko로 KRW 현재가 조회. {symbol_upper: price}"""
     if not symbols:
         return {}
     result = {}
+
+    # 1. 업비트 API 시도 (예: BTC -> KRW-BTC)
     for sym in symbols:
+        sym_upper = sym.upper()
+        try:
+            market = f"KRW-{sym_upper}"
+            res = http_req.get(f"https://api.upbit.com/v1/ticker?markets={market}", timeout=5, headers={'User-Agent': 'Mozilla/5.0'})
+            if res.ok:
+                data = res.json()
+                if data and isinstance(data, list) and len(data) > 0:
+                    trade_price = data[0].get('trade_price')
+                    if trade_price:
+                        result[sym_upper] = float(trade_price)
+                        continue
+        except Exception as e:
+            print(f'[price] upbit error {sym}: {e}', file=sys.stderr)
+
+    # 2. 업비트에서 조회 실패한 심볼에 대해 CoinGecko 시도
+    remaining = [sym for sym in symbols if sym.upper() not in result]
+    for sym in remaining:
+        sym_upper = sym.upper()
         try:
             # /search 로 심볼 → coin id 획득 (전체 목록 다운로드 대신)
             search_res = http_req.get(
@@ -1458,7 +1478,7 @@ def _fetch_coingecko_prices(symbols: list[str]) -> dict[str, float]:
             coins = search_res.json().get('coins', [])
             coin_id = None
             for coin in coins:
-                if coin.get('symbol', '').upper() == sym.upper():
+                if coin.get('symbol', '').upper() == sym_upper:
                     coin_id = coin['id']
                     break
             if not coin_id:
@@ -1473,7 +1493,7 @@ def _fetch_coingecko_prices(symbols: list[str]) -> dict[str, float]:
                 continue
             p = price_res.json().get(coin_id, {}).get('krw')
             if p:
-                result[sym.upper()] = float(p)
+                result[sym_upper] = float(p)
         except Exception:
             continue
     return result
@@ -1542,7 +1562,7 @@ def api_price_update():
         if crypto_rows:
             symbols = [row['symbol'] for row in crypto_rows]
             try:
-                cg_prices = _fetch_coingecko_prices(symbols)
+                cg_prices = _fetch_crypto_prices(symbols)
             except Exception as e:
                 cg_prices = {}
                 results['errors'].append(f"코인 가격 조회 오류: {e}")
