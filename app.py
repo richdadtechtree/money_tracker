@@ -3255,6 +3255,19 @@ def api_asset_history():
     crypto_map = {r[0]: r[1] for r in cur.fetchall()}
     cur.close()
 
+    cur = db.cursor()
+    cur.execute("""
+        SELECT to_char(buy_date::date, 'YYYY-MM') as ym, COALESCE(SUM(buy_price*quantity), 0)
+        FROM crypto
+        WHERE buy_date <= CURRENT_DATE
+        GROUP BY ym
+    """)
+    crypto_monthly_buy = {r[0]: r[1] for r in cur.fetchall()}
+    cur.close()
+
+    total_crypto_buy = sum(crypto_monthly_buy.values())
+    crypto_ratio = (curr_crypto / total_crypto_buy) if total_crypto_buy > 0 else 1.0
+
     # 거꾸로 12개월치 데이터 생성 (메모리 맵 참조 방식으로 대기시간 격감)
     y, m = today.year, today.month
     for i in range(12):
@@ -3273,14 +3286,17 @@ def api_asset_history():
             })
             curr_cash, curr_stocks, curr_re, curr_crypto, curr_pension = s['cash'], s['stocks'], s['real_estate'], s['crypto'], s['pension']
         else:
+            cum_crypto_buy = sum(v for k, v in crypto_monthly_buy.items() if k <= ym)
+            est_crypto = float(cum_crypto_buy * crypto_ratio)
             history.append({
                 'month': ym,
                 'cash': curr_cash,
                 'stocks': curr_stocks,
                 'real_estate': curr_re,
-                'crypto': curr_crypto,
+                'crypto': est_crypto,
                 'pension': curr_pension
             })
+            curr_crypto = est_crypto
         
         # 미리 수집된 메모리 해시맵에서 값 읽기 (속도 혁명!)
         inc = inc_map.get(ym, 0)
@@ -3291,7 +3307,6 @@ def api_asset_history():
         
         curr_cash -= (inc - (exp + card) - (s_buy + c_buy) + s_sell)
         curr_stocks -= (s_buy - s_sell)
-        curr_crypto -= c_buy
         curr_pension -= p_monthly
         
         m -= 1
