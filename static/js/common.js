@@ -98,9 +98,11 @@ class GridTable {
   }
 
   _getSortValue(r, col) {
-    if (col.key && !col.key.startsWith('_') && r[col.key] !== undefined) {
-      return r[col.key];
-    }
+    const rate = typeof window.usdKrw === 'number' ? window.usdKrw : 1380;
+    const isForeign = r.ticker ? !/^\d{6}$/.test(r.ticker) : false;
+    const noRateFields = new Set(['quantity', 'return_rate', 'installment', '_qty', '_rate', '_return']);
+
+    let val = null;
     const keyMap = {
       '_qty': 'quantity',
       '_avg': 'avg_price',
@@ -110,9 +112,16 @@ class GridTable {
       '_real': 'realized_pnl',
       '_amount': 'amount',
     };
-    if (keyMap[col.key] && r[keyMap[col.key]] !== undefined) {
-      return r[keyMap[col.key]];
+    const mappedKey = keyMap[col.key] || col.key;
+
+    if (mappedKey && !mappedKey.startsWith('_') && r[mappedKey] !== undefined && r[mappedKey] !== null && r[mappedKey] !== '') {
+      val = r[mappedKey];
+      if (typeof val === 'number' && isForeign && !noRateFields.has(col.key) && !noRateFields.has(mappedKey)) {
+        val = val * rate;
+      }
+      return val;
     }
+
     if (col.key === '_eval' && r.current_price != null && r.quantity != null) {
       return r.current_price * r.quantity;
     }
@@ -135,10 +144,18 @@ class GridTable {
     if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
       return text;
     }
+
+    const hasDollar = text.includes('$');
     const cleanNum = text.replace(/[+,원$%KRW\s]/g, '');
+
     if (!isNaN(cleanNum) && cleanNum !== '') {
-      return Number(cleanNum);
+      let num = Number(cleanNum);
+      if (hasDollar && !noRateFields.has(col.key)) {
+        num = num * rate;
+      }
+      return num;
     }
+
     return text;
   }
 
