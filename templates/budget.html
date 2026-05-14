@@ -9,6 +9,10 @@
       <i class="bi bi-tags"></i>
       <span class="ms-1 d-none d-sm-inline">카테고리</span>
     </button>
+    <button class="btn btn-outline-success" onclick="openReceiptUpload()" title="영수증 이미지/파일 업로드">
+      <i class="bi bi-receipt-cutoff"></i>
+      <span class="ms-1 d-none d-sm-inline">영수증 입력</span>
+    </button>
     <button class="btn btn-outline-danger" id="voiceBtn" onclick="toggleVoice()" title="음성으로 항목 추가">
       <i class="bi bi-mic" id="voiceIcon"></i>
       <span class="ms-1 d-none d-sm-inline" id="voiceLabel">음성 입력</span>
@@ -19,10 +23,20 @@
   </div>
 </div>
 
-<!-- 음성 상태 바 -->
-<div id="voiceBar" class="alert border-0 mb-3 py-2 d-none d-flex align-items-center gap-2">
+<!-- 음성/처리 상태 바 -->
+<div id="voiceBar" class="alert border-0 mb-3 py-2 d-none d-flex align-items-center gap-2 shadow-sm">
   <span id="voiceBarIcon" class="fs-5">🎙️</span>
   <span id="voiceBarText" class="small fw-semibold flex-grow-1"></span>
+</div>
+
+<!-- 영수증 드래그 앤 드롭 영역 -->
+<div class="card border-0 shadow-sm mb-3 bg-success-subtle text-success">
+  <div class="card-body p-3 text-center" id="dropZone" style="border: 2px dashed #198754; border-radius: 8px; cursor: pointer; transition: background-color 0.2s;">
+    <input type="file" id="receiptFileInput" class="d-none" accept="image/*" onchange="handleReceiptFiles(this.files)">
+    <i class="bi bi-cloud-arrow-up fs-3"></i>
+    <p class="mb-0 fw-semibold">여기에 영수증 이미지를 드래그 앤 드롭하거나 클릭하여 첨부하세요</p>
+    <span class="small text-muted">스마트 분석을 통해 가계부 내역으로 자동 반영됩니다.</span>
+  </div>
 </div>
 
 <!-- 필터 -->
@@ -477,6 +491,68 @@ function setVoiceBar(type, icon, text, autohide = 0) {
   document.getElementById('voiceBarText').textContent = text;
   clearTimeout(_voiceTimer);
   if (autohide) _voiceTimer = setTimeout(() => bar.classList.add('d-none'), autohide);
+}
+
+// ── 영수증 업로드 및 드래그 앤 드롭 ──────────────────────────────
+function openReceiptUpload() {
+  const fileInput = document.getElementById('receiptFileInput');
+  if (fileInput) fileInput.click();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const dropZone = document.getElementById('dropZone');
+  if (!dropZone) return;
+
+  dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.style.backgroundColor = '#d1e7dd';
+  });
+
+  dropZone.addEventListener('dragleave', e => {
+    e.preventDefault();
+    dropZone.style.backgroundColor = '';
+  });
+
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.style.backgroundColor = '';
+    if (e.dataTransfer.files.length > 0) {
+      handleReceiptFiles(e.dataTransfer.files);
+    }
+  });
+
+  dropZone.addEventListener('click', () => {
+    document.getElementById('receiptFileInput').click();
+  });
+});
+
+async function handleReceiptFiles(files) {
+  if (files.length === 0) return;
+  const file = files[0];
+  
+  setVoiceBar('warning', '⏳', `영수증 "${file.name}" 스마트 분석 및 처리 중…`);
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch('/api/budget/receipt', {
+      method: 'POST',
+      body: formData
+    });
+    const result = await res.json();
+    if (res.ok && result.ok) {
+      setVoiceBar('success', '✅', `영수증 반영 완료 — "${result.parsed.name}" ${fmt(result.parsed.amount)}원 (${result.parsed.category})`, 6000);
+      grid.load();
+    } else {
+      setVoiceBar('danger', '❌', `영수증 처리 실패: ${result.error || '알 수 없는 오류'}`, 6000);
+    }
+  } catch (err) {
+    setVoiceBar('danger', '❌', `영수증 업로드 중 오류가 발생했습니다: ${err.message}`, 6000);
+  } finally {
+    const fileInput = document.getElementById('receiptFileInput');
+    if (fileInput) fileInput.value = '';
+  }
 }
 </script>
 {% endblock %}

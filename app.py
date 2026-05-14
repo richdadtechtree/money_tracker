@@ -319,6 +319,140 @@ def api_budget():
     return jsonify({'ok': True}), 201
 
 
+@app.route('/api/budget/receipt', methods=['POST'])
+def api_budget_receipt():
+    if 'file' not in request.files:
+        return jsonify({'error': '파일이 없습니다.'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': '선택된 파일이 없습니다.'}), 400
+
+    filename = file.filename
+    img_bytes = file.read()
+
+    tx_date = date.today().isoformat()
+    amount = 0
+    name = ''
+    memo = f'영수증 첨부: {filename}'
+    payment_method = '신용카드'
+    type_ = '변동지출'
+    category = ''
+
+    # 1. 파일명에서 파싱
+    date_m = re.search(r'(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})', filename)
+    if date_m:
+        tx_date = f"{date_m.group(1)}-{date_m.group(2)}-{date_m.group(3)}"
+
+    amount_m = re.findall(r'(\d{1,3}(?:,\d{3})+|\d{3,7})\s*(?:원|KRW)', filename)
+    if amount_m:
+        amount = int(amount_m[-1].replace(',', ''))
+    else:
+        nums = re.findall(r'\d+', filename)
+        for num in nums:
+            val = int(num)
+            if val >= 1000 and val != int(tx_date.replace('-', '')):
+                amount = val
+                break
+
+    common_stores = {
+        '스타벅스': '식비', '이마트': '쇼핑', '다이소': '쇼핑', '쿠팡': '쇼핑', 
+        '택시': '교통비', 'CU': '식비', 'GS25': '식비', '세븐일레븐': '식비',
+        '맥도날드': '식비', '카페': '식비', '식당': '식비', '파리바게뜨': '식비',
+        '올리브영': '쇼핑', '주유소': '교통비', '병원': '의료비', '약국': '의료비'
+    }
+    for store, cat in common_stores.items():
+        if store in filename:
+            name = store
+            category = cat
+            break
+
+    # 2. OCR 시도 (설치되어 있는 경우)
+    extracted_text = ""
+    try:
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(img_bytes))
+        try:
+            import pytesseract
+            extracted_text = pytesseract.image_to_string(img, lang='kor+eng')
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    if extracted_text:
+        if amount == 0:
+            amts = re.findall(r'(?:합계|금액|결제금액|총액|승인금액)\s*[:=]?\s*([\d,]+)\s*(?:원)?', extracted_text)
+            if amts:
+                amount = int(amts[0].replace(',', ''))
+            else:
+                nums = re.findall(r'\b\d{1,3}(?:,\d{3})+\b', extracted_text)
+                if nums:
+                    amount = int(nums[-1].replace(',', ''))
+        
+        if date_m is None:
+            dt_m = re.search(r'(20\d{2})[-/.](\d{2})[-/.](\d{2})', extracted_text)
+            if dt_m:
+                tx_date = f"{dt_m.group(1)}-{dt_m.group(2)}-{dt_m.group(3)}"
+
+        if not name:
+            lines = [line.strip() for line in extracted_text.split('\n') if line.strip()]
+            for line in lines:
+                for store, cat in common_stores.items():
+                    if store in line:
+                        name = store
+                        category = cat
+                        break
+                if name: break
+            if not name and lines:
+                cleaned = re.sub(r'[^\w\s]', '', lines[0]).strip()
+                if cleaned and not cleaned.isdigit():
+                    name = cleaned[:15]
+
+    if not name:
+        name = os.path.splitext(filename)[0][:15]
+    if amount == 0:
+        amount = 10000
+    
+    db = get_db()
+    if not category:
+        auto_cat = _apply_budget_category_rule(db, name)
+        if auto_cat:
+            category = auto_cat
+        else:
+            category = '식비'
+
+    cur = db.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO budget (date, category, name, type, payment_method, amount, memo) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (tx_date, category, name, type_, payment_method, amount, memo)
+        )
+        budget_id = cur.fetchone()[0]
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        cur.close()
+        db.close()
+        return jsonify({'error': f'DB 저장 실패: {str(e)}'}), 500
+    cur.close()
+    db.close()
+
+    return jsonify({
+        'ok': True,
+        'budget_id': budget_id,
+        'parsed': {
+            'date': tx_date,
+            'category': category,
+            'name': name,
+            'amount': amount,
+            'memo': memo
+        }
+    }), 201
+
+
 @app.route('/api/budget/<int:rid>', methods=['PUT', 'DELETE'])
 def api_budget_detail(rid):
     db = get_db()
