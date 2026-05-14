@@ -10,6 +10,7 @@
   <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-stocks">주식</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-etf">ETF</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-crypto">코인</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-ipo">공모주</a></li>
 </ul>
 
 <div class="tab-content">
@@ -199,6 +200,42 @@
                 <th class="text-end">현재가</th>
                 <th>메모</th>
                 <th class="text-end">평가액</th><th class="text-end">수익률</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 공모주 탭 -->
+  <div class="tab-pane fade" id="tab-ipo">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="text-muted small">
+        총 실현손익: <strong id="ipo-total-pnl" class="text-danger">-</strong> &nbsp;|&nbsp;
+        총 수수료: <strong id="ipo-total-fee" class="text-primary">-</strong> &nbsp;|&nbsp;
+        총 순손익: <strong id="ipo-net-pnl" class="text-danger">-</strong>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="ipoGrid.addRow()">
+        <i class="bi bi-plus-lg me-1"></i>공모주 등록
+      </button>
+    </div>
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 pt-3 pb-2 fw-semibold">
+        <i class="bi bi-bar-chart-fill me-2 text-primary"></i>공모주 투자 현황
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="ipoTable">
+            <thead class="table-light">
+              <tr>
+                <th>종목명</th><th>상장일</th>
+                <th class="text-end">공모가</th><th class="text-end">배정수량</th>
+                <th class="text-end">투자원금</th><th class="text-end">실현손익</th>
+                <th class="text-end">수수료</th><th class="text-end">순손익</th>
+                <th class="text-end">수익률</th><th>메모</th>
                 <th class="text-center">삭제</th>
               </tr>
             </thead>
@@ -513,6 +550,38 @@ const cryptoGrid = new GridTable({
   },
 });
 
+// ── 공모주 ──
+const ipoGrid = new GridTable({
+  tableId: 'ipoTable',
+  columns: [
+    { key: 'name',         type: 'text' },
+    { key: 'listing_date', type: 'date' },
+    { key: 'ipo_price',    type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'quantity',     type: 'number', align: 'end', step: 0.001 },
+    { key: '_invest',      type: 'computed', align: 'end', compute: r => fmt(Math.round(r.ipo_price * r.quantity)) + '원' },
+    { key: 'realized_pnl', type: 'number', align: 'end', render: v => pnlHtml(v) },
+    { key: 'fee',          type: 'number', align: 'end', render: v => v ? fmt(v) + '원' : '-' },
+    { key: '_net',         type: 'computed', align: 'end', compute: r => pnlHtml((r.realized_pnl || 0) - (r.fee || 0)) },
+    { key: '_rate',        type: 'computed', align: 'end',
+      compute: r => {
+        const inv = r.ipo_price * r.quantity;
+        const net = (r.realized_pnl || 0) - (r.fee || 0);
+        return inv ? rateHtml(net / inv * 100) : '-';
+      }
+    },
+    { key: 'memo',         type: 'text' },
+  ],
+  apiUrl: '/api/ipo',
+  onLoad: rows => {
+    let tp = 0, tf = 0;
+    rows.forEach(r => { tp += r.realized_pnl || 0; tf += r.fee || 0; });
+    const net = tp - tf;
+    document.getElementById('ipo-total-pnl').innerHTML = pnlHtml(tp);
+    document.getElementById('ipo-total-fee').textContent = fmt(tf) + '원';
+    document.getElementById('ipo-net-pnl').innerHTML   = pnlHtml(net);
+  },
+});
+
 // ── 구분별 수익률 차트 ──
 let catPnlChart = null;
 let _catPnlPeriod = 'monthly';
@@ -691,6 +760,7 @@ async function initPage() {
 initPage();
 
 document.querySelector('[href="#tab-etf"]').addEventListener('shown.bs.tab', () => etfGrid.load());
+document.querySelector('[href="#tab-ipo"]').addEventListener('shown.bs.tab', () => ipoGrid.load());
 
 async function updateAllPrices() {
   const btn = document.getElementById('priceUpdateBtn');

@@ -315,6 +315,17 @@ def init_db():
             memo            TEXT,
             created_at      TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS ipo (
+            id              SERIAL PRIMARY KEY,
+            name            TEXT NOT NULL,
+            listing_date    TEXT NOT NULL,
+            ipo_price       INTEGER DEFAULT 0,
+            quantity        REAL DEFAULT 0,
+            realized_pnl    INTEGER DEFAULT 0,
+            fee             INTEGER DEFAULT 0,
+            memo            TEXT
+        );
     """)
 
     conn.commit()

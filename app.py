@@ -1302,6 +1302,54 @@ def api_crypto_detail(rid):
     return jsonify({'ok': True})
 
 
+# ── API: 공모주 ──────────────────────────────────────────────
+@app.route('/api/ipo', methods=['GET', 'POST'])
+def api_ipo():
+    db = get_db()
+    if request.method == 'GET':
+        cur = db.cursor()
+        cur.execute("SELECT * FROM ipo ORDER BY listing_date DESC, id DESC")
+        rows = cur.fetchall()
+        cur.close()
+        db.close()
+        return jsonify(rows_to_list(rows))
+
+    data = request.json
+    cur = db.cursor()
+    cur.execute(
+        "INSERT INTO ipo (name, listing_date, ipo_price, quantity, realized_pnl, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (data.get('name'), data.get('listing_date'), data.get('ipo_price', 0),
+         data.get('quantity', 0), data.get('realized_pnl', 0), data.get('fee', 0), data.get('memo'))
+    )
+    cur.close()
+    db.commit()
+    db.close()
+    return jsonify({'ok': True}), 201
+
+
+@app.route('/api/ipo/<int:rid>', methods=['PUT', 'DELETE'])
+def api_ipo_detail(rid):
+    db = get_db()
+    if request.method == 'PUT':
+        data = request.json
+        cur = db.cursor()
+        cur.execute(
+            "UPDATE ipo SET name=%s, listing_date=%s, ipo_price=%s, quantity=%s, realized_pnl=%s, fee=%s, memo=%s WHERE id=%s",
+            (data.get('name'), data.get('listing_date'), data.get('ipo_price', 0),
+             data.get('quantity', 0), data.get('realized_pnl', 0), data.get('fee', 0), data.get('memo'), rid)
+        )
+        cur.close()
+        db.commit()
+        db.close()
+        return jsonify({'ok': True})
+    cur = db.cursor()
+    cur.execute("DELETE FROM ipo WHERE id = %s", (rid,))
+    cur.close()
+    db.commit()
+    db.close()
+    return jsonify({'ok': True})
+
+
 # ── API: 현재가 업데이트 ─────────────────────────────────────
 import time
 
@@ -2314,7 +2362,7 @@ def api_stock_category_pnl():
 # ── API: 월별 실현손익 ───────────────────────────────────────
 @app.route('/api/investment-monthly')
 def api_investment_monthly():
-    """최근 12개월 월별 실현손익 및 누계 (주식+ETF 합산)"""
+    """최근 12개월 월별 실현손익 및 누계 (주식+ETF+공모주 합산)"""
     db = get_db()
 
     cur = db.cursor()
@@ -2352,6 +2400,16 @@ def api_investment_monthly():
     """)
     etf_by_month = {r['ym']: float(r['realized_pnl']) for r in cur.fetchall()}
     cur.close()
+
+    cur = db.cursor()
+    cur.execute("""
+        SELECT to_char(listing_date::date, 'YYYY-MM') AS ym,
+            COALESCE(SUM(realized_pnl), 0) AS realized_pnl
+        FROM ipo
+        GROUP BY ym ORDER BY ym
+    """)
+    ipo_by_month = {r['ym']: float(r['realized_pnl']) for r in cur.fetchall()}
+    cur.close()
     db.close()
 
     today = date.today()
@@ -2364,7 +2422,7 @@ def api_investment_monthly():
             mo += 12
             yr -= 1
         ym = f"{yr}-{mo:02d}"
-        pnl = round(stocks_by_month.get(ym, 0) + etf_by_month.get(ym, 0))
+        pnl = round(stocks_by_month.get(ym, 0) + etf_by_month.get(ym, 0) + ipo_by_month.get(ym, 0))
         cumulative += pnl
         months.append({'ym': ym, 'realized_pnl': pnl, 'cumulative_pnl': cumulative})
 
