@@ -429,6 +429,29 @@ function applyDarkMode(on, animate = true) {
   if (icon)  icon.className  = on ? 'bi bi-sun' : 'bi bi-moon-stars';
   if (label) label.textContent = on ? '라이트 모드' : '다크 모드';
   if (btn)   btn.title = on ? '라이트 모드로 전환' : '다크 모드로 전환';
+
+  if (typeof Chart !== 'undefined') {
+    const textColor = on ? '#FFFFFF' : '#333333';
+    const gridColor = on ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+    Chart.defaults.color = textColor;
+    Chart.defaults.borderColor = gridColor;
+
+    Object.values(Chart.instances).forEach(chart => {
+      if (chart.options.plugins?.legend?.labels) {
+        chart.options.plugins.legend.labels.color = textColor;
+      }
+      if (chart.options.plugins?.title) {
+        chart.options.plugins.title.color = textColor;
+      }
+      if (chart.options.scales) {
+        Object.values(chart.options.scales).forEach(scale => {
+          if (scale.ticks) scale.ticks.color = textColor;
+          if (scale.grid)  scale.grid.color  = gridColor;
+        });
+      }
+      chart.update();
+    });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', initDarkMode);
