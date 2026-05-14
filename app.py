@@ -2655,6 +2655,7 @@ def _api_dashboard_inner():
 
     total_assets = stocks_val + etf_val + crypto_val + re_val + pension_val + cash_val
     net_worth = total_assets - loan_total
+    gross_assets = total_assets + re_total_deposit
 
     # 이번달 수입 카테고리별
     cur = db.cursor()
@@ -2716,7 +2717,7 @@ def _api_dashboard_inner():
         'income_total':    income_total,
         'expense_total':   expense_total + card_total,
         'net_worth':       net_worth,
-        'total_assets':    total_assets,
+        'total_assets':    gross_assets,
         'loan_total':      loan_total,
         'asset_breakdown': {
             'stocks':  stocks_val,

@@ -87,6 +87,7 @@ async function loadDashboard(year, month) {
   document.getElementById('label-chart-ie').textContent = prefix;
 
   // KPI 값
+  document.getElementById('kpi-total-assets').textContent = fmt(d.total_assets) + '원';
   document.getElementById('kpi-networth').textContent = fmt(d.net_worth) + '원';
   document.getElementById('kpi-income').textContent   = fmt(d.income_total) + '원';
   document.getElementById('kpi-expense').textContent  = fmt(d.expense_total) + '원';
@@ -104,6 +105,120 @@ async function loadDashboard(year, month) {
   }
   renderLoansChart(d.loans);
   renderGoalsProgress(d.goals);
+  initCalculator(d.asset_breakdown);
+}
+
+// ── 가용자산 계산기 ──────────────────────────────────────────
+let _calcItems = [];
+
+function initCalculator(breakdown) {
+  const sourceList = document.getElementById('calc-source-list');
+  if (!sourceList) return;
+
+  const labels = {
+    stocks:     '주식',
+    etf:        'ETF',
+    crypto:     '코인',
+    realestate: '부동산',
+    pension:    '연금',
+    cash:       '현금/예금'
+  };
+
+  sourceList.innerHTML = Object.entries(breakdown)
+    .filter(([key, val]) => val > 0)
+    .map(([key, val]) => `
+      <div class="calc-item" draggable="true" data-key="${key}" data-val="${val}" data-label="${labels[key] || key}">
+        <span>${labels[key] || key}</span>
+        <span class="fw-bold">${fmt(val)}</span>
+      </div>
+    `).join('');
+
+  // 드래그 시작 이벤트
+  sourceList.querySelectorAll('.calc-item').forEach(item => {
+    item.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', JSON.stringify({
+        key:   item.dataset.key,
+        val:   item.dataset.val,
+        label: item.dataset.label
+      }));
+      item.classList.add('dragging');
+    });
+    item.addEventListener('dragend', () => item.classList.remove('dragging'));
+  });
+
+  const dropZone = document.getElementById('calc-drop-zone');
+  
+  dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    
+    try {
+      const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+      addCalcItem(data);
+    } catch (err) {
+      console.error('Drop error:', err);
+    }
+  });
+}
+
+function addCalcItem(data) {
+  // 이미 추가된 키인지 확인 (중복 방지 원하면 주석 해제)
+  // if (_calcItems.find(i => i.key === data.key)) return;
+
+  _calcItems.push(data);
+  renderCalcList();
+}
+
+function removeCalcItem(index) {
+  _calcItems.splice(index, 1);
+  renderCalcList();
+}
+
+function renderCalcList() {
+  const dropZone = document.getElementById('calc-drop-zone');
+  const placeholder = dropZone.querySelector('.drop-placeholder');
+  
+  // 기존 아이템 삭제 (플레이스홀더 제외)
+  Array.from(dropZone.children).forEach(child => {
+    if (!child.classList.contains('drop-placeholder')) child.remove();
+  });
+
+  if (_calcItems.length === 0) {
+    if (placeholder) placeholder.style.display = 'block';
+    document.getElementById('calc-total').textContent = '0원';
+    return;
+  }
+
+  if (placeholder) placeholder.style.display = 'none';
+
+  let total = 0;
+  _calcItems.forEach((item, idx) => {
+    total += parseFloat(item.val);
+    const div = document.createElement('div');
+    div.className = 'calc-item border-primary bg-primary-subtle d-flex justify-content-between align-items-center';
+    div.innerHTML = `
+      <span>${item.label}</span>
+      <div class="d-flex align-items-center gap-2">
+        <span class="fw-bold">${fmt(item.val)}</span>
+        <i class="bi bi-x-circle text-danger cursor-pointer" onclick="removeCalcItem(${idx})"></i>
+      </div>
+    `;
+    dropZone.appendChild(div);
+  });
+
+  document.getElementById('calc-total').textContent = fmt(total) + '원';
+}
+
+function resetCalculator() {
+  _calcItems = [];
+  renderCalcList();
 }
 
 // 페이지 로드 시 배너 바로 표시
