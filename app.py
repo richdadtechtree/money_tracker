@@ -4383,58 +4383,64 @@ def api_bond_rate():
 # ── API: 상세 자산 목록 (계산기용) ──────────────────────────────
 @app.route('/api/assets-detailed')
 def api_assets_detailed():
-    db = get_db()
-    cur = db.cursor()
-    ex_rate = get_current_exchange_rate()
-    
-    # 주식
-    cur.execute("SELECT name, ticker, current_price * quantity as val FROM stocks WHERE quantity > 0")
-    stocks = []
-    for r in cur.fetchall():
-        val = float(r['val'] or 0)
-        is_foreign = r['ticker'] and not re.match(r'^[0-9]{6}$', r['ticker'])
-        if is_foreign: val *= ex_rate
-        stocks.append({'name': r['name'], 'val': round(val)})
+    try:
+        db = get_db()
+        cur = db.cursor()
+        ex_rate = get_current_exchange_rate()
+        
+        # 주식
+        cur.execute("SELECT name, ticker, current_price * quantity as val FROM stocks WHERE quantity > 0")
+        stocks = []
+        for r in cur.fetchall():
+            val = float(r['val'] or 0)
+            ticker = str(r['ticker'] or '')
+            is_foreign = ticker and not re.match(r'^[0-9]{6}$', ticker)
+            if is_foreign: val *= ex_rate
+            stocks.append({'name': r['name'] or '이름없음', 'val': round(val)})
 
-    # ETF
-    cur.execute("SELECT name, ticker, current_price * quantity as val FROM etf WHERE quantity > 0")
-    etfs = []
-    for r in cur.fetchall():
-        val = float(r['val'] or 0)
-        is_foreign = r['ticker'] and not re.match(r'^[0-9]{6}$', r['ticker'])
-        if is_foreign: val *= ex_rate
-        etfs.append({'name': r['name'], 'val': round(val)})
+        # ETF
+        cur.execute("SELECT name, ticker, current_price * quantity as val FROM etf WHERE quantity > 0")
+        etfs = []
+        for r in cur.fetchall():
+            val = float(r['val'] or 0)
+            ticker = str(r['ticker'] or '')
+            is_foreign = ticker and not re.match(r'^[0-9]{6}$', ticker)
+            if is_foreign: val *= ex_rate
+            etfs.append({'name': r['name'] or '이름없음', 'val': round(val)})
 
-    # 코인
-    cur.execute("SELECT name, current_price * quantity as val FROM crypto WHERE quantity > 0")
-    crypto = [{'name': r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
+        # 코인
+        cur.execute("SELECT name, current_price * quantity as val FROM crypto WHERE quantity > 0")
+        crypto = [{'name': r['name'] or '이름없음', 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
 
-    # 현금/예금 + 거주보증금
-    cur.execute("SELECT name, amount as val FROM cash_deposits WHERE amount > 0")
-    cash = [{'name': r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
-    
-    cur.execute("SELECT name, deposit as val FROM residence WHERE deposit > 0")
-    residence = [{'name': "[거주]" + r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
+        # 현금/예금 + 거주보증금
+        cur.execute("SELECT name, amount as val FROM cash_deposits WHERE amount > 0")
+        cash = [{'name': r['name'] or '이름없음', 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
+        
+        cur.execute("SELECT name, deposit as val FROM residence WHERE deposit > 0")
+        residence = [{'name': "[거주] " + (r['name'] or '보증금'), 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
 
-    # 부동산
-    cur.execute("SELECT name, current_price as val FROM real_estate")
-    re_list = [{'name': r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
+        # 부동산
+        cur.execute("SELECT name, current_price as val FROM real_estate")
+        re_list = [{'name': r['name'] or '이름없음', 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
 
-    # 연금
-    cur.execute("SELECT name, accumulated as val FROM pension WHERE accumulated > 0")
-    pension = [{'name': r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
+        # 연금
+        cur.execute("SELECT name, accumulated as val FROM pension WHERE accumulated > 0")
+        pension = [{'name': r['name'] or '이름없음', 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
 
-    cur.close()
-    db.close()
-    
-    return jsonify({
-        '주식': stocks,
-        'ETF': etfs,
-        '코인': crypto,
-        '현금/예금': cash + residence,
-        '부동산': re_list,
-        '연금': pension
-    })
+        cur.close()
+        db.close()
+        
+        return jsonify({
+            '주식': stocks,
+            'ETF': etfs,
+            '코인': crypto,
+            '현금/예금': cash + residence,
+            '부동산': re_list,
+            '연금': pension
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
 
 if __name__ == '__main__':
     init_db()

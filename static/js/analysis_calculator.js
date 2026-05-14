@@ -7,7 +7,15 @@ let _allAssets = null;
 
 async function loadAssets() {
   const data = await fetchJSON('/api/assets-detailed');
-  if (!data) return;
+  if (!data) {
+    alert('데이터를 불러오는 데 실패했습니다. 서버 상태를 확인해주세요.');
+    return;
+  }
+  if (data.error) {
+    console.error('API Error:', data.error, data.trace);
+    alert('데이터 오류: ' + data.error);
+    return;
+  }
   _allAssets = data;
   renderAssetTree();
 }
