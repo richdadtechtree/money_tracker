@@ -74,6 +74,117 @@ class GridTable {
       if (this._ignoreDocClick) return;
       if (this._tr && !this.tableEl.contains(e.target)) this.cancelEdit();
     });
+
+    // 정렬 상태 초기화 및 헤더 클릭 이벤트 바인딩
+    this.sortKey = null;
+    this.sortAsc = true;
+    const thead = this.tableEl.querySelector('thead');
+    if (thead) {
+      thead.style.cursor = 'pointer';
+      thead.style.userSelect = 'none';
+      thead.addEventListener('click', e => {
+        const th = e.target.closest('th');
+        if (!th) return;
+        const tr = th.closest('tr');
+        const ths = Array.from(tr.querySelectorAll('th'));
+        const idx = ths.indexOf(th);
+        const colIdx = this.selectable ? idx - 1 : idx;
+        if (colIdx < 0 || colIdx >= this.columns.length) return;
+        const col = this.columns[colIdx];
+        if (!col) return;
+        this._sortByColumn(col, th);
+      });
+    }
+  }
+
+  _getSortValue(r, col) {
+    if (col.key && !col.key.startsWith('_') && r[col.key] !== undefined) {
+      return r[col.key];
+    }
+    const keyMap = {
+      '_qty': 'quantity',
+      '_avg': 'avg_price',
+      '_eval': 'eval_amount',
+      '_pnl': 'unrealized_pnl',
+      '_rate': 'return_rate',
+      '_real': 'realized_pnl',
+      '_amount': 'amount',
+    };
+    if (keyMap[col.key] && r[keyMap[col.key]] !== undefined) {
+      return r[keyMap[col.key]];
+    }
+    if (col.key === '_eval' && r.current_price != null && r.quantity != null) {
+      return r.current_price * r.quantity;
+    }
+    if (col.key === '_return' && r.buy_price != null && r.current_price != null) {
+      return r.buy_price ? (r.current_price - r.buy_price) / r.buy_price : 0;
+    }
+
+    let valStr = '';
+    if (col.compute) {
+      valStr = String(col.compute(r) ?? '');
+    } else if (col.render) {
+      valStr = String(col.render(r[col.key] ?? '', r));
+    } else {
+      valStr = String(r[col.key] ?? '');
+    }
+
+    let text = valStr.replace(/<[^>]+>/g, '').trim();
+    if (text === '-' || text === '') return null;
+
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+      return text;
+    }
+    const cleanNum = text.replace(/[+,원$%KRW\s]/g, '');
+    if (!isNaN(cleanNum) && cleanNum !== '') {
+      return Number(cleanNum);
+    }
+    return text;
+  }
+
+  _performSort(col) {
+    this.rows.sort((a, b) => {
+      const va = this._getSortValue(a, col);
+      const vb = this._getSortValue(b, col);
+
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+
+      if (typeof va === 'number' && typeof vb === 'number') {
+        return this.sortAsc ? va - vb : vb - va;
+      }
+
+      const sa = String(va).toLowerCase();
+      const sb = String(vb).toLowerCase();
+      return this.sortAsc ? sa.localeCompare(sb) : sb.localeCompare(sa);
+    });
+  }
+
+  _sortByColumn(col, th) {
+    if (this.sortKey === col.key) {
+      this.sortAsc = !this.sortAsc;
+    } else {
+      this.sortKey = col.key;
+      this.sortAsc = true;
+    }
+
+    this._performSort(col);
+
+    const thead = this.tableEl.querySelector('thead');
+    if (thead) {
+      thead.querySelectorAll('th').forEach(el => {
+        const icon = el.querySelector('.sort-icon');
+        if (icon) icon.remove();
+      });
+      const icon = document.createElement('i');
+      icon.className = 'sort-icon bi ' + (this.sortAsc ? 'bi-caret-up-fill' : 'bi-caret-down-fill');
+      icon.style.marginLeft = '4px';
+      icon.style.fontSize = '0.8rem';
+      th.appendChild(icon);
+    }
+
+    this._renderAll();
   }
 
   async load() {
@@ -86,6 +197,10 @@ class GridTable {
     } else {
       this.rows = data?.rows || [];
       this.meta = data || {};
+    }
+    if (this.sortKey) {
+      const col = this.columns.find(c => c.key === this.sortKey);
+      if (col) this._performSort(col);
     }
     this._renderAll();
     this.onLoad?.(this.rows, this.meta);
