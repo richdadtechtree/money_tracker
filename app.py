@@ -1681,7 +1681,15 @@ def api_price_test():
 
 
 # ── API: USD/KRW 환율 ────────────────────────────────────────
+_exchange_rate_cache = {'rate': 1380.0, 'last_updated': 0}
+
 def get_current_exchange_rate():
+    import time
+    now = time.time()
+    # 1시간 동안 캐시 유지
+    if now - _exchange_rate_cache['last_updated'] < 3600:
+        return _exchange_rate_cache['rate']
+
     try:
         r = http_req.get(
             'https://query2.finance.yahoo.com/v8/finance/chart/USDKRW=X',
@@ -1695,10 +1703,16 @@ def get_current_exchange_rate():
                 closes = result[0].get('indicators', {}).get('quote', [{}])[0].get('close', [])
                 closes = [c for c in closes if c is not None]
                 if closes:
-                    return round(closes[-1], 2)
+                    rate = round(closes[-1], 2)
+                    _exchange_rate_cache['rate'] = rate
+                    _exchange_rate_cache['last_updated'] = now
+                    return rate
     except Exception:
         pass
-    return 1380.0
+    
+    # 실패 시 캐시 수명을 살짝 늘려(5분) 잦은 재시도 방지
+    _exchange_rate_cache['last_updated'] = now - 3300 
+    return _exchange_rate_cache['rate']
 
 def is_foreign_ticker(ticker):
     return bool(ticker) and not bool(re.match(r'^\d{6}$', str(ticker)))
@@ -4369,12 +4383,11 @@ def api_bond_rate():
 # ── API: 상세 자산 목록 (계산기용) ──────────────────────────────
 @app.route('/api/assets-detailed')
 def api_assets_detailed():
-    import re
     db = get_db()
+    cur = db.cursor()
     ex_rate = get_current_exchange_rate()
     
     # 주식
-    cur = db.cursor()
     cur.execute("SELECT name, ticker, current_price * quantity as val FROM stocks WHERE quantity > 0")
     stocks = []
     for r in cur.fetchall():
@@ -4382,10 +4395,8 @@ def api_assets_detailed():
         is_foreign = r['ticker'] and not re.match(r'^[0-9]{6}$', r['ticker'])
         if is_foreign: val *= ex_rate
         stocks.append({'name': r['name'], 'val': round(val)})
-    cur.close()
 
     # ETF
-    cur = db.cursor()
     cur.execute("SELECT name, ticker, current_price * quantity as val FROM etf WHERE quantity > 0")
     etfs = []
     for r in cur.fetchall():
@@ -4393,37 +4404,27 @@ def api_assets_detailed():
         is_foreign = r['ticker'] and not re.match(r'^[0-9]{6}$', r['ticker'])
         if is_foreign: val *= ex_rate
         etfs.append({'name': r['name'], 'val': round(val)})
-    cur.close()
 
     # 코인
-    cur = db.cursor()
     cur.execute("SELECT name, current_price * quantity as val FROM crypto WHERE quantity > 0")
     crypto = [{'name': r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
-    cur.close()
 
     # 현금/예금 + 거주보증금
-    cur = db.cursor()
     cur.execute("SELECT name, amount as val FROM cash_deposits WHERE amount > 0")
     cash = [{'name': r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
-    cur.close()
     
-    cur = db.cursor()
     cur.execute("SELECT name, deposit as val FROM residence WHERE deposit > 0")
     residence = [{'name': "[거주]" + r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
-    cur.close()
 
     # 부동산
-    cur = db.cursor()
     cur.execute("SELECT name, current_price as val FROM real_estate")
     re_list = [{'name': r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
-    cur.close()
 
     # 연금
-    cur = db.cursor()
     cur.execute("SELECT name, accumulated as val FROM pension WHERE accumulated > 0")
     pension = [{'name': r['name'], 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
-    cur.close()
 
+    cur.close()
     db.close()
     
     return jsonify({
