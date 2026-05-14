@@ -233,7 +233,7 @@
               <tr>
                 <th>종목명</th><th>상장일</th>
                 <th class="text-end">공모가</th><th class="text-end">배정수량</th>
-                <th class="text-end">투자원금</th><th class="text-end">실현손익</th>
+                <th class="text-end">실현손익</th>
                 <th class="text-end">수수료</th><th class="text-end">순손익</th>
                 <th class="text-end">수익률</th><th>메모</th>
                 <th class="text-center">삭제</th>
@@ -558,7 +558,6 @@ const ipoGrid = new GridTable({
     { key: 'listing_date', type: 'date' },
     { key: 'ipo_price',    type: 'number', align: 'end', render: v => fmt(v) + '원' },
     { key: 'quantity',     type: 'number', align: 'end', step: 0.001 },
-    { key: '_invest',      type: 'computed', align: 'end', compute: r => fmt(Math.round(r.ipo_price * r.quantity)) + '원' },
     { key: 'realized_pnl', type: 'number', align: 'end', render: v => pnlHtml(v) },
     { key: 'fee',          type: 'number', align: 'end', render: v => v ? fmt(v) + '원' : '-' },
     { key: '_net',         type: 'computed', align: 'end', compute: r => pnlHtml((r.realized_pnl || 0) - (r.fee || 0)) },

@@ -542,9 +542,9 @@ body.dark-mode {
   --card-bg:        #1F2937;
   --border:         #374151;
   --border-light:   #2D3748;
-  --text-primary:   #F9FAFB;
-  --text-secondary: #9CA3AF;
-  --text-muted:     #6B7280;
+  --text-primary:   #FFFFFF;
+  --text-secondary: #E5E7EB; /* 훨씬 밝고 선명한 회색 */
+  --text-muted:     #D1D5DB; /* 어두운 회색 대신 밝은 회색 */
   --primary:        #3B82F6;
   --primary-light:  #1E3A5F;
   --sidebar-bg:     #0D1421;
@@ -552,9 +552,17 @@ body.dark-mode {
   --sidebar-section:#4B5563;
 }
 
-/* 카드 & 테이블 */
-body.dark-mode .card { background: var(--card-bg) !important; }
-body.dark-mode .card-header { background: var(--card-bg) !important; }
+/* 카드 & 테이블 & 전역 텍스트 */
+body.dark-mode,
+body.dark-mode .card { background: var(--card-bg) !important; color: var(--text-primary) !important; }
+body.dark-mode .card-header { background: var(--card-bg) !important; color: var(--text-primary) !important; }
+
+/* 텍스트 컬러 강제 재정의 (검정/어두운 회색 방지) */
+body.dark-mode .text-dark { color: #FFFFFF !important; }
+body.dark-mode .text-body { color: #FFFFFF !important; }
+body.dark-mode .text-muted { color: #D1D5DB !important; }
+body.dark-mode .text-secondary { color: #E5E7EB !important; }
+body.dark-mode small, body.dark-mode .small { color: #D1D5DB !important; }
 
 /* Bootstrap 5는 table 셀 배경을 box-shadow로 처리 → 직접 셀렉터로 강제 재정의 */
 body.dark-mode .table {
@@ -570,7 +578,7 @@ body.dark-mode .table > :not(caption) > * > * {
 body.dark-mode .table > thead > * > *,
 body.dark-mode .table-light > :not(caption) > * > * {
   background-color: #1A2535 !important;
-  color: var(--text-muted) !important;
+  color: #E5E7EB !important; /* 어둡지 않게 밝은 회색 처리 */
   border-bottom-color: var(--border) !important;
   box-shadow: none !important;
 }
@@ -593,7 +601,7 @@ body.dark-mode .form-select:focus {
   border-color: #3B82F6;
   box-shadow: 0 0 0 3px rgba(59,130,246,0.2);
 }
-body.dark-mode .form-control::placeholder { color: var(--text-muted); }
+body.dark-mode .form-control::placeholder { color: #9CA3AF; }
 body.dark-mode .input-group-text {
   background: #1A2535;
   border-color: var(--border);

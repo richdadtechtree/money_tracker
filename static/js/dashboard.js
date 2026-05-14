@@ -3,8 +3,8 @@
  */
 
 const COLORS = {
-  stocks:     '#6366f1',  // indigo
-  etf:        '#06b6d4',  // cyan
+  stocks:     '#dc2626',  // red (crimson)
+  etf:        '#f43f5e',  // rose red
   crypto:     '#f59e0b',  // amber
   realestate: '#10b981',  // emerald
   pension:    '#8b5cf6',  // violet
@@ -348,6 +348,7 @@ async function togglePrivacy() {
 
 function applyPrivacyMode(on) {
   document.body.classList.toggle('privacy-mode', on);
+  document.querySelectorAll('.amt.reveal').forEach(el => el.classList.remove('reveal'));
   const btn   = document.getElementById('btnPrivacy');
   const icon  = document.getElementById('privacyIcon');
   const label = document.getElementById('privacyLabel');
@@ -361,6 +362,17 @@ function applyPrivacyMode(on) {
     label.textContent = '프라이빗';
   }
 }
+
+// 프라이빗 모드에서 마우스 클릭 시 금액 보이기/숨기기 토글
+document.addEventListener('click', e => {
+  if (document.body.classList.contains('privacy-mode')) {
+    const amtEl = e.target.closest('.amt');
+    if (amtEl) {
+      amtEl.classList.toggle('reveal');
+      e.stopPropagation();
+    }
+  }
+});
 
 // 페이지 로드 시 실행
 initPrivacyMode();

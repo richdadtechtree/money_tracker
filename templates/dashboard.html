@@ -141,9 +141,13 @@
   filter: blur(8px);
   transition: filter 0.25s;
   user-select: none;
+  cursor: pointer;
 }
 .privacy-mode .amt:hover {
   filter: blur(4px);
+}
+.privacy-mode .amt.reveal {
+  filter: none !important;
 }
 #btnPrivacy.active {
   background-color: var(--bs-secondary);
