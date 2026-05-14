@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>부태리의 부동산 매수 경비 계산기 (r3 - 채권할인료 추가)</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 920px; margin: auto; padding: 20px; line-height: 1.55; }
+    h1 { margin-bottom: 6px; }
+    .muted { color: #666; font-size: 12px; }
+    label { display: block; margin-top: 12px; font-weight: 700; }
+    input[type="text"], input[type="number"] { width: 100%; padding: 10px; margin-top: 6px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+    input[readonly] { background: #fafafa; }
+    .radio-group { display: flex; gap: 20px; margin-top: 8px; }
+    .radio-group label { font-weight: normal; display: flex; align-items: center; gap: 6px; margin-top: 0; cursor: pointer; }
+    table { margin: 18px 0; border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #e6e6e6; padding: 10px; text-align: right; }
+    th { background: #f7f7f7; }
+    td:first-child, th:first-child { text-align: left; }
+    .note { background: #fef6e7; border: 1px solid #f6e0a6; padding: 10px 12px; border-radius: 10px; font-size: 13px; }
+    .note-bond { background: #eef6ff; border: 1px solid #d4e7ff; padding: 10px 12px; border-radius: 10px; font-size: 13px; margin-top: 10px; }
+    .code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background:#f6f8fa; border:1px solid #e1e4e8; padding: 2px 6px; border-radius: 6px; font-size: 12px; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef6ff; border:1px solid #d4e7ff; color:#2762e7; font-size:12px; }
+    .total { font-weight: 800; font-size: 18px; }
+    .section-label { font-size: 14px; font-weight: 700; margin-top: 20px; margin-bottom: 4px; color: #333; border-left: 3px solid #2762e7; padding-left: 8px; }
+    .inline-row { display: flex; gap: 16px; }
+    .inline-row > div { flex: 1; }
+  </style>
+</head>
+<body>
+  <h1>부태리의 부동산 매수 경비 계산기</h1>
+  <div class="muted">정책 가정: <strong>무주택자 · 주택 · 전용 85㎡ 미만</strong> → 농어촌특별세 0 · 주택 계약서 인지대 적용 (버전: r3 - 채권할인료 추가)</div>
+
+  <div class="section-label">기본 정보</div>
+
+  <section>
+    <label>취득가 / 매매가 (원)
+      <input type="text" id="취득가" placeholder="예: 500,000,000" oninput="formatNumber(this); updateAll();"/>
+      <div id="취득가_text" style="margin-top:4px; font-size:13px; color:#333;"></div>
+    </label>
+  </section>
+
+  <section class="note" style="margin-top:14px;">
+    취득세율: <span class="code">6억 이하 1%</span>, <span class="code">6억~9억 구간 1%→3% 선형</span>, <span class="code">9억 초과 3%</span>.<br/>
+    지방교육세는 취득세의 <span class="code">10%</span>. 농특세 0. 인지대는 주택 계약서(1억 이하 면제) 기준. <br/>
+    <strong>중개수수료</strong>는 법무사 법정수수료 아래에 표기하고, 총합에도 포함됩니다.
+  </section>
+
+  <div class="section-label" style="margin-top:20px;">채권 관련 정보</div>
+
+  <section>
+    <label>시가표준액 / 공시가격 (원)
+      <input type="text" id="공시가격" placeholder="예: 400,000,000" oninput="formatNumber(this); updateAll();"/>
+      <div id="공시가격_text" style="margin-top:4px; font-size:13px; color:#333;"></div>
+    </label>
+
+    <label style="margin-top:14px;">지역 구분</label>
+    <div class="radio-group">
+      <label><input type="radio" name="지역" value="metro" checked onchange="updateAll()"/> 특별시 · 광역시</label>
+      <label><input type="radio" name="지역" value="other" onchange="updateAll()"/> 기타 지역</label>
+    </div>
+
+    <label style="margin-top:14px;">채권 할인률 (%)
+      <div style="display:flex; align-items:center; gap:10px; margin-top:6px;">
+        <input type="number" id="할인률" value="10" min="0" max="100" step="0.1" oninput="updateAll()" style="width:140px; margin-top:0;"/>
+        <a href="https://nhuf.molit.go.kr/FP/FP07/FP0705/FP070503.jsp" target="_blank" rel="noopener"
+           style="display:inline-flex; align-items:center; gap:5px; padding:8px 12px; background:#2762e7; color:#fff; border-radius:8px; text-decoration:none; font-size:13px; font-weight:600; white-space:nowrap;">
+          ↗ 국민주택채권 할인율 조회
+        </a>
+      </div>
+      <div style="margin-top:5px; font-size:12px; color:#888;">최신 할인률은 국토교통부 주택도시기금 사이트에서 확인 후 입력하세요.</div>
+    </label>
+  </section>
+
+  <section class="note-bond" style="margin-top:10px;">
+    <strong>채권 계산 방식:</strong> 시가표준액 구간별 율 × 취득가 = 채권매입금액 → 채권매입금액 × 할인률(%) = 채권할인료<br/>
+    채권 구간은 시가표준액(공시가격) 기준으로 결정됩니다. 2,000만 원 미만은 면제.
+  </section>
+
+  <section>
+    <h3>항목별 산출 결과</h3>
+    <table>
+      <thead>
+        <tr><th>항목</th><th>금액(원)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>취득세</td><td id="취득세_cell">0원</td></tr>
+        <tr><td>지방교육세</td><td id="지방교육세_cell">0원</td></tr>
+        <tr><td>농어촌특별세</td><td id="농특세_cell">0원</td></tr>
+        <tr><td>인지대</td><td id="인지대_cell">0원</td></tr>
+        <tr><td>증지대</td><td id="증지대_cell">0원</td></tr>
+        <tr><td>법무사 법정수수료</td><td id="법정수수료_cell">0원</td></tr>
+        <tr><td>부동산 중개수수료(매수)</td><td id="중개수수료_cell">0원</td></tr>
+        <tr><td>채권매입금액 <span id="채권율_label" style="font-size:12px; color:#666; font-weight:normal;"></span></td><td id="채권매입금액_cell">0원</td></tr>
+        <tr><td>채권할인료 <span id="채권할인률_label" style="font-size:12px; color:#666; font-weight:normal;"></span></td><td id="채권할인료_cell">0원</td></tr>
+      </tbody>
+      <tfoot>
+        <tr><th>합계(취득세 및 각종 경비)</th><th id="경비합계_cell">0원</th></tr>
+        <tr><th class="total">총 필요 자금 (취득가 + 경비)</th><th id="총합_cell" class="total">0원</th></tr>
+      </tfoot>
+    </table>
+    <div class="muted">적용 취득세율: <span id="취득세율">0%</span>  ·  지방교육세율: <span id="지방교육세율">0%</span></div>
+  </section>
+
+  <script>
+    // --- 숫자 포맷 & 한글 변환 ---
+    function formatNumber(input) {
+      const raw = input.value.replace(/,/g, '').replace(/[^0-9]/g, '');
+      input.value = raw === '' ? '' : Number(raw).toLocaleString('ko-KR');
+      const v = parseInt(raw || '0', 10);
+      const textId = input.id + '_text';
+      const textEl = document.getElementById(textId);
+      if (textEl) textEl.textContent = v ? (numberToKorean(v) + '원') : '';
+    }
+    function numberToKorean(num) {
+      const hanA = ['', '일','이','삼','사','오','육','칠','팔','구'];
+      const unitA = ['','십','백','천'];
+      const bigUnitA = ['','만','억','조','경'];
+      if (num === 0) return '영';
+      let result = '';
+      const str = String(num);
+      let groupCount = 0;
+      for (let i = str.length; i > 0; i -= 4) {
+        let part = str.substring(Math.max(0, i-4), i);
+        let partNum = parseInt(part,10);
+        if (partNum>0) {
+          let section = '';
+          for (let j=0;j<part.length;j++){
+            const digit = parseInt(part[j]);
+            const pos = part.length-j-1;
+            if(digit>0) section+=hanA[digit]+unitA[pos];
+          }
+          result = section+bigUnitA[groupCount]+(result?' '+result:'');
+        }
+        groupCount++;
+      }
+      return result.trim();
+    }
+    function parsePrice() {
+      const v = (document.getElementById('취득가').value || '').replace(/,/g,'');
+      return parseInt(v, 10) || 0;
+    }
+    function parsePublicPrice() {
+      const v = (document.getElementById('공시가격').value || '').replace(/,/g,'');
+      return parseInt(v, 10) || 0;
+    }
+    function setCell(id, val) {
+      const el = document.getElementById(id);
+      el.textContent = (val||0).toLocaleString('ko-KR') + '원';
+    }
+
+    // --- 취득세율(%) 계산: 구간식 ---
+    function getAcquisitionRatePercent(price) {
+      if (price <= 0) return 0;
+      const x = price / 100_000_000;
+      if (x <= 6) return 1;
+      if (x >= 9) return 3;
+      return 1 + ( (x - 6) * (2/3) );
+    }
+
+    // --- 산출식 ---
+    function calcAcquisitionTax(price) {
+      if (price <= 0) return 0;
+      const ratePercent = getAcquisitionRatePercent(price);
+      return Math.round(price * ratePercent / 100);
+    }
+
+    function calcLocalEduTax(acqTax) {
+      return Math.round(acqTax * 0.10);
+    }
+
+    function calcRuralSpecialTax() { return 0; }
+
+    function calcStampTax(price) {
+      if (price <= 100_000_000) return 0;
+      if (price <= 1_000_000_000) return 150_000;
+      return 350_000;
+    }
+
+    function calcDocumentStamp(price) {
+      if (price <= 0) return 0;
+      return 18_000;
+    }
+
+    function calcLegalAgentFee(base) {
+      if (base <= 0) return 0;
+      let fee = 0;
+      if (base <= 50_000_000) {
+        fee = 210_000;
+      } else if (base <= 100_000_000) {
+        fee = 210_000 + (base - 50_000_000) * 0.001;
+      } else if (base <= 300_000_000) {
+        fee = 260_000 + (base - 100_000_000) * 0.0009;
+      } else if (base <= 500_000_000) {
+        fee = 440_000 + (base - 300_000_000) * 0.0008;
+      } else if (base <= 1_000_000_000) {
+        fee = 600_000 + (base - 500_000_000) * 0.0007;
+      } else if (base <= 2_000_000_000) {
+        fee = 950_000 + (base - 1_000_000_000) * 0.0005;
+      } else if (base <= 20_000_000_000) {
+        fee = 1_450_000 + (base - 2_000_000_000) * 0.0004;
+      } else {
+        fee = 8_650_000 + (base - 20_000_000_000) * 0.0001;
+      }
+      return Math.round(fee);
+    }
+
+    function calcBrokerage(price) {
+      if (price <= 0) return 0;
+      let rate = 0, cap = Infinity;
+      if (price < 50_000_000) { rate = 0.006; cap = 250_000; }
+      else if (price < 200_000_000) { rate = 0.005; cap = 800_000; }
+      else if (price < 900_000_000) { rate = 0.004; }
+      else if (price < 1_200_000_000) { rate = 0.005; }
+      else if (price < 1_500_000_000) { rate = 0.006; }
+      else { rate = 0.007; }
+      let fee = price * rate;
+      if (fee > cap) fee = cap;
+      return Math.round(fee);
+    }
+
+    // --- 채권 계산 ---
+    // 시가표준액 구간별 율 반환 (지역: 'metro'=특별시·광역시, 'other'=기타)
+    function getBondRate(publicPrice, region) {
+      // 면제
+      if (publicPrice < 20_000_000) return 0;
+      const isMetro = (region === 'metro');
+      if (publicPrice < 50_000_000)  return isMetro ? 0.013 : 0.013;
+      if (publicPrice < 100_000_000) return isMetro ? 0.019 : 0.014;
+      if (publicPrice < 160_000_000) return isMetro ? 0.021 : 0.016;
+      if (publicPrice < 260_000_000) return isMetro ? 0.023 : 0.018;
+      if (publicPrice < 600_000_000) return isMetro ? 0.026 : 0.021;
+      return isMetro ? 0.031 : 0.026;
+    }
+
+    function getBondRateLabel(publicPrice, region) {
+      if (publicPrice < 20_000_000) return '(면제)';
+      const rate = getBondRate(publicPrice, region);
+      return `(${(rate * 100).toFixed(1)}%)`;
+    }
+
+    function calcBond(price, publicPrice, region, discountRate) {
+      if (price <= 0 || publicPrice <= 0) return { bondPurchase: 0, bondDiscount: 0 };
+      const rate = getBondRate(publicPrice, region);
+      if (rate === 0) return { bondPurchase: 0, bondDiscount: 0 };
+      const bondPurchase = Math.round(price * rate);
+      const bondDiscount = Math.round(bondPurchase * (discountRate / 100));
+      return { bondPurchase, bondDiscount };
+    }
+
+    // --- 메인 업데이트 ---
+    function updateAll() {
+      const price = parsePrice();
+      const publicPrice = parsePublicPrice();
+      const region = document.querySelector('input[name="지역"]:checked').value;
+      const discountRate = parseFloat(document.getElementById('할인률').value) || 0;
+
+      const acqRatePercent = getAcquisitionRatePercent(price);
+      const acqTax = calcAcquisitionTax(price);
+      const eduTax = calcLocalEduTax(acqTax);
+      const ruralTax = calcRuralSpecialTax();
+      const stamp = calcStampTax(price);
+      const docStamp = calcDocumentStamp(price);
+      const legalFee = calcLegalAgentFee(price);
+      const brokerage = calcBrokerage(price);
+      const { bondPurchase, bondDiscount } = calcBond(price, publicPrice, region, discountRate);
+
+      // 세율 표시
+      document.getElementById('취득세율').textContent = acqRatePercent.toFixed(2) + '%';
+      document.getElementById('지방교육세율').textContent = (acqRatePercent * 0.1).toFixed(2) + '%';
+
+      // 채권 라벨
+      document.getElementById('채권율_label').textContent = publicPrice > 0 ? getBondRateLabel(publicPrice, region) : '';
+      document.getElementById('채권할인률_label').textContent = `(할인률 ${discountRate}%)`;
+
+      // 금액 셀
+      setCell('취득세_cell', acqTax);
+      setCell('지방교육세_cell', eduTax);
+      setCell('농특세_cell', ruralTax);
+      setCell('인지대_cell', stamp);
+      setCell('증지대_cell', docStamp);
+      setCell('법정수수료_cell', legalFee);
+      setCell('중개수수료_cell', brokerage);
+      setCell('채권매입금액_cell', bondPurchase);
+      setCell('채권할인료_cell', bondDiscount);
+
+      const expenseSum = acqTax + eduTax + ruralTax + stamp + docStamp + legalFee + brokerage + bondDiscount;
+      setCell('경비합계_cell', expenseSum);
+
+      const total = price + expenseSum;
+      setCell('총합_cell', total);
+    }
+
+    // 초기 표시
+    updateAll();
+  </script>
+<div style="margin-top:24px; padding-top:12px; border-top:1px solid #e6e6e6; font-size:14px; text-align:center;">
+  <strong>협업 및 수정 문의</strong><br>
+  <a href="https://litt.ly/richdadtechtree" target="_blank" rel="noopener">
+    https://litt.ly/richdadtechtree
+  </a>
+</div>
+</body>
+</html>
