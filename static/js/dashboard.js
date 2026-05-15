@@ -79,6 +79,8 @@ async function loadDashboard(year, month) {
 
   const d = await fetchJSON(`/api/dashboard?year=${y}&month=${m}`);
   if (!d) return;
+  _kpiData = d;
+  _assetsDetailed = null; // 월 변경 시 캐시 초기화
 
   // KPI 레이블 업데이트
   const prefix = isCurrentMonth ? '이번달' : monthLabel;
@@ -374,6 +376,129 @@ document.addEventListener('click', e => {
     }
   }
 });
+
+// ── KPI 상세 팝업 ─────────────────────────────────────────────
+let _kpiData = null;       // 마지막 dashboard API 응답
+let _assetsDetailed = null; // assets-detailed 캐시
+
+const _catColors = {
+  '주식':    '#dc2626',
+  'ETF':     '#f43f5e',
+  '코인':    '#f59e0b',
+  '부동산':  '#10b981',
+  '연금':    '#8b5cf6',
+  '현금/예금': '#14b8a6',
+};
+
+async function openKpiDetail(type) {
+  const modal = new bootstrap.Modal(document.getElementById('kpiDetailModal'));
+  const title = document.getElementById('kpiDetailTitle');
+  const body  = document.getElementById('kpiDetailBody');
+
+  body.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
+  modal.show();
+
+  if (type === 'loans') {
+    title.textContent = '대출 상세 내역';
+    body.innerHTML = renderLoansDetail(_kpiData?.loans || []);
+    return;
+  }
+
+  // 총자산 / 순자산은 assets-detailed 필요
+  if (!_assetsDetailed) {
+    _assetsDetailed = await fetchJSON('/api/assets-detailed');
+  }
+  if (!_assetsDetailed || _assetsDetailed.error) {
+    body.innerHTML = '<p class="text-danger text-center py-3">데이터를 불러올 수 없습니다.</p>';
+    return;
+  }
+
+  if (type === 'assets') {
+    title.textContent = '총자산 상세 내역';
+    body.innerHTML = renderAssetsDetail(_assetsDetailed);
+  } else if (type === 'networth') {
+    title.textContent = '순자산 상세 내역';
+    body.innerHTML = renderNetworthDetail(_assetsDetailed, _kpiData?.loans || []);
+  }
+}
+
+function renderAssetsDetail(data) {
+  let html = '';
+  let grandTotal = 0;
+
+  for (const [cat, items] of Object.entries(data)) {
+    const catTotal = items.reduce((s, i) => s + i.val, 0);
+    if (catTotal === 0 && items.length === 0) continue;
+    grandTotal += catTotal;
+    const color = _catColors[cat] || '#888';
+
+    html += `<div class="kpi-cat-header" style="border-color:${color}; color:${color}">${cat} <span style="color:#888;font-weight:400">${fmt(catTotal)}원</span></div>`;
+    if (items.length === 0) {
+      html += `<div class="kpi-row"><span class="text-muted">항목 없음</span><span>-</span></div>`;
+    } else {
+      items.forEach(item => {
+        html += `<div class="kpi-row"><span>${item.name}</span><span class="fw-semibold">${fmt(item.val)}원</span></div>`;
+      });
+    }
+  }
+
+  html += `<div class="kpi-total-row"><span>총자산 합계</span><span>${fmt(grandTotal)}원</span></div>`;
+  return html;
+}
+
+function renderNetworthDetail(data, loans) {
+  let totalAssets = 0;
+  let html = '<div class="kpi-cat-header" style="border-color:#0d6efd;color:#0d6efd">자산</div>';
+
+  for (const [cat, items] of Object.entries(data)) {
+    const catTotal = items.reduce((s, i) => s + i.val, 0);
+    if (catTotal === 0) continue;
+    totalAssets += catTotal;
+    html += `<div class="kpi-row"><span>${cat}</span><span class="fw-semibold text-success">+${fmt(catTotal)}원</span></div>`;
+  }
+
+  const totalLoans = loans.reduce((s, l) => s + (l.remaining || 0), 0);
+  if (totalLoans > 0) {
+    html += `<div class="kpi-cat-header" style="border-color:#dc3545;color:#dc3545">대출 (차감)</div>`;
+    loans.forEach(l => {
+      if ((l.remaining || 0) > 0) {
+        html += `<div class="kpi-row"><span>${l.name}</span><span class="fw-semibold text-danger">-${fmt(l.remaining)}원</span></div>`;
+      }
+    });
+  }
+
+  const netWorth = totalAssets - totalLoans;
+  html += `
+    <div class="kpi-total-row"><span>총자산</span><span class="text-success">${fmt(totalAssets)}원</span></div>
+    <div class="kpi-row"><span class="text-muted">총대출</span><span class="text-danger">-${fmt(totalLoans)}원</span></div>
+    <div class="kpi-total-row" style="font-size:18px"><span>순자산</span><span class="${netWorth >= 0 ? 'text-primary' : 'text-danger'}">${fmt(netWorth)}원</span></div>`;
+  return html;
+}
+
+function renderLoansDetail(loans) {
+  if (!loans || loans.length === 0) {
+    return '<p class="text-center text-muted py-4">대출 항목이 없습니다.</p>';
+  }
+  let html = '';
+  let total = 0;
+  loans.forEach(l => {
+    total += l.remaining || 0;
+    html += `
+    <div class="card border-0 bg-light mb-2 px-3 py-2">
+      <div class="d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">${l.name}</span>
+        <span class="fw-bold text-warning">${fmt(l.remaining)}원</span>
+      </div>
+      <div class="d-flex gap-3 mt-1" style="font-size:12px;color:#888">
+        ${l.institution ? `<span><i class="bi bi-building me-1"></i>${l.institution}</span>` : ''}
+        ${l.interest_rate ? `<span><i class="bi bi-percent me-1"></i>${l.interest_rate}%</span>` : ''}
+        ${l.monthly_payment ? `<span><i class="bi bi-calendar-month me-1"></i>월 ${fmt(l.monthly_payment)}원</span>` : ''}
+      </div>
+    </div>`;
+  });
+  html += `<div class="kpi-total-row"><span>총 대출잔액</span><span class="text-warning">${fmt(total)}원</span></div>`;
+  return html;
+}
 
 // 페이지 로드 시 실행
 initPrivacyMode();
