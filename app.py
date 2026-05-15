@@ -3364,7 +3364,8 @@ def api_asset_history():
                 'stocks': s['stocks'],
                 'real_estate': s['real_estate'],
                 'crypto': s['crypto'],
-                'pension': s['pension']
+                'pension': s['pension'],
+                'is_snapshot': True
             })
             curr_cash, curr_stocks, curr_re, curr_crypto, curr_pension = s['cash'], s['stocks'], s['real_estate'], s['crypto'], s['pension']
         else:
@@ -3376,7 +3377,8 @@ def api_asset_history():
                 'stocks': curr_stocks,
                 'real_estate': curr_re,
                 'crypto': est_crypto,
-                'pension': curr_pension
+                'pension': curr_pension,
+                'is_snapshot': False
             })
             curr_crypto = est_crypto
         

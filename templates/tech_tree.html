@@ -217,11 +217,19 @@
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-white py-3 d-flex flex-wrap gap-2 justify-content-between align-items-center">
         <h5 class="fw-bold mb-0"><i class="bi bi-graph-up me-2 text-info"></i>자산별 성장 추이 <span class="d-none d-sm-inline">(최근 12개월)</span></h5>
-        <div class="btn-group btn-group-sm shadow-sm">
-          <input type="radio" class="btn-check" name="chartMode" id="modeValue" checked onchange="loadHistoryChart()">
-          <label class="btn btn-outline-primary px-2" for="modeValue">금액기준</label>
-          <input type="radio" class="btn-check" name="chartMode" id="modePercent" onchange="loadHistoryChart()">
-          <label class="btn btn-outline-primary px-2" for="modePercent">증감률(%)</label>
+        <div class="d-flex gap-2 flex-wrap">
+          <div class="btn-group btn-group-sm shadow-sm">
+            <input type="radio" class="btn-check" name="chartSource" id="srcAll" checked onchange="redrawChart()">
+            <label class="btn btn-outline-secondary px-2" for="srcAll" title="스냅샷 + 역산 추정값 혼합">역산 포함</label>
+            <input type="radio" class="btn-check" name="chartSource" id="srcSnap" onchange="redrawChart()">
+            <label class="btn btn-outline-secondary px-2" for="srcSnap" title="방문 시 저장된 스냅샷만 사용">스냅샷만</label>
+          </div>
+          <div class="btn-group btn-group-sm shadow-sm">
+            <input type="radio" class="btn-check" name="chartMode" id="modeValue" checked onchange="redrawChart()">
+            <label class="btn btn-outline-primary px-2" for="modeValue">금액기준</label>
+            <input type="radio" class="btn-check" name="chartMode" id="modePercent" onchange="redrawChart()">
+            <label class="btn btn-outline-primary px-2" for="modePercent">증감률(%)</label>
+          </div>
         </div>
       </div>
       <div class="card-body p-4">
@@ -554,32 +562,51 @@ async function loadHistoryChart() {
   }
   if (!rawHistoryData) { setChartState('error'); return; }
   if (rawHistoryData.length === 0) { setChartState('empty'); return; }
+  redrawChart();
+}
 
+function redrawChart() {
+  if (!rawHistoryData) { loadHistoryChart(); return; }
+
+  const snapOnly  = document.getElementById('srcSnap').checked;
   const isPercent = document.getElementById('modePercent').checked;
+
+  // 스냅샷만 모드: 스냅샷 없는 달은 null (차트에서 빈칸으로 표시)
+  const view = rawHistoryData.map(h => snapOnly && !h.is_snapshot ? null : h);
   const labels = rawHistoryData.map(h => h.month);
-  
-  // 기준점 (첫 달) 및 초기 총 자산
-  const base = rawHistoryData[0];
-  const baseTotal = base.cash + base.stocks + base.real_estate + base.crypto + base.pension;
-  
-  const getVal = (h, key, idx) => {
+
+  // 전달 대비 증감률 계산 (null인 달은 null 유지)
+  const getVal = (idx, key) => {
+    const h = view[idx];
+    if (h === null) return null;
     if (!isPercent) return h[key];
-    if (idx === 0) return 0;
-    const prev = rawHistoryData[idx - 1];
-    const prevVal = prev[key];
+    // 이전 유효 데이터 탐색
+    let prevIdx = idx - 1;
+    while (prevIdx >= 0 && view[prevIdx] === null) prevIdx--;
+    if (prevIdx < 0) return 0;
+    const prevVal = view[prevIdx][key];
     if (prevVal === 0) return h[key] > 0 ? 100 : 0;
     if (h[key] === prevVal) return 0;
-    const rate = ((h[key] - prevVal) / prevVal) * 100;
-    return Math.round(rate * 100) / 100;
+    return Math.round(((h[key] - prevVal) / prevVal) * 10000) / 100;
   };
 
-  const datasets = [
-    { label: '현금', data: rawHistoryData.map((h, i) => getVal(h, 'cash', i)), borderColor: '#339af0', backgroundColor: '#339af011', fill: true, tension: 0.3, pointRadius: 2 },
-    { label: '주식/ETF', data: rawHistoryData.map((h, i) => getVal(h, 'stocks', i)), borderColor: '#51cf66', backgroundColor: '#51cf6611', fill: true, tension: 0.3, pointRadius: 2 },
-    { label: '부동산', data: rawHistoryData.map((h, i) => getVal(h, 'real_estate', i)), borderColor: '#ff922b', backgroundColor: '#ff922b11', fill: true, tension: 0.3, pointRadius: 2 },
-    { label: '코인', data: rawHistoryData.map((h, i) => getVal(h, 'crypto', i)), borderColor: '#cc5de8', backgroundColor: '#cc5de811', fill: true, tension: 0.3, pointRadius: 2 },
-    { label: '연금', data: rawHistoryData.map((h, i) => getVal(h, 'pension', i)), borderColor: '#6741d9', backgroundColor: '#6741d911', fill: true, tension: 0.3, pointRadius: 2 }
+  const keys = ['cash', 'stocks', 'real_estate', 'crypto', 'pension'];
+  const meta = [
+    { label: '현금',    color: '#339af0' },
+    { label: '주식/ETF', color: '#51cf66' },
+    { label: '부동산',  color: '#ff922b' },
+    { label: '코인',    color: '#cc5de8' },
+    { label: '연금',    color: '#6741d9' },
   ];
+
+  const datasets = keys.map((key, ki) => ({
+    label: meta[ki].label,
+    data: view.map((_, i) => getVal(i, key)),
+    borderColor: meta[ki].color,
+    backgroundColor: meta[ki].color + '11',
+    fill: true, tension: 0.3, pointRadius: 2,
+    spanGaps: false   // null 구간은 선 끊김으로 표시
+  }));
 
   setChartState('ready');
   const ctx = document.getElementById('assetHistoryChart').getContext('2d');
