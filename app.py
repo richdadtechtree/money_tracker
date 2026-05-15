@@ -4416,8 +4416,8 @@ def api_assets_detailed():
         cur.execute("SELECT name, amount as val FROM cash_deposits WHERE amount > 0")
         cash = [{'name': r['name'] or '이름없음', 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
         
-        cur.execute("SELECT name, deposit as val FROM residence WHERE deposit > 0")
-        residence = [{'name': "[거주] " + (r['name'] or '보증금'), 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
+        cur.execute("SELECT address, deposit as val FROM residence WHERE deposit > 0")
+        residence = [{'name': "[거주] " + (r['address'] or '보증금'), 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
 
         # 부동산
         cur.execute("SELECT name, current_price as val FROM real_estate")
