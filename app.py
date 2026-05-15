@@ -39,6 +39,19 @@ class CustomJSONProvider(DefaultJSONProvider):
         return super().default(obj)
 app.json = CustomJSONProvider(app)
 
+# ── 버전 정보 ────────────────────────────────────────────────
+def _load_version():
+    try:
+        with open(os.path.join(os.path.dirname(__file__), 'version.json'), 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {"version": "1.00", "updated": ""}
+
+@app.context_processor
+def inject_version():
+    v = _load_version()
+    return {"APP_VERSION": v.get("version", "1.00"), "APP_UPDATED": v.get("updated", "")}
+
 # ── 페이지 라우터 ────────────────────────────────────────────
 @app.route('/')
 def dashboard():

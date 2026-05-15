@@ -708,3 +708,15 @@ body.dark-mode #mobileTopBar { background: #0D1421; border-bottom-color: rgba(25
   color: #fff;
   border-color: var(--text-secondary);
 }
+
+/* ── App Footer ──────────────────────────────────────────────── */
+.app-footer {
+  text-align: center;
+  padding: 12px 16px 20px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  letter-spacing: 0.02em;
+}
+.app-footer-sep { margin: 0 6px; }
+body.dark-mode .app-footer { color: #9ca3af; }
