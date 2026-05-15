@@ -76,6 +76,20 @@ function renderAssetTree() {
 }
 
 function initDragEvents() {
+  // 커스텀 추가 자산 아이템도 포함
+  const customItem = document.getElementById('custom-asset-drag-item');
+  if (customItem) {
+    customItem.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', JSON.stringify({
+        label: customItem.dataset.label,
+        val:   customItem.dataset.val,
+        type:  customItem.dataset.type
+      }));
+      customItem.classList.add('dragging');
+    });
+    customItem.addEventListener('dragend', () => customItem.classList.remove('dragging'));
+  }
+
   document.querySelectorAll('.calc-item').forEach(item => {
     item.addEventListener('dragstart', e => {
       e.dataTransfer.setData('text/plain', JSON.stringify({
@@ -111,8 +125,48 @@ function initDragEvents() {
 }
 
 function addCalcItem(data) {
+  if (data.type === 'custom') {
+    // 모달로 이름과 금액 입력받기
+    document.getElementById('custom-asset-name').value = '추가 자산';
+    document.getElementById('custom-asset-amount').value = '';
+    const modal = new bootstrap.Modal(document.getElementById('customAssetModal'));
+    modal.show();
+    document.getElementById('customAssetModal').addEventListener('shown.bs.modal', () => {
+      document.getElementById('custom-asset-amount').focus();
+    }, { once: true });
+    // Enter 키로 추가
+    document.getElementById('custom-asset-amount').addEventListener('keydown', function onEnter(e) {
+      if (e.key === 'Enter') { confirmCustomAsset(); this.removeEventListener('keydown', onEnter); }
+    });
+    return;
+  }
   _calcItems.push(data);
   renderCalcList();
+}
+
+function confirmCustomAsset() {
+  const name = document.getElementById('custom-asset-name').value.trim() || '추가 자산';
+  const raw  = document.getElementById('custom-asset-amount').value;
+  const amount = parseFloat(raw);
+  if (raw === '' || isNaN(amount) || amount < 0) {
+    document.getElementById('custom-asset-amount').classList.add('is-invalid');
+    document.getElementById('custom-asset-amount').focus();
+    return;
+  }
+  document.getElementById('custom-asset-amount').classList.remove('is-invalid');
+  _calcItems.push({ label: name, val: amount, type: 'custom' });
+  renderCalcList();
+  bootstrap.Modal.getInstance(document.getElementById('customAssetModal')).hide();
+}
+
+function updateCustomItemVal(idx, value) {
+  const num = parseFloat(value);
+  if (!isNaN(num) && num >= 0) {
+    _calcItems[idx].val = num;
+    let total = 0;
+    _calcItems.forEach(item => total += parseFloat(item.val));
+    document.getElementById('calc-total').textContent = fmt(total) + '원';
+  }
 }
 
 function removeCalcItem(idx) {
@@ -142,16 +196,35 @@ function renderCalcList() {
     total += parseFloat(item.val);
     const div = document.createElement('div');
     div.className = 'calc-item border-primary bg-primary-subtle d-flex justify-content-between align-items-center p-3 mb-2 shadow-sm';
-    div.innerHTML = `
-      <div class="d-flex align-items-center gap-2">
-        <span class="badge ${item.type === 'category' ? 'bg-primary' : 'bg-info'}">${item.type === 'category' ? '그룹' : '항목'}</span>
-        <span class="fw-semibold">${item.label}</span>
-      </div>
-      <div class="d-flex align-items-center gap-3">
-        <span class="fw-bold">${fmt(item.val)}원</span>
-        <i class="bi bi-x-lg text-danger cursor-pointer" onclick="removeCalcItem(${idx})"></i>
-      </div>
-    `;
+
+    if (item.type === 'custom') {
+      div.innerHTML = `
+        <div class="d-flex align-items-center gap-2">
+          <span class="badge bg-success">직접입력</span>
+          <span class="fw-semibold">${item.label}</span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <div class="input-group input-group-sm" style="width:160px">
+            <input type="number" class="form-control form-control-sm text-end fw-bold"
+                   value="${item.val}" min="0" step="1"
+                   oninput="updateCustomItemVal(${idx}, this.value)">
+            <span class="input-group-text">원</span>
+          </div>
+          <i class="bi bi-x-lg text-danger cursor-pointer" onclick="removeCalcItem(${idx})"></i>
+        </div>
+      `;
+    } else {
+      div.innerHTML = `
+        <div class="d-flex align-items-center gap-2">
+          <span class="badge ${item.type === 'category' ? 'bg-primary' : 'bg-info'}">${item.type === 'category' ? '그룹' : '항목'}</span>
+          <span class="fw-semibold">${item.label}</span>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+          <span class="fw-bold">${fmt(item.val)}원</span>
+          <i class="bi bi-x-lg text-danger cursor-pointer" onclick="removeCalcItem(${idx})"></i>
+        </div>
+      `;
+    }
     dropZone.appendChild(div);
   });
 
