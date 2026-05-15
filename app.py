@@ -4401,21 +4401,39 @@ def api_assets_detailed():
         cur = db.cursor()
         ex_rate = get_current_exchange_rate()
         
-        # 주식
-        cur.execute("SELECT name, ticker, current_price * quantity as val FROM stocks WHERE quantity > 0")
+        # 주식 (수량은 stock_tx 기반 계산)
+        cur.execute("""
+            SELECT s.name, s.ticker, s.current_price,
+                COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0)
+              - COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS qty
+            FROM stocks s
+            LEFT JOIN stock_tx t ON t.stock_id = s.id
+            GROUP BY s.id, s.name, s.ticker, s.current_price
+            HAVING (COALESCE(SUM(CASE WHEN t.tx_type='buy' THEN t.quantity ELSE 0 END), 0)
+                  - COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0)) > 0
+        """)
         stocks = []
         for r in cur.fetchall():
-            val = float(r['val'] or 0)
+            val = float(r['current_price'] or 0) * float(r['qty'] or 0)
             ticker = str(r['ticker'] or '')
             is_foreign = ticker and not re.match(r'^[0-9]{6}$', ticker)
             if is_foreign: val *= ex_rate
             stocks.append({'name': r['name'] or '이름없음', 'val': round(val)})
 
-        # ETF
-        cur.execute("SELECT name, ticker, current_price * quantity as val FROM etf WHERE quantity > 0")
+        # ETF (수량은 etf_tx 기반 계산)
+        cur.execute("""
+            SELECT e.name, e.ticker, e.current_price,
+                COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0)
+              - COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS qty
+            FROM etf e
+            LEFT JOIN etf_tx t ON t.etf_id = e.id
+            GROUP BY e.id, e.name, e.ticker, e.current_price
+            HAVING (COALESCE(SUM(CASE WHEN t.tx_type='buy' THEN t.quantity ELSE 0 END), 0)
+                  - COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0)) > 0
+        """)
         etfs = []
         for r in cur.fetchall():
-            val = float(r['val'] or 0)
+            val = float(r['current_price'] or 0) * float(r['qty'] or 0)
             ticker = str(r['ticker'] or '')
             is_foreign = ticker and not re.match(r'^[0-9]{6}$', ticker)
             if is_foreign: val *= ex_rate
