@@ -427,6 +427,7 @@ function renderAssetsDetail(data) {
   let grandTotal = 0;
 
   for (const [cat, items] of Object.entries(data)) {
+    if (cat.startsWith('_')) continue; // 내부 메타 키 제외
     const catTotal = items.reduce((s, i) => s + i.val, 0);
     if (catTotal === 0 && items.length === 0) continue;
     grandTotal += catTotal;
@@ -451,6 +452,7 @@ function renderNetworthDetail(data, loans) {
   let html = '<div class="kpi-cat-header" style="border-color:#0d6efd;color:#0d6efd">자산</div>';
 
   for (const [cat, items] of Object.entries(data)) {
+    if (cat.startsWith('_')) continue;
     const catTotal = items.reduce((s, i) => s + i.val, 0);
     if (catTotal === 0) continue;
     totalAssets += catTotal;
@@ -458,19 +460,26 @@ function renderNetworthDetail(data, loans) {
   }
 
   const totalLoans = loans.reduce((s, l) => s + (l.remaining || 0), 0);
-  if (totalLoans > 0) {
-    html += `<div class="kpi-cat-header" style="border-color:#dc3545;color:#dc3545">대출 (차감)</div>`;
+  const tenantDeposits = data['_tenant_deposits'] || [];
+  const totalTenantDeposit = tenantDeposits.reduce((s, d) => s + d.val, 0);
+  const totalDeductions = totalLoans + totalTenantDeposit;
+
+  if (totalLoans > 0 || totalTenantDeposit > 0) {
+    html += `<div class="kpi-cat-header" style="border-color:#dc3545;color:#dc3545">차감 항목</div>`;
     loans.forEach(l => {
-      if ((l.remaining || 0) > 0) {
-        html += `<div class="kpi-row"><span>${l.name}</span><span class="fw-semibold text-danger">-${fmt(l.remaining)}원</span></div>`;
-      }
+      if ((l.remaining || 0) > 0)
+        html += `<div class="kpi-row"><span><span class="badge bg-danger-subtle text-danger me-1" style="font-size:10px">대출</span>${l.name}</span><span class="fw-semibold text-danger">-${fmt(l.remaining)}원</span></div>`;
+    });
+    tenantDeposits.forEach(d => {
+      html += `<div class="kpi-row"><span><span class="badge bg-warning-subtle text-warning me-1" style="font-size:10px">보증금</span>${d.name}</span><span class="fw-semibold text-warning">-${fmt(d.val)}원</span></div>`;
     });
   }
 
-  const netWorth = totalAssets - totalLoans;
+  const netWorth = totalAssets - totalDeductions;
   html += `
     <div class="kpi-total-row"><span>총자산</span><span class="text-success">${fmt(totalAssets)}원</span></div>
-    <div class="kpi-row"><span class="text-muted">총대출</span><span class="text-danger">-${fmt(totalLoans)}원</span></div>
+    <div class="kpi-row text-muted" style="font-size:13px"><span>대출</span><span>-${fmt(totalLoans)}원</span></div>
+    <div class="kpi-row text-muted" style="font-size:13px"><span>세입자 보증금 (사적 레버리지)</span><span>-${fmt(totalTenantDeposit)}원</span></div>
     <div class="kpi-total-row" style="font-size:18px"><span>순자산</span><span class="${netWorth >= 0 ? 'text-primary' : 'text-danger'}">${fmt(netWorth)}원</span></div>`;
   return html;
 }

@@ -4458,16 +4458,29 @@ def api_assets_detailed():
         cur.execute("SELECT name, accumulated as val FROM pension WHERE accumulated > 0")
         pension = [{'name': r['name'] or '이름없음', 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
 
+        # 세입자 보증금 (사적 레버리지 — 순자산 차감 항목)
+        cur.execute("""
+            SELECT re.name as re_name, tc.contract_type, tc.deposit
+            FROM tenant_contracts tc
+            JOIN real_estate re ON re.id = tc.real_estate_id
+            WHERE tc.deposit > 0
+        """)
+        tenant_deposits = [
+            {'name': f"[{r['contract_type']}] {r['re_name']}", 'val': round(float(r['deposit'] or 0))}
+            for r in cur.fetchall()
+        ]
+
         cur.close()
         db.close()
-        
+
         return jsonify({
             '주식': stocks,
             'ETF': etfs,
             '코인': crypto,
             '현금/예금': cash + residence,
             '부동산': re_list,
-            '연금': pension
+            '연금': pension,
+            '_tenant_deposits': tenant_deposits,
         })
     except Exception as e:
         import traceback
