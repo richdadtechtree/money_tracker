@@ -228,7 +228,7 @@
         <div class="mb-3">
           <label class="form-label fw-semibold">매도가 <span class="text-danger">*</span></label>
           <div class="input-group">
-            <input type="number" class="form-control" id="sell-price" placeholder="0" oninput="calcSellProfit()">
+            <input type="text" inputmode="numeric" class="form-control" id="sell-price" placeholder="0" oninput="fmtSellInput(this); calcSellProfit()">
             <span class="input-group-text">원</span>
           </div>
         </div>
@@ -236,14 +236,14 @@
           <div class="col-6">
             <label class="form-label fw-semibold">세금</label>
             <div class="input-group">
-              <input type="number" class="form-control" id="sell-tax" placeholder="0" oninput="calcSellProfit()">
+              <input type="text" inputmode="numeric" class="form-control" id="sell-tax" placeholder="0" oninput="fmtSellInput(this); calcSellProfit()">
               <span class="input-group-text">원</span>
             </div>
           </div>
           <div class="col-6">
             <label class="form-label fw-semibold">기타 비용 <small class="text-muted fw-normal">(보수 등)</small></label>
             <div class="input-group">
-              <input type="number" class="form-control" id="sell-other" placeholder="0" oninput="calcSellProfit()">
+              <input type="text" inputmode="numeric" class="form-control" id="sell-other" placeholder="0" oninput="fmtSellInput(this); calcSellProfit()">
               <span class="input-group-text">원</span>
             </div>
           </div>
@@ -484,6 +484,14 @@ document.querySelector('[href="#tab-residence"]').addEventListener('shown.bs.tab
 document.querySelector('[href="#tab-sold"]').addEventListener('shown.bs.tab', () => loadSoldRE());
 
 // ── 매도 모달 ─────────────────────────────────────────────
+function fmtSellInput(el) {
+  const raw = el.value.replace(/[^\d]/g, '');
+  el.value = raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '';
+}
+function parseSellInt(id) {
+  return parseInt((document.getElementById(id).value || '0').replace(/,/g, '')) || 0;
+}
+
 let sellTargetId = null;
 let sellPurchasePrice = 0;
 let sellRealInv = 0;
@@ -508,9 +516,9 @@ function openSellModal(id, name, purchasePrice, realInv) {
 }
 
 function calcSellProfit() {
-  const sellPrice = parseInt(document.getElementById('sell-price').value) || 0;
-  const tax       = parseInt(document.getElementById('sell-tax').value)   || 0;
-  const other     = parseInt(document.getElementById('sell-other').value) || 0;
+  const sellPrice = parseSellInt('sell-price');
+  const tax       = parseSellInt('sell-tax');
+  const other     = parseSellInt('sell-other');
   const profit    = sellPrice - sellPurchasePrice - tax - other;
   const roi       = sellRealInv > 0 ? (profit / sellRealInv * 100).toFixed(1) : 0;
 
@@ -523,14 +531,14 @@ function calcSellProfit() {
 }
 
 async function confirmSell() {
-  const sellDate = document.getElementById('sell-date').value;
-  const sellPrice = parseInt(document.getElementById('sell-price').value) || 0;
+  const sellDate  = document.getElementById('sell-date').value;
+  const sellPrice = parseSellInt('sell-price');
   if (!sellDate || !sellPrice) {
     alert('매도일과 매도가를 입력해주세요.');
     return;
   }
-  const tax       = parseInt(document.getElementById('sell-tax').value)   || 0;
-  const other     = parseInt(document.getElementById('sell-other').value) || 0;
+  const tax   = parseSellInt('sell-tax');
+  const other = parseSellInt('sell-other');
   const memo      = document.getElementById('sell-memo').value;
 
   const res = await fetch(`/api/real-estate/${sellTargetId}/sell`, {
