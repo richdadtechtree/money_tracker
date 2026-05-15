@@ -562,24 +562,23 @@ async function loadHistoryChart() {
   const base = rawHistoryData[0];
   const baseTotal = base.cash + base.stocks + base.real_estate + base.crypto + base.pension;
   
-  const getVal = (h, key) => {
+  const getVal = (h, key, idx) => {
     if (!isPercent) return h[key];
-    const baseVal = base[key];
-    if (h[key] === baseVal) return 0; // 변동이 전혀 없는 경우 부동소수점 오차(e-16 등)를 사전에 차단하기 위해 0을 바로 반환
-    if (baseVal === 0) {
-      return h[key] > 0 ? 100 : 0; // 0원에서 시작한 경우 NaN/Infinity 방지
-    }
-    // 각 자산의 최초 시점 금액 대비 성장률(%)을 계산하고, 소수점 둘째 자리까지 반올림하여 부동소수점 오차 해결
-    const rate = ((h[key] - baseVal) / baseVal) * 100;
+    if (idx === 0) return 0;
+    const prev = rawHistoryData[idx - 1];
+    const prevVal = prev[key];
+    if (prevVal === 0) return h[key] > 0 ? 100 : 0;
+    if (h[key] === prevVal) return 0;
+    const rate = ((h[key] - prevVal) / prevVal) * 100;
     return Math.round(rate * 100) / 100;
   };
 
   const datasets = [
-    { label: '현금', data: rawHistoryData.map(h => getVal(h, 'cash')), borderColor: '#339af0', backgroundColor: '#339af011', fill: true, tension: 0.3, pointRadius: 2 },
-    { label: '주식/ETF', data: rawHistoryData.map(h => getVal(h, 'stocks')), borderColor: '#51cf66', backgroundColor: '#51cf6611', fill: true, tension: 0.3, pointRadius: 2 },
-    { label: '부동산', data: rawHistoryData.map(h => getVal(h, 'real_estate')), borderColor: '#ff922b', backgroundColor: '#ff922b11', fill: true, tension: 0.3, pointRadius: 2 },
-    { label: '코인', data: rawHistoryData.map(h => getVal(h, 'crypto')), borderColor: '#cc5de8', backgroundColor: '#cc5de811', fill: true, tension: 0.3, pointRadius: 2 },
-    { label: '연금', data: rawHistoryData.map(h => getVal(h, 'pension')), borderColor: '#6741d9', backgroundColor: '#6741d911', fill: true, tension: 0.3, pointRadius: 2 }
+    { label: '현금', data: rawHistoryData.map((h, i) => getVal(h, 'cash', i)), borderColor: '#339af0', backgroundColor: '#339af011', fill: true, tension: 0.3, pointRadius: 2 },
+    { label: '주식/ETF', data: rawHistoryData.map((h, i) => getVal(h, 'stocks', i)), borderColor: '#51cf66', backgroundColor: '#51cf6611', fill: true, tension: 0.3, pointRadius: 2 },
+    { label: '부동산', data: rawHistoryData.map((h, i) => getVal(h, 'real_estate', i)), borderColor: '#ff922b', backgroundColor: '#ff922b11', fill: true, tension: 0.3, pointRadius: 2 },
+    { label: '코인', data: rawHistoryData.map((h, i) => getVal(h, 'crypto', i)), borderColor: '#cc5de8', backgroundColor: '#cc5de811', fill: true, tension: 0.3, pointRadius: 2 },
+    { label: '연금', data: rawHistoryData.map((h, i) => getVal(h, 'pension', i)), borderColor: '#6741d9', backgroundColor: '#6741d911', fill: true, tension: 0.3, pointRadius: 2 }
   ];
 
   setChartState('ready');
