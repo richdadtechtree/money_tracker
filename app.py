@@ -4450,9 +4450,24 @@ def api_assets_detailed():
         cur.execute("SELECT address, deposit as val FROM residence WHERE deposit > 0")
         residence = [{'name': "[거주] " + (r['address'] or '보증금'), 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
 
-        # 부동산
-        cur.execute("SELECT name, current_price as val FROM real_estate")
-        re_list = [{'name': r['name'] or '이름없음', 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
+        # 부동산 (세입자 보증금 차감하여 순가치 계산)
+        cur.execute("""
+            SELECT re.id, re.name, re.current_price,
+                COALESCE(SUM(tc.deposit), 0) AS total_deposit
+            FROM real_estate re
+            LEFT JOIN tenant_contracts tc ON tc.real_estate_id = re.id
+            GROUP BY re.id, re.name, re.current_price
+        """)
+        re_list = []
+        for r in cur.fetchall():
+            price   = round(float(r['current_price'] or 0))
+            deposit = round(float(r['total_deposit'] or 0))
+            re_list.append({
+                'name':          r['name'] or '이름없음',
+                'val':           price,
+                'deposit':       deposit,
+                'net_val':       price - deposit,
+            })
 
         # 연금
         cur.execute("SELECT name, accumulated as val FROM pension WHERE accumulated > 0")

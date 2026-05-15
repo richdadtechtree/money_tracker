@@ -28,7 +28,13 @@ function renderAssetTree() {
   let index = 0;
 
   for (const [cat, items] of Object.entries(_allAssets)) {
-    const total = items.reduce((s, i) => s + i.val, 0);
+    if (cat.startsWith('_')) continue;
+
+    // 부동산은 보증금 차감한 net_val 사용
+    const isRE = (cat === '부동산');
+    const getVal = item => isRE ? (item.net_val ?? item.val) : item.val;
+
+    const total = items.reduce((s, i) => s + getVal(i), 0);
     const catId = `cat-${index++}`;
 
     html += `
@@ -39,7 +45,7 @@ function renderAssetTree() {
             <span class="fw-bold">${cat}</span>
             <span class="ms-auto me-2 text-muted small">${fmt(total)}원</span>
           </button>
-          <div class="calc-item border-0 p-2 m-0 bg-transparent" draggable="true" 
+          <div class="calc-item border-0 p-2 m-0 bg-transparent" draggable="true"
                data-type="category" data-label="${cat}" data-val="${total}" title="전체 드래그">
             <i class="bi bi-grip-vertical fs-5 text-muted"></i>
           </div>
@@ -48,13 +54,17 @@ function renderAssetTree() {
       <div id="${catId}" class="accordion-collapse collapse" data-bs-parent="#asset-tree">
         <div class="accordion-body p-0 bg-light">
           <div class="list-group list-group-flush">
-            ${items.map(item => `
-              <div class="list-group-item bg-transparent d-flex justify-content-between align-items-center py-2 ps-4 calc-item" 
-                   draggable="true" data-type="item" data-label="${item.name}" data-val="${item.val}">
-                <span class="small">${item.name}</span>
-                <span class="small fw-semibold text-muted">${fmt(item.val)}원</span>
-              </div>
-            `).join('')}
+            ${items.map(item => {
+              const dispVal = getVal(item);
+              const depositNote = isRE && item.deposit > 0
+                ? ` <span class="text-warning" style="font-size:10px">(보증금 ${fmt(item.deposit)}원 제외)</span>` : '';
+              return `
+              <div class="list-group-item bg-transparent d-flex justify-content-between align-items-center py-2 ps-4 calc-item"
+                   draggable="true" data-type="item" data-label="${item.name}" data-val="${dispVal}">
+                <span class="small">${item.name}${depositNote}</span>
+                <span class="small fw-semibold text-muted">${fmt(dispVal)}원</span>
+              </div>`;
+            }).join('')}
           </div>
         </div>
       </div>
