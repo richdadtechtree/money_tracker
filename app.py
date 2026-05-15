@@ -996,8 +996,8 @@ def api_stocks():
         SELECT s.id, s.name, s.ticker, s.current_price, s.dividend, s.memo, s.category,
         COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
         COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
-        COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity + t.fee ELSE 0 END), 0) AS total_buy_amount,
-        COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.price * t.quantity - t.fee ELSE 0 END), 0) AS total_sell_amount
+        COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amount,
+        COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.price * t.quantity ELSE 0 END), 0) AS total_sell_amount
         FROM stocks s
         LEFT JOIN stock_tx t ON t.stock_id = s.id
         GROUP BY s.id
@@ -1155,8 +1155,8 @@ def api_etf():
         SELECT e.id, e.name, e.ticker, e.current_price, e.etf_type, e.memo,
           COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
           COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
-          COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity + t.fee ELSE 0 END), 0) AS total_buy_amount,
-          COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.price * t.quantity - t.fee ELSE 0 END), 0) AS total_sell_amount
+          COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amount,
+          COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.price * t.quantity ELSE 0 END), 0) AS total_sell_amount
         FROM etf e
         LEFT JOIN etf_tx t ON t.etf_id = e.id
         GROUP BY e.id
@@ -1461,6 +1461,7 @@ def _fetch_yf_direct_price(ticker: str) -> float | None:
 def _fetch_stock_price(ticker: str) -> float | None:
     """pykrx (국내) / yfinance (해외) 우선 시도 후 외부 HTTP API 순차 시도"""
     if _is_krx_ticker(ticker):
+        # 1순위: pykrx
         if HAS_PYKRX:
             try:
                 import datetime
@@ -1471,17 +1472,58 @@ def _fetch_stock_price(ticker: str) -> float | None:
                     return float(df['종가'].iloc[-1])
             except Exception as e:
                 print(f'[price] pykrx error {ticker}: {e}', file=sys.stderr)
-        
+
+        # 2순위: 네이버 모바일 주식 API (HTML 스크래핑보다 안정적)
         try:
             res = http_req.get(
-                f"https://finance.naver.com/item/main.naver?code={ticker}",
-                headers={'User-Agent': 'Mozilla/5.0'}, timeout=5
+                f"https://m.stock.naver.com/api/stock/{ticker}/basic",
+                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://m.stock.naver.com/'},
+                timeout=5
             )
-            m = re.search(r'<em class="no_today">.*?<span class="blind">([\d,]+)</span>', res.text, re.DOTALL)
-            if m:
-                return float(m.group(1).replace(',', ''))
+            if res.ok:
+                data = res.json()
+                price = data.get('closePrice') or data.get('currentPrice')
+                if price:
+                    return float(str(price).replace(',', ''))
         except Exception as e:
-            print(f'[price] naver finance error {ticker}: {e}', file=sys.stderr)
+            print(f'[price] naver mobile API error {ticker}: {e}', file=sys.stderr)
+
+        # 3순위: 네이버 금융 시세 API
+        try:
+            res = http_req.get(
+                f"https://polling.finance.naver.com/api/realtime/domestic/stock/{ticker}",
+                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/'},
+                timeout=5
+            )
+            if res.ok:
+                data = res.json()
+                price = (data.get('datas') or [{}])[0].get('closePrice') or \
+                        (data.get('datas') or [{}])[0].get('currentPrice')
+                if price:
+                    return float(str(price).replace(',', ''))
+        except Exception as e:
+            print(f'[price] naver polling API error {ticker}: {e}', file=sys.stderr)
+
+        # 4순위: Yahoo Finance KS/KQ 심볼
+        try:
+            for suffix in ['.KS', '.KQ']:
+                sym = ticker + suffix
+                res = http_req.get(
+                    f'https://query2.finance.yahoo.com/v8/finance/chart/{sym}',
+                    params={'interval': '1d', 'range': '5d'},
+                    headers={'User-Agent': 'Mozilla/5.0'},
+                    timeout=5
+                )
+                if res.ok:
+                    result = res.json().get('chart', {}).get('result', [])
+                    if result:
+                        closes = result[0].get('indicators', {}).get('quote', [{}])[0].get('close', [])
+                        closes = [c for c in closes if c is not None]
+                        if closes:
+                            return float(closes[-1])
+        except Exception as e:
+            print(f'[price] yahoo KS/KQ error {ticker}: {e}', file=sys.stderr)
+
     else:
         if HAS_YFINANCE:
             try:
@@ -1780,7 +1822,7 @@ def get_stocks_total_and_cost(db, ex_rate):
     SELECT s.ticker, s.current_price,
     COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
     COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
-    COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity + t.fee ELSE 0 END), 0) AS total_buy_amt
+    COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
     FROM stocks s
     LEFT JOIN stock_tx t ON t.stock_id = s.id
     GROUP BY s.id
@@ -1808,7 +1850,7 @@ def get_etf_total_and_cost(db, ex_rate):
     SELECT e.ticker, e.current_price,
     COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
     COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
-    COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity + t.fee ELSE 0 END), 0) AS total_buy_amt
+    COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
     FROM etf e
     LEFT JOIN etf_tx t ON t.etf_id = e.id
     GROUP BY e.id
@@ -2507,7 +2549,7 @@ def api_investment_monthly():
     cur.execute("""
         WITH avg_costs AS (
             SELECT stock_id,
-                SUM(CASE WHEN tx_type='buy' THEN price*quantity+fee ELSE 0 END) /
+                SUM(CASE WHEN tx_type='buy' THEN price*quantity ELSE 0 END) /
                 NULLIF(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE 0 END), 0) AS avg_cost
             FROM stock_tx GROUP BY stock_id
         )
@@ -2526,7 +2568,7 @@ def api_investment_monthly():
     cur.execute("""
         WITH avg_costs AS (
             SELECT etf_id,
-                SUM(CASE WHEN tx_type='buy' THEN price*quantity+fee ELSE 0 END) /
+                SUM(CASE WHEN tx_type='buy' THEN price*quantity ELSE 0 END) /
                 NULLIF(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE 0 END), 0) AS avg_cost
             FROM etf_tx GROUP BY etf_id
         )
