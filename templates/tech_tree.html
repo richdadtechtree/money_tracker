@@ -571,8 +571,15 @@ function redrawChart() {
   const snapOnly  = document.getElementById('srcSnap').checked;
   const isPercent = document.getElementById('modePercent').checked;
 
-  // 스냅샷만 모드: 스냅샷 없는 달은 null (차트에서 빈칸으로 표시)
-  const view = rawHistoryData.map(h => snapOnly && !h.is_snapshot ? null : h);
+  // 스냅샷만 모드: 스냅샷 없는 달은 직전 스냅샷 값으로 채움
+  const view = rawHistoryData.map((h, i) => {
+    if (!snapOnly || h.is_snapshot) return h;
+    // 직전 유효 스냅샷 탐색
+    for (let j = i - 1; j >= 0; j--) {
+      if (rawHistoryData[j].is_snapshot) return { ...rawHistoryData[j], month: h.month, is_snapshot: false };
+    }
+    return null;
+  });
   const labels = rawHistoryData.map(h => h.month);
 
   // 전달 대비 증감률 계산 (null인 달은 null 유지)
