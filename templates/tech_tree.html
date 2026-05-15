@@ -70,8 +70,9 @@
 <div class="row g-4 mb-4">
   <div class="col-lg-9 d-none d-lg-block">
     <div class="card border-0 shadow-sm h-100">
-      <div class="card-body p-4" style="overflow-x: auto; overflow-y: hidden;">
-        <div class="flow-container position-relative" style="height: 550px; min-width: 810px; background: #fafbfc; border-radius: 20px; border: 1px solid #edf2f7;">
+      <div class="card-body p-4" style="overflow: hidden;">
+        <div class="flow-wrapper">
+        <div class="flow-container position-relative" style="width: 810px; height: 550px; background: #fafbfc; border-radius: 20px; border: 1px solid #edf2f7;">
           <!-- [1] 근로소득 노드 -->
           <div class="node labor-node shadow clickable-node" style="top: 20%; left: 3%;" onclick="openDetailModal('labor', '근로소득 상세')">
             <div class="node-header bg-primary text-white">근로소득 (Active) <i class="bi bi-search float-end small"></i></div>
@@ -111,7 +112,7 @@
             </div>
           </div>
           <!-- 연결선 (SVG) — 좌표는 JS redrawFlowSVG()가 동적으로 계산 -->
-          <svg id="flowSvg" class="position-absolute top-0 left-0 w-100 h-100" style="z-index: 0; pointer-events: none;">
+          <svg id="flowSvg" class="position-absolute top-0 start-0 w-100 h-100" style="z-index: 0; pointer-events: none;">
             <defs>
               <linearGradient id="gradLabor" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#0d6efd;stop-opacity:0.2" /><stop offset="100%" style="stop-color:#0d6efd;stop-opacity:0.8" /></linearGradient>
               <linearGradient id="gradPassive" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#198754;stop-opacity:0.2" /><stop offset="100%" style="stop-color:#198754;stop-opacity:0.8" /></linearGradient>
@@ -123,6 +124,7 @@
             <path id="svgPathTank"    stroke="#0dcaf0"            stroke-width="20" fill="none" class="flow-path-anim" />
           </svg>
         </div>
+        </div><!-- /.flow-wrapper -->
       </div>
     </div>
   </div>
@@ -274,6 +276,8 @@
 </div>
 
 <style>
+.flow-wrapper { width: 100%; overflow: hidden; position: relative; }
+.flow-container { transform-origin: top left; }
 .node { position: absolute; width: 200px; background: white; border-radius: 16px; overflow: hidden; z-index: 10; border: 1px solid #e2e8f0; }
 .node-header { padding: 10px 15px; font-weight: bold; font-size: 0.85rem; }
 .node-body { padding: 12px; }
@@ -811,6 +815,19 @@ function showMiniTankDetails(data) {
   });
 }
 
+// ── 플로우 컨테이너 비율 스케일 ──────────────────────────────────
+const FLOW_DESIGN_W = 810;
+const FLOW_DESIGN_H = 550;
+
+function scaleFlowContainer() {
+  const wrapper   = document.querySelector('.flow-wrapper');
+  const container = document.querySelector('.flow-container');
+  if (!wrapper || !container) return;
+  const scale = Math.min(1, wrapper.offsetWidth / FLOW_DESIGN_W);
+  container.style.transform = `scale(${scale})`;
+  wrapper.style.height = (FLOW_DESIGN_H * scale) + 'px';
+}
+
 // ── SVG 연결선 동적 계산 ──────────────────────────────────────────
 function redrawFlowSVG() {
   const container = document.querySelector('.flow-container');
@@ -863,18 +880,18 @@ function redrawFlowSVG() {
 let _svgResizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(_svgResizeTimer);
-  _svgResizeTimer = setTimeout(redrawFlowSVG, 80);
+  _svgResizeTimer = setTimeout(() => { scaleFlowContainer(); redrawFlowSVG(); }, 80);
 });
 
 document.addEventListener('DOMContentLoaded', () => {
   detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
-  requestAnimationFrame(redrawFlowSVG);
+  requestAnimationFrame(() => { scaleFlowContainer(); redrawFlowSVG(); });
   // 세 가지 자산 데이터 API를 동시에 비동기 병렬 호출하여 로딩 성능 극대화
   Promise.all([
     loadTechTree(),
     loadHistoryChart(),
     loadYearlyStats()
-  ]).then(() => redrawFlowSVG())
+  ]).then(() => { scaleFlowContainer(); redrawFlowSVG(); })
     .catch(err => console.error("테크트리 데이터 로딩 에러:", err));
 });
 </script>
