@@ -69,6 +69,40 @@
     </div>
   </div>
 </div>
+
+<!-- 추가 자산 입력 모달 -->
+<div class="modal fade" id="customAssetModal" tabindex="-1" aria-labelledby="customAssetModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h6 class="modal-title fw-bold" id="customAssetModalLabel">
+          <i class="bi bi-plus-circle-fill text-success me-2"></i>추가 자산 입력
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">자산 이름</label>
+          <input type="text" id="custom-asset-name" class="form-control form-control-sm" placeholder="예: 현금, 기타자산" value="추가 자산">
+        </div>
+        <div class="mb-1">
+          <label class="form-label small fw-semibold">금액</label>
+          <div class="input-group input-group-sm">
+            <input type="number" id="custom-asset-amount" class="form-control" placeholder="금액 입력" min="0" step="1">
+            <span class="input-group-text">원</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-sm btn-success" onclick="confirmCustomAsset()">
+          <i class="bi bi-plus me-1"></i>추가
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block styles %}
@@ -112,39 +146,6 @@
 }
 </style>
 {% endblock %}
-
-<!-- 추가 자산 입력 모달 -->
-<div class="modal fade" id="customAssetModal" tabindex="-1" aria-labelledby="customAssetModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-sm modal-dialog-centered">
-    <div class="modal-content border-0 shadow">
-      <div class="modal-header border-0 pb-0">
-        <h6 class="modal-title fw-bold" id="customAssetModalLabel">
-          <i class="bi bi-plus-circle-fill text-success me-2"></i>추가 자산 입력
-        </h6>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="mb-3">
-          <label class="form-label small fw-semibold">자산 이름</label>
-          <input type="text" id="custom-asset-name" class="form-control form-control-sm" placeholder="예: 현금, 기타자산" value="추가 자산">
-        </div>
-        <div class="mb-1">
-          <label class="form-label small fw-semibold">금액</label>
-          <div class="input-group input-group-sm">
-            <input type="number" id="custom-asset-amount" class="form-control" placeholder="금액 입력" min="0" step="1">
-            <span class="input-group-text">원</span>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer border-0 pt-0">
-        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">취소</button>
-        <button type="button" class="btn btn-sm btn-success" onclick="confirmCustomAsset()">
-          <i class="bi bi-plus me-1"></i>추가
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
 
 {% block scripts %}
 <script src="/static/js/analysis_calculator.js"></script>
