@@ -2,6 +2,41 @@
  * 가용자산 계산기 전용 스크립트
  */
 
+function toKoreanNumber(num) {
+  const n = Math.floor(num);
+  if (n === 0) return '영원';
+
+  const digits  = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
+  const subUnit = ['', '십', '백', '천'];
+  const bigUnit = ['', '만', '억', '조'];
+
+  function group4(g) {
+    let s = '';
+    for (let i = 3; i >= 0; i--) {
+      const d = Math.floor(g / Math.pow(10, i)) % 10;
+      if (d) s += digits[d] + subUnit[i];
+    }
+    return s;
+  }
+
+  let result = '';
+  let remaining = n;
+  for (let i = 3; i >= 0; i--) {
+    const unit = Math.pow(10, i * 4);
+    const g = Math.floor(remaining / unit);
+    remaining %= unit;
+    if (g) result += group4(g) + bigUnit[i];
+  }
+  return result + '원';
+}
+
+function updateKoreanAmount(value) {
+  const display = document.getElementById('korean-amount-display');
+  if (!display) return;
+  const num = parseFloat(value);
+  display.textContent = (value && !isNaN(num) && num > 0) ? toKoreanNumber(num) : '';
+}
+
 let _calcItems = [];
 let _allAssets = null;
 
@@ -129,6 +164,7 @@ function addCalcItem(data) {
     // 모달로 이름과 금액 입력받기
     document.getElementById('custom-asset-name').value = '추가 자산';
     document.getElementById('custom-asset-amount').value = '';
+    document.getElementById('korean-amount-display').textContent = '';
     const modal = new bootstrap.Modal(document.getElementById('customAssetModal'));
     modal.show();
     document.getElementById('customAssetModal').addEventListener('shown.bs.modal', () => {
