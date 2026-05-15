@@ -3232,6 +3232,7 @@ def _api_tech_tree_yearly_stats_inner():
 # ── API: 자산별 히스토리 (최근 12개월) ──────────────────────────
 @app.route('/api/asset-history')
 def api_asset_history():
+  try:
     db = get_db()
     today = date.today()
     history = []
@@ -3395,6 +3396,10 @@ def api_asset_history():
 
     db.close()
     return jsonify(history[::-1])
+  except Exception as e:
+    import traceback
+    print("api_asset_history error:", traceback.format_exc())
+    return jsonify({'error': str(e)}), 500
 
 # ── API: 자산별 상세 내역 조회 ──────────────────────────
 @app.route('/api/tech-tree-detail')

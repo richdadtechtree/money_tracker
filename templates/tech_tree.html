@@ -225,7 +225,16 @@
         </div>
       </div>
       <div class="card-body p-4">
-        <div style="height: 400px;">
+        <div id="chartLoadingState" class="text-center py-5 text-muted">
+          <div class="spinner-border spinner-border-sm me-2"></div>데이터 불러오는 중...
+        </div>
+        <div id="chartErrorState" class="text-center py-5 text-danger d-none">
+          <i class="bi bi-exclamation-triangle me-2"></i>차트 데이터를 불러오지 못했습니다.
+        </div>
+        <div id="chartEmptyState" class="text-center py-5 text-muted d-none">
+          <i class="bi bi-bar-chart me-2"></i>아직 자산 히스토리 데이터가 없습니다.
+        </div>
+        <div id="chartArea" style="height: 400px; display:none;">
           <canvas id="assetHistoryChart"></canvas>
         </div>
       </div>
@@ -531,11 +540,20 @@ async function loadTechTree() {
   }
 }
 
+function setChartState(state) {
+  document.getElementById('chartLoadingState').classList.toggle('d-none', state !== 'loading');
+  document.getElementById('chartErrorState').classList.toggle('d-none', state !== 'error');
+  document.getElementById('chartEmptyState').classList.toggle('d-none', state !== 'empty');
+  document.getElementById('chartArea').style.display = (state === 'ready') ? 'block' : 'none';
+}
+
 async function loadHistoryChart() {
   if (!rawHistoryData) {
+    setChartState('loading');
     rawHistoryData = await fetchJSON('/api/asset-history');
   }
-  if (!rawHistoryData || rawHistoryData.length === 0) return;
+  if (!rawHistoryData) { setChartState('error'); return; }
+  if (rawHistoryData.length === 0) { setChartState('empty'); return; }
 
   const isPercent = document.getElementById('modePercent').checked;
   const labels = rawHistoryData.map(h => h.month);
@@ -564,9 +582,10 @@ async function loadHistoryChart() {
     { label: '연금', data: rawHistoryData.map(h => getVal(h, 'pension')), borderColor: '#6741d9', backgroundColor: '#6741d911', fill: true, tension: 0.3, pointRadius: 2 }
   ];
 
+  setChartState('ready');
   const ctx = document.getElementById('assetHistoryChart').getContext('2d');
   if (historyChart) historyChart.destroy();
-  
+
   historyChart = new Chart(ctx, {
     type: 'line',
     data: { labels, datasets },
