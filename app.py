@@ -3344,7 +3344,7 @@ def api_asset_history():
         WHERE buy_date <= CURRENT_DATE
         GROUP BY ym
     """)
-    crypto_monthly_buy = {r[0]: r[1] for r in cur.fetchall()}
+    crypto_monthly_buy = {r[0]: float(r[1]) for r in cur.fetchall()}
     cur.close()
 
     total_crypto_buy = sum(crypto_monthly_buy.values())

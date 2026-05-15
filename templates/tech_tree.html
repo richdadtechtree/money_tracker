@@ -230,7 +230,6 @@
         </div>
         <div id="chartErrorState" class="text-center py-5 text-danger d-none">
           <i class="bi bi-exclamation-triangle me-2"></i>차트 데이터를 불러오지 못했습니다.
-          <div id="chartErrorDetail" class="mt-2 small text-muted font-monospace text-start px-4" style="word-break:break-all;white-space:pre-wrap;"></div>
         </div>
         <div id="chartEmptyState" class="text-center py-5 text-muted d-none">
           <i class="bi bi-bar-chart me-2"></i>아직 자산 히스토리 데이터가 없습니다.
@@ -551,20 +550,7 @@ function setChartState(state) {
 async function loadHistoryChart() {
   if (!rawHistoryData) {
     setChartState('loading');
-    try {
-      const res = await fetch('/api/asset-history');
-      if (!res.ok) {
-        const errText = await res.text();
-        document.getElementById('chartErrorDetail').textContent = errText;
-        setChartState('error');
-        return;
-      }
-      rawHistoryData = await res.json();
-    } catch (e) {
-      document.getElementById('chartErrorDetail').textContent = String(e);
-      setChartState('error');
-      return;
-    }
+    rawHistoryData = await fetchJSON('/api/asset-history');
   }
   if (!rawHistoryData) { setChartState('error'); return; }
   if (rawHistoryData.length === 0) { setChartState('empty'); return; }
