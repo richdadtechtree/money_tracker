@@ -2265,6 +2265,85 @@ def api_sold_real_estate_detail(sid):
     return jsonify({'ok': True})
 
 
+# ── API: 부동산 거래 단계 (계약금/중도금/잔금) ────────────────────
+@app.route('/api/real-estate-payments', methods=['GET', 'POST'])
+def api_re_payments():
+    db = get_db()
+    if request.method == 'GET':
+        rid = request.args.get('real_estate_id')
+        cur = db.cursor()
+        if rid:
+            cur.execute(
+                "SELECT * FROM real_estate_payments WHERE real_estate_id=%s ORDER BY scheduled_date, id",
+                (rid,)
+            )
+        else:
+            cur.execute(
+                "SELECT p.*, r.name AS re_name FROM real_estate_payments p "
+                "LEFT JOIN real_estate r ON p.real_estate_id=r.id "
+                "ORDER BY p.scheduled_date, p.id"
+            )
+        rows = cur.fetchall()
+        cur.close(); db.close()
+        return jsonify(rows_to_list(rows))
+
+    d = request.json
+    cur = db.cursor()
+    cur.execute(
+        "INSERT INTO real_estate_payments (real_estate_id, direction, payment_type, scheduled_date, actual_date, amount, memo) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (d.get('real_estate_id'), d.get('direction'), d.get('payment_type'),
+         d.get('scheduled_date') or None, d.get('actual_date') or None,
+         d.get('amount', 0), d.get('memo'))
+    )
+    new_id = cur.fetchone()[0]
+    cur.close()
+    db.commit(); db.close()
+    return jsonify({'id': new_id}), 201
+
+
+@app.route('/api/real-estate-payments/<int:pid>', methods=['PUT', 'DELETE'])
+def api_re_payment_detail(pid):
+    db = get_db()
+    if request.method == 'DELETE':
+        cur = db.cursor()
+        cur.execute("DELETE FROM real_estate_payments WHERE id=%s", (pid,))
+        cur.close()
+        db.commit(); db.close()
+        return jsonify({'ok': True})
+
+    d = request.json
+    cur = db.cursor()
+    cur.execute(
+        "UPDATE real_estate_payments SET direction=%s, payment_type=%s, scheduled_date=%s, "
+        "actual_date=%s, amount=%s, memo=%s WHERE id=%s",
+        (d.get('direction'), d.get('payment_type'),
+         d.get('scheduled_date') or None, d.get('actual_date') or None,
+         d.get('amount', 0), d.get('memo'), pid)
+    )
+    cur.close()
+    db.commit(); db.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/real-estate-payments/active')
+def api_re_payments_active():
+    """진행 중인 거래 단계 요약 (대시보드용)"""
+    db = get_db()
+    cur = db.cursor()
+    # 아직 완료되지 않은 거래 단계가 있는 부동산 목록
+    cur.execute("""
+        SELECT p.*, r.name AS re_name, r.current_price
+        FROM real_estate_payments p
+        LEFT JOIN real_estate r ON p.real_estate_id = r.id
+        WHERE p.real_estate_id IS NOT NULL
+        ORDER BY p.real_estate_id, p.scheduled_date, p.id
+    """)
+    rows = cur.fetchall()
+    cur.close(); db.close()
+    return jsonify(rows_to_list(rows))
+
+
 # ── API: 대출 ────────────────────────────────────────────────
 @app.route('/api/loans', methods=['GET', 'POST'])
 def api_loans():
@@ -2718,6 +2797,26 @@ def _api_dashboard_inner():
     cash_val = float(cur.fetchone()['val'] or 0)
     cur.close()
 
+    # 부동산 거래 단계 조정 (매도: 받은 금액은 현금으로, 부동산에서 차감 / 매수: 지급한 금액은 부동산으로, 현금에서 차감)
+    cur = db.cursor()
+    cur.execute("""
+        SELECT direction, COALESCE(SUM(amount),0) as total
+        FROM real_estate_payments
+        WHERE actual_date IS NOT NULL AND actual_date <= CURRENT_DATE
+        GROUP BY direction
+    """)
+    payment_rows = cur.fetchall()
+    cur.close()
+    sell_received = 0.0
+    buy_paid = 0.0
+    for row in payment_rows:
+        if row['direction'] == 'sell':
+            sell_received = float(row['total'])
+        elif row['direction'] == 'buy':
+            buy_paid = float(row['total'])
+    re_val += buy_paid - sell_received
+    cash_val += sell_received - buy_paid
+
     # 대출 잔액
     cur = db.cursor()
     cur.execute(
@@ -2808,6 +2907,11 @@ def _api_dashboard_inner():
             'stocks':  {'cost': stocks_cost, 'value': stocks_val},
             'etf':     {'cost': etf_cost,    'value': etf_val},
             'crypto':  {'cost': crypto_cost, 'value': crypto_val},
+        },
+        'payment_adjustments': {
+            'sell_received': sell_received,
+            'buy_paid': buy_paid,
+            'has_active': sell_received > 0 or buy_paid > 0,
         },
     })
 

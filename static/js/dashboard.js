@@ -95,6 +95,9 @@ async function loadDashboard(year, month) {
   document.getElementById('kpi-expense').textContent  = fmt(d.expense_total) + '원';
   document.getElementById('kpi-loans').textContent    = fmt(d.loan_total) + '원';
 
+  // 부동산 거래 진행 중 배너
+  renderPaymentAdjBanner(d.payment_adjustments);
+
   // 차트 재생성
   renderAssetPie(d.asset_breakdown);
   renderIncomeExpenseBar(d.income_by_cat, d.expense_by_cat);
@@ -107,6 +110,30 @@ async function loadDashboard(year, month) {
   }
   renderLoansChart(d.loans);
   renderGoalsProgress(d.goals);
+}
+
+function renderPaymentAdjBanner(adj) {
+  const el = document.getElementById('dashPaymentBanner');
+  if (!el) return;
+  if (!adj || (!adj.sell_received && !adj.buy_paid)) {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = '';
+  let parts = [];
+  if (adj.sell_received > 0)
+    parts.push(`매도 수령 <strong>${fmt(adj.sell_received)}원</strong> → 부동산 자산에서 차감, 현금 반영`);
+  if (adj.buy_paid > 0)
+    parts.push(`매수 지급 <strong>${fmt(adj.buy_paid)}원</strong> → 현금 차감, 부동산 자산 반영`);
+  el.innerHTML = `
+    <div class="alert alert-warning border-0 py-2 mb-0 d-flex align-items-start gap-2" style="font-size:0.85rem">
+      <i class="bi bi-arrow-left-right flex-shrink-0 mt-1"></i>
+      <div>
+        <span class="fw-semibold">부동산 거래 진행중 자산 조정</span><br>
+        ${parts.join('<br>')}
+        <a href="/real-estate" class="ms-2 small">거래 단계 보기 →</a>
+      </div>
+    </div>`;
 }
 
 // 페이지 로드 시 배너 바로 표시

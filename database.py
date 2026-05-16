@@ -326,6 +326,18 @@ def init_db():
             fee             INTEGER DEFAULT 0,
             memo            TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS real_estate_payments (
+            id              SERIAL PRIMARY KEY,
+            real_estate_id  INTEGER REFERENCES real_estate(id) ON DELETE CASCADE,
+            direction       TEXT NOT NULL,   -- 'buy' or 'sell'
+            payment_type    TEXT NOT NULL,   -- '계약금', '중도금', '잔금', '기타'
+            scheduled_date  TEXT,
+            actual_date     TEXT,            -- NULL = not yet paid/received
+            amount          INTEGER DEFAULT 0,
+            memo            TEXT,
+            created_at      TEXT DEFAULT CURRENT_TIMESTAMP
+        );
     """)
 
     conn.commit()
