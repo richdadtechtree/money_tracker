@@ -2698,7 +2698,7 @@ def api_dashboard():
      return _api_dashboard_inner()
     except Exception as e:
         import traceback
-        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 200
 
 def _api_dashboard_inner():
     db = get_db()
