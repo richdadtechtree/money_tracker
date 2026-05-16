@@ -39,6 +39,7 @@ function updateKoreanAmount(value) {
 
 let _calcItems = [];
 let _allAssets = null;
+let _extraItems = []; // 추가 투입 자산
 
 async function loadAssets() {
   const data = await fetchJSON('/api/assets-detailed');
@@ -265,12 +266,73 @@ function renderCalcList() {
   });
 
   document.getElementById('calc-total').textContent = fmt(total) + '원';
+  updateGrandTotal();
 }
 
 function resetCalculator() {
   if (!confirm('계산기를 초기화하시겠습니까?')) return;
   _calcItems = [];
+  _extraItems = [];
   renderCalcList();
+  renderExtraList();
+}
+
+// ── 추가 투입 자산 ─────────────────────────────────────────────
+function addExtraItem() {
+  _extraItems.push({ label: '', val: 0 });
+  renderExtraList();
+  // 새로 생긴 입력칸으로 포커스
+  const inputs = document.querySelectorAll('.extra-label-input');
+  if (inputs.length) inputs[inputs.length - 1].focus();
+}
+
+function removeExtraItem(idx) {
+  _extraItems.splice(idx, 1);
+  renderExtraList();
+}
+
+function updateExtraItem(idx, field, value) {
+  if (field === 'val') {
+    const raw = value.replace(/,/g, '').replace(/[^0-9]/g, '');
+    _extraItems[idx].val = parseInt(raw || '0', 10);
+  } else {
+    _extraItems[idx][field] = value;
+  }
+  updateGrandTotal();
+}
+
+function renderExtraList() {
+  const el = document.getElementById('extra-items-list');
+  if (!el) return;
+
+  el.innerHTML = _extraItems.map((item, idx) => `
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <input type="text" class="form-control form-control-sm extra-label-input"
+             placeholder="항목명 (예: 부모님 지원)" value="${item.label}"
+             oninput="updateExtraItem(${idx}, 'label', this.value)"
+             style="flex:1.2; font-size:13px">
+      <input type="text" class="form-control form-control-sm text-end"
+             placeholder="금액" value="${item.val ? item.val.toLocaleString('ko-KR') : ''}"
+             oninput="this.value=this.value.replace(/[^0-9,]/g,'').replace(/,/g,'').replace(/\\B(?=(\\d{3})+(?!\\d))/g,','); updateExtraItem(${idx}, 'val', this.value)"
+             style="flex:1; font-size:13px">
+      <button class="btn btn-sm btn-outline-danger py-0 px-1 border-0" onclick="removeExtraItem(${idx})">
+        <i class="bi bi-x-lg" style="font-size:11px"></i>
+      </button>
+    </div>
+  `).join('');
+
+  updateGrandTotal();
+}
+
+function updateGrandTotal() {
+  const extraTotal = _extraItems.reduce((s, i) => s + (i.val || 0), 0);
+  const calcTotal  = _calcItems.reduce((s, i) => s + parseFloat(i.val || 0), 0);
+  const grand      = calcTotal + extraTotal;
+
+  const etEl = document.getElementById('extra-total');
+  const gtEl = document.getElementById('calc-grand-total');
+  if (etEl) etEl.textContent = fmt(extraTotal) + '원';
+  if (gtEl) gtEl.textContent = fmt(grand) + '원';
 }
 
 // 초기화
