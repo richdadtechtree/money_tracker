@@ -2816,7 +2816,7 @@ def _api_dashboard_inner():
                 buy_paid = float(row['total'])
         cur.close()
     except Exception:
-        pass
+        db.rollback()  # 테이블 없을 때 트랜잭션 중단 상태 초기화
     re_val += buy_paid - sell_received
 
     # 대출 잔액
