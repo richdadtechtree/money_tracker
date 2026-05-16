@@ -363,7 +363,6 @@ const INCOME_TYPES   = new Set(['임대수익']);
 
 let currentReId   = null;
 let currentReName = null;
-const _newlyAddedIds = new Set(); // 이번 세션에서 새로 추가한 부동산 ID
 
 // ── 요약 & 배너 ──────────────────────────────────────────
 async function loadSummary() {
@@ -457,11 +456,9 @@ const reGrid = new GridTable({
         onclick="event.stopPropagation();selectRE(${r.id},'${(r.name||'').replace(/'/g,"\\'")}')">
         <i class="bi bi-layout-sidebar-reverse"></i></button>` },
     { key: '_buy_sched', type: 'computed',
-      compute: r => _newlyAddedIds.has(r.id)
-        ? `<button class="btn btn-sm btn-outline-primary py-0"
-            onclick="event.stopPropagation();openBuyModal(${r.id},'${(r.name||'').replace(/'/g,"\\'")}')">
-            <i class="bi bi-calendar-check me-1"></i>입력</button>`
-        : '-' },
+      compute: r => `<button class="btn btn-sm btn-outline-primary py-0"
+          onclick="event.stopPropagation();openBuyModal(${r.id},'${(r.name||'').replace(/'/g,"\\'")}')">
+          <i class="bi bi-calendar-check me-1"></i>입력</button>` },
     { key: '_sell', type: 'computed',
       compute: r => `<button class="btn btn-sm btn-outline-danger py-0"
         onclick="event.stopPropagation();openSellModal(${r.id},'${(r.name||'').replace(/'/g,"\\'")}',${r.purchase_price},${r.real_inv})">
@@ -471,8 +468,7 @@ const reGrid = new GridTable({
   onSave:   (result, method, data) => {
     loadSummary();
     if (method === 'POST' && result?.id) {
-      _newlyAddedIds.add(result.id);
-      openBuyModal(result.id, data?.name || '');
+      setTimeout(() => openBuyModal(result.id, data?.name || ''), 200);
     }
   },
   onDelete: () => loadSummary(),
@@ -755,7 +751,7 @@ async function openBuyModal(id, name) {
        { type: '잔금',   scheduled: '', actual: '', amount: 0 }];
   renderBuyRows();
 
-  new bootstrap.Modal(document.getElementById('buyModal')).show();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('buyModal')).show();
 }
 
 function renderBuyRows() {
