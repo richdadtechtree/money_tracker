@@ -1990,14 +1990,15 @@ def api_real_estate():
     data = request.json
     cur = db.cursor()
     cur.execute(
-    "INSERT INTO real_estate (name, re_type, purchase_date, purchase_price, current_price, memo) VALUES (%s,%s,%s,%s,%s,%s)",
+    "INSERT INTO real_estate (name, re_type, purchase_date, purchase_price, current_price, memo) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
     (data.get('name'), data.get('re_type'), data.get('purchase_date'),
     data.get('purchase_price', 0), data.get('current_price', 0), data.get('memo'))
     )
+    new_id = cur.fetchone()[0]
     cur.close()
     db.commit()
     db.close()
-    return jsonify({'ok': True}), 201
+    return jsonify({'ok': True, 'id': new_id}), 201
 
 
 @app.route('/api/real-estate/<int:rid>', methods=['PUT', 'DELETE'])
