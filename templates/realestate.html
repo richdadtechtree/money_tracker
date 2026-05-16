@@ -65,7 +65,8 @@
                 <th class="text-end">실투자금</th>
                 <th class="text-end">실수익률</th>
                 <th class="text-end">평가손익</th>
-                <th class="text-center">상세</th>
+                <th class="text-center">임차 등록</th>
+                <th class="text-center">매수일정</th>
                 <th class="text-center">매도</th>
                 <th class="text-center">삭제</th>
               </tr>
@@ -444,6 +445,7 @@ const INCOME_TYPES   = new Set(['임대수익']);
 
 let currentReId   = null;
 let currentReName = null;
+const _newlyAddedIds = new Set(); // 이번 세션에서 새로 추가한 부동산 ID
 
 // ── 요약 & 배너 ──────────────────────────────────────────
 async function loadSummary() {
@@ -537,16 +539,24 @@ const reGrid = new GridTable({
         onclick="event.stopPropagation();selectRE(${r.id},'${(r.name||'').replace(/'/g,"\\'")}')">
         <i class="bi bi-layout-sidebar-reverse"></i></button>` },
     { key: '_buy_sched', type: 'computed',
-      compute: r => `<button class="btn btn-sm btn-outline-primary py-0"
-        onclick="event.stopPropagation();openBuyModal(${r.id},'${(r.name||'').replace(/'/g,"\\'")}')">
-        <i class="bi bi-calendar-check"></i></button>` },
+      compute: r => _newlyAddedIds.has(r.id)
+        ? `<button class="btn btn-sm btn-outline-primary py-0"
+            onclick="event.stopPropagation();openBuyModal(${r.id},'${(r.name||'').replace(/'/g,"\\'")}')">
+            <i class="bi bi-calendar-check me-1"></i>입력</button>`
+        : '-' },
     { key: '_sell', type: 'computed',
       compute: r => `<button class="btn btn-sm btn-outline-danger py-0"
         onclick="event.stopPropagation();openSellModal(${r.id},'${(r.name||'').replace(/'/g,"\\'")}',${r.purchase_price},${r.real_inv})">
         <i class="bi bi-cash-coin me-1"></i>매도</button>` },
   ],
   apiUrl: '/api/real-estate',
-  onSave:   (result, method, data) => { loadSummary(); if (method === 'POST' && result?.id) openBuyModal(result.id, data?.name || ''); },
+  onSave:   (result, method, data) => {
+    loadSummary();
+    if (method === 'POST' && result?.id) {
+      _newlyAddedIds.add(result.id);
+      openBuyModal(result.id, data?.name || '');
+    }
+  },
   onDelete: () => loadSummary(),
   onLoad:   () => loadSummary(),
 });
