@@ -122,9 +122,9 @@ function renderPaymentAdjBanner(adj) {
   el.style.display = '';
   let parts = [];
   if (adj.sell_received > 0)
-    parts.push(`매도 수령 <strong>${fmt(adj.sell_received)}원</strong> → 부동산 자산에서 차감, 현금 반영`);
+    parts.push(`매도 수령 <strong>${fmt(adj.sell_received)}원</strong> → 부동산 자산에서 차감 반영`);
   if (adj.buy_paid > 0)
-    parts.push(`매수 지급 <strong>${fmt(adj.buy_paid)}원</strong> → 현금 차감, 부동산 자산 반영`);
+    parts.push(`매수 지급 <strong>${fmt(adj.buy_paid)}원</strong> → 부동산 자산에 추가 반영`);
   el.innerHTML = `
     <div class="alert alert-warning border-0 py-2 mb-0 d-flex align-items-start gap-2" style="font-size:0.85rem">
       <i class="bi bi-arrow-left-right flex-shrink-0 mt-1"></i>

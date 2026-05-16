@@ -2814,8 +2814,7 @@ def _api_dashboard_inner():
             sell_received = float(row['total'])
         elif row['direction'] == 'buy':
             buy_paid = float(row['total'])
-    re_val += buy_paid - sell_received
-    cash_val += sell_received - buy_paid
+    re_val += buy_paid - sell_received  # 현금은 수기 관리, 부동산 가치만 조정
 
     # 대출 잔액
     cur = db.cursor()
