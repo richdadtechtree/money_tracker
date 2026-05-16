@@ -2798,24 +2798,26 @@ def _api_dashboard_inner():
     cash_val = float(cur.fetchone()['val'] or 0)
     cur.close()
 
-    # 부동산 거래 단계 조정 (매도: 받은 금액은 현금으로, 부동산에서 차감 / 매수: 지급한 금액은 부동산으로, 현금에서 차감)
-    cur = db.cursor()
-    cur.execute("""
-        SELECT direction, COALESCE(SUM(amount),0) as total
-        FROM real_estate_payments
-        WHERE actual_date IS NOT NULL AND actual_date <= CURRENT_DATE
-        GROUP BY direction
-    """)
-    payment_rows = cur.fetchall()
-    cur.close()
+    # 부동산 거래 단계 조정
     sell_received = 0.0
     buy_paid = 0.0
-    for row in payment_rows:
-        if row['direction'] == 'sell':
-            sell_received = float(row['total'])
-        elif row['direction'] == 'buy':
-            buy_paid = float(row['total'])
-    re_val += buy_paid - sell_received  # 현금은 수기 관리, 부동산 가치만 조정
+    try:
+        cur = db.cursor()
+        cur.execute("""
+            SELECT direction, COALESCE(SUM(amount),0) as total
+            FROM real_estate_payments
+            WHERE actual_date IS NOT NULL AND actual_date <= CURRENT_DATE
+            GROUP BY direction
+        """)
+        for row in cur.fetchall():
+            if row['direction'] == 'sell':
+                sell_received = float(row['total'])
+            elif row['direction'] == 'buy':
+                buy_paid = float(row['total'])
+        cur.close()
+    except Exception:
+        pass
+    re_val += buy_paid - sell_received
 
     # 대출 잔액
     cur = db.cursor()

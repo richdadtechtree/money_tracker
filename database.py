@@ -344,6 +344,17 @@ def init_db():
 
     # 마이그레이션: 기존 DB에 컬럼 추가 / 데이터 이전
     migrations = [
+        """CREATE TABLE IF NOT EXISTS real_estate_payments (
+            id              SERIAL PRIMARY KEY,
+            real_estate_id  INTEGER REFERENCES real_estate(id) ON DELETE CASCADE,
+            direction       TEXT NOT NULL,
+            payment_type    TEXT NOT NULL,
+            scheduled_date  TEXT,
+            actual_date     TEXT,
+            amount          INTEGER DEFAULT 0,
+            memo            TEXT,
+            created_at      TEXT DEFAULT CURRENT_TIMESTAMP
+        )""",
         "ALTER TABLE budget   ADD COLUMN card_id          INTEGER REFERENCES card_info(id)",
         "ALTER TABLE budget   ADD COLUMN recurring_id     INTEGER REFERENCES budget_recurring(id)",
         "ALTER TABLE card_tx  ADD COLUMN budget_id         INTEGER REFERENCES budget(id)",
