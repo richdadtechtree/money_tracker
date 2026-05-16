@@ -89,6 +89,7 @@
           <ul class="nav nav-tabs mb-3">
             <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#dtab-contracts">임대 계약 이력</a></li>
             <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#dtab-costs">비용 / 수익 내역</a></li>
+            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#dtab-payments">거래 단계 <span class="badge bg-warning-subtle text-warning-emphasis ms-1" id="paymentBadge" style="display:none">진행중</span></a></li>
           </ul>
           <div class="tab-content">
 
@@ -134,6 +135,29 @@
               <div class="d-flex justify-content-end mt-2 pe-1">
                 <span class="small text-muted me-2">순합계</span>
                 <span class="fw-bold small" id="costTotal">-</span>
+              </div>
+            </div>
+
+            <!-- 거래 단계 탭 -->
+            <div class="tab-pane fade" id="dtab-payments">
+              <div class="alert alert-info border-0 py-2 mb-3" style="font-size:0.85rem">
+                <i class="bi bi-info-circle me-1"></i>
+                계약금/중도금/잔금 일정을 기록하고 실제 수수 날짜를 입력하세요.
+                <strong>실제 수수일이 입력된 항목</strong>은 대시보드 자산에 자동 반영됩니다.
+                (매도 수령분 → 현금 +, 부동산 −&nbsp;/&nbsp;매수 지급분 → 현금 −, 부동산 +)
+              </div>
+
+              <div class="d-flex gap-2 justify-content-end mb-3">
+                <button class="btn btn-sm btn-outline-danger" onclick="openAddPaymentModal('sell')">
+                  <i class="bi bi-plus-lg me-1"></i>매도 단계 추가
+                </button>
+                <button class="btn btn-sm btn-outline-primary" onclick="openAddPaymentModal('buy')">
+                  <i class="bi bi-plus-lg me-1"></i>매수 단계 추가
+                </button>
+              </div>
+
+              <div id="paymentList">
+                <div class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm"></div></div>
               </div>
             </div>
 
@@ -271,6 +295,64 @@
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
         <button type="button" class="btn btn-danger" onclick="confirmSell()">
           <i class="bi bi-check-lg me-1"></i>매도 확정
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 거래 단계 추가/편집 모달 -->
+<div class="modal fade" id="paymentModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h6 class="modal-title fw-bold" id="paymentModalTitle">거래 단계 추가</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="pm-id">
+        <input type="hidden" id="pm-direction">
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">구분</label>
+          <span class="badge ms-2" id="pm-direction-badge"></span>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">단계 <span class="text-danger">*</span></label>
+          <select class="form-select" id="pm-type">
+            <option value="계약금">계약금</option>
+            <option value="중도금">중도금</option>
+            <option value="잔금">잔금</option>
+            <option value="기타">기타</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">금액 <span class="text-danger">*</span></label>
+          <div class="input-group">
+            <input type="text" inputmode="numeric" class="form-control" id="pm-amount" placeholder="0"
+                   oninput="fmtInput(this)">
+            <span class="input-group-text">원</span>
+          </div>
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-6">
+            <label class="form-label fw-semibold">예정일</label>
+            <input type="date" class="form-control" id="pm-scheduled">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">실제 수수일 <small class="text-muted">(완료시)</small></label>
+            <input type="date" class="form-control" id="pm-actual">
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">메모</label>
+          <input type="text" class="form-control" id="pm-memo" placeholder="선택 입력">
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-sm btn-primary" onclick="savePayment()">
+          <i class="bi bi-check-lg me-1"></i>저장
         </button>
       </div>
     </div>
@@ -595,5 +677,184 @@ async function init() {
   await reGrid.load();
 }
 init();
+
+// ── 거래 단계 (계약금/중도금/잔금) ────────────────────────────
+function fmtInput(el) {
+  const raw = el.value.replace(/[^\d]/g, '');
+  el.value = raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '';
+}
+function parseInputInt(id) {
+  return parseInt((document.getElementById(id).value || '0').replace(/,/g, '')) || 0;
+}
+
+document.querySelector('[href="#dtab-payments"]').addEventListener('shown.bs.tab', () => loadPayments());
+
+async function loadPayments() {
+  if (!currentReId) return;
+  const rows = await fetchJSON(`/api/real-estate-payments?real_estate_id=${currentReId}`);
+  renderPayments(rows || []);
+}
+
+function renderPayments(rows) {
+  const el = document.getElementById('paymentList');
+  const badge = document.getElementById('paymentBadge');
+
+  const pending = rows.filter(r => !r.actual_date);
+  badge.style.display = pending.length ? '' : 'none';
+
+  if (!rows.length) {
+    el.innerHTML = '<div class="text-center text-muted py-4 small">등록된 거래 단계가 없습니다</div>';
+    return;
+  }
+
+  const sells = rows.filter(r => r.direction === 'sell');
+  const buys  = rows.filter(r => r.direction === 'buy');
+
+  let html = '';
+  if (sells.length) {
+    html += renderPaymentGroup('매도', 'danger', sells);
+  }
+  if (buys.length) {
+    html += renderPaymentGroup('매수', 'primary', buys);
+  }
+  el.innerHTML = html;
+}
+
+function renderPaymentGroup(label, color, rows) {
+  const total    = rows.reduce((s, r) => s + r.amount, 0);
+  const received = rows.filter(r => r.actual_date).reduce((s, r) => s + r.amount, 0);
+
+  let html = `
+    <div class="mb-3">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <span class="badge bg-${color}-subtle text-${color}-emphasis fw-semibold">${label}</span>
+        <span class="small text-muted">${fmt(received)}원 / ${fmt(total)}원 완료</span>
+      </div>
+      <div class="list-group list-group-flush rounded border">`;
+
+  for (const r of rows) {
+    const done = !!r.actual_date;
+    const iconCls = done ? 'bi-check-circle-fill text-success' : 'bi-circle text-muted';
+    const dateTxt = r.actual_date
+      ? `<span class="text-success small">${r.actual_date} 수수완료</span>`
+      : (r.scheduled_date ? `<span class="text-muted small">예정: ${r.scheduled_date}</span>` : '<span class="text-muted small">일정 미정</span>');
+
+    html += `
+      <div class="list-group-item py-2 px-3">
+        <div class="d-flex align-items-center justify-content-between gap-2">
+          <div class="d-flex align-items-center gap-2 flex-grow-1">
+            <i class="bi ${iconCls} fs-5"></i>
+            <div>
+              <span class="fw-semibold small">${r.payment_type}</span>
+              ${r.memo ? `<span class="text-muted small ms-1">(${r.memo})</span>` : ''}
+              <div>${dateTxt}</div>
+            </div>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <span class="fw-bold small">${fmt(r.amount)}원</span>
+            ${!done ? `<button class="btn btn-xs btn-outline-success py-0 px-1" style="font-size:11px" onclick="confirmPayment(${r.id})">수수완료</button>` : ''}
+            <button class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:11px" onclick="editPayment(${r.id})"><i class="bi bi-pencil"></i></button>
+            <button class="btn btn-xs btn-outline-danger py-0 px-1" style="font-size:11px" onclick="deletePayment(${r.id})"><i class="bi bi-trash"></i></button>
+          </div>
+        </div>
+      </div>`;
+  }
+  html += `</div></div>`;
+  return html;
+}
+
+let _paymentRows = [];
+
+async function openAddPaymentModal(direction) {
+  document.getElementById('pm-id').value = '';
+  document.getElementById('pm-direction').value = direction;
+  document.getElementById('pm-type').value = '계약금';
+  document.getElementById('pm-amount').value = '';
+  document.getElementById('pm-scheduled').value = '';
+  document.getElementById('pm-actual').value = '';
+  document.getElementById('pm-memo').value = '';
+
+  const isS = direction === 'sell';
+  document.getElementById('paymentModalTitle').textContent = isS ? '매도 단계 추가' : '매수 단계 추가';
+  const badge = document.getElementById('pm-direction-badge');
+  badge.textContent = isS ? '매도' : '매수';
+  badge.className = `badge ms-2 ${isS ? 'bg-danger-subtle text-danger-emphasis' : 'bg-primary-subtle text-primary-emphasis'}`;
+
+  new bootstrap.Modal(document.getElementById('paymentModal')).show();
+}
+
+async function editPayment(pid) {
+  const rows = await fetchJSON(`/api/real-estate-payments?real_estate_id=${currentReId}`);
+  const r = (rows || []).find(x => x.id === pid);
+  if (!r) return;
+
+  document.getElementById('pm-id').value = r.id;
+  document.getElementById('pm-direction').value = r.direction;
+  document.getElementById('pm-type').value = r.payment_type;
+  document.getElementById('pm-amount').value = r.amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  document.getElementById('pm-scheduled').value = r.scheduled_date || '';
+  document.getElementById('pm-actual').value = r.actual_date || '';
+  document.getElementById('pm-memo').value = r.memo || '';
+
+  const isS = r.direction === 'sell';
+  document.getElementById('paymentModalTitle').textContent = '거래 단계 수정';
+  const badge = document.getElementById('pm-direction-badge');
+  badge.textContent = isS ? '매도' : '매수';
+  badge.className = `badge ms-2 ${isS ? 'bg-danger-subtle text-danger-emphasis' : 'bg-primary-subtle text-primary-emphasis'}`;
+
+  new bootstrap.Modal(document.getElementById('paymentModal')).show();
+}
+
+async function confirmPayment(pid) {
+  const today = new Date().toISOString().split('T')[0];
+  const rows = await fetchJSON(`/api/real-estate-payments?real_estate_id=${currentReId}`);
+  const r = (rows || []).find(x => x.id === pid);
+  if (!r) return;
+
+  await fetch(`/api/real-estate-payments/${pid}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...r, actual_date: today }),
+  });
+  loadPayments();
+}
+
+async function savePayment() {
+  const pid  = document.getElementById('pm-id').value;
+  const dir  = document.getElementById('pm-direction').value;
+  const type = document.getElementById('pm-type').value;
+  const amt  = parseInputInt('pm-amount');
+  const scheduled = document.getElementById('pm-scheduled').value || null;
+  const actual    = document.getElementById('pm-actual').value || null;
+  const memo      = document.getElementById('pm-memo').value;
+
+  if (!amt || amt <= 0) {
+    document.getElementById('pm-amount').classList.add('is-invalid');
+    return;
+  }
+  document.getElementById('pm-amount').classList.remove('is-invalid');
+
+  const body = { real_estate_id: currentReId, direction: dir, payment_type: type,
+                 scheduled_date: scheduled, actual_date: actual, amount: amt, memo };
+
+  if (pid) {
+    await fetch(`/api/real-estate-payments/${pid}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+  } else {
+    await fetch('/api/real-estate-payments', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+  }
+
+  bootstrap.Modal.getInstance(document.getElementById('paymentModal')).hide();
+  loadPayments();
+}
+
+async function deletePayment(pid) {
+  if (!confirm('이 단계를 삭제하시겠습니까?')) return;
+  await fetch(`/api/real-estate-payments/${pid}`, { method: 'DELETE' });
+  loadPayments();
+}
 </script>
 {% endblock %}
