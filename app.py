@@ -2234,7 +2234,7 @@ def api_real_estate_sell(rid):
     )
     cur.close()
 
-    # 원본 데이터 삭제 (관련 레코드 먼저)
+    # 원본 데이터 삭제 (관련 레코드 먼저; real_estate_payments는 CASCADE)
     cur = db.cursor()
     cur.execute("DELETE FROM tenant_contracts WHERE real_estate_id=%s", (rid,))
     cur.execute("DELETE FROM property_costs WHERE real_estate_id=%s", (rid,))

@@ -221,7 +221,7 @@
 </div>
 <!-- 매도 모달 -->
 <div class="modal fade" id="sellModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content">
       <div class="modal-header border-0 pb-0">
         <h5 class="modal-title fw-bold"><i class="bi bi-cash-coin me-2 text-danger"></i>매도 등록</h5>
@@ -246,16 +246,38 @@
         </div>
 
         <div class="mb-3">
-          <label class="form-label fw-semibold">매도일 <span class="text-danger">*</span></label>
+          <label class="form-label fw-semibold">잔금일 (최종 매도 확정일) <span class="text-danger">*</span></label>
           <input type="date" class="form-control" id="sell-date">
         </div>
+
+        <!-- 거래 단계 (계약금/중도금/잔금) -->
         <div class="mb-3">
-          <label class="form-label fw-semibold">매도가 <span class="text-danger">*</span></label>
-          <div class="input-group">
-            <input type="text" inputmode="numeric" class="form-control" id="sell-price" placeholder="0" oninput="fmtSellInput(this); calcSellProfit()">
-            <span class="input-group-text">원</span>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <label class="form-label fw-semibold mb-0">거래 단계 <span class="text-danger">*</span></label>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="addSellRow()">
+              <i class="bi bi-plus-lg me-1"></i>항목 추가
+            </button>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-1" id="sell-rows-table">
+              <thead class="table-light">
+                <tr>
+                  <th style="width:110px">단계</th>
+                  <th style="width:130px">예정일</th>
+                  <th style="width:130px">실제 수령일</th>
+                  <th>금액</th>
+                  <th style="width:36px"></th>
+                </tr>
+              </thead>
+              <tbody id="sell-rows-body"></tbody>
+            </table>
+          </div>
+          <div class="d-flex justify-content-between align-items-center px-1 mt-1">
+            <span class="small text-muted">매도가 합계</span>
+            <span class="fw-bold text-danger" id="sell-total-display">0원</span>
           </div>
         </div>
+
         <div class="row g-2 mb-3">
           <div class="col-6">
             <label class="form-label fw-semibold">세금</label>
@@ -281,7 +303,7 @@
         <div class="card border-success-subtle bg-success-subtle">
           <div class="card-body py-2">
             <div class="d-flex justify-content-between align-items-center">
-              <span class="small fw-semibold">차익 (매도가 - 취득가 - 세금 - 기타)</span>
+              <span class="small fw-semibold">차익 (매도가 합계 - 취득가 - 세금 - 기타)</span>
               <span class="fw-bold fs-6" id="sell-profit-display">-</span>
             </div>
             <div class="d-flex justify-content-between align-items-center mt-1">
@@ -293,8 +315,61 @@
       </div>
       <div class="modal-footer border-0 pt-0">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-warning" onclick="saveSellSchedule()">
+          <i class="bi bi-calendar-check me-1"></i>거래 일정만 저장
+        </button>
         <button type="button" class="btn btn-danger" onclick="confirmSell()">
           <i class="bi bi-check-lg me-1"></i>매도 확정
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 매수 일정 모달 -->
+<div class="modal fade" id="buyModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold"><i class="bi bi-house-add me-2 text-primary"></i>매수 일정 등록</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="card bg-light border-0 mb-3">
+          <div class="card-body py-2">
+            <div class="fw-semibold" id="buy-name-display"></div>
+          </div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <label class="form-label fw-semibold mb-0">거래 단계 입력</label>
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="addBuyRow()">
+            <i class="bi bi-plus-lg me-1"></i>항목 추가
+          </button>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-1">
+            <thead class="table-light">
+              <tr>
+                <th style="width:110px">단계</th>
+                <th style="width:130px">예정일</th>
+                <th style="width:130px">실제 지급일</th>
+                <th>금액</th>
+                <th style="width:36px"></th>
+              </tr>
+            </thead>
+            <tbody id="buy-rows-body"></tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center px-1 mt-1">
+          <span class="small text-muted">매수가 합계</span>
+          <span class="fw-bold text-primary" id="buy-total-display">0원</span>
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
+        <button type="button" class="btn btn-primary" onclick="saveBuySchedule()">
+          <i class="bi bi-check-lg me-1"></i>저장
         </button>
       </div>
     </div>
@@ -461,13 +536,17 @@ const reGrid = new GridTable({
       compute: r => `<button class="btn btn-sm btn-outline-success py-0"
         onclick="event.stopPropagation();selectRE(${r.id},'${(r.name||'').replace(/'/g,"\\'")}')">
         <i class="bi bi-layout-sidebar-reverse"></i></button>` },
+    { key: '_buy_sched', type: 'computed',
+      compute: r => `<button class="btn btn-sm btn-outline-primary py-0"
+        onclick="event.stopPropagation();openBuyModal(${r.id},'${(r.name||'').replace(/'/g,"\\'")}')">
+        <i class="bi bi-calendar-check"></i></button>` },
     { key: '_sell', type: 'computed',
       compute: r => `<button class="btn btn-sm btn-outline-danger py-0"
         onclick="event.stopPropagation();openSellModal(${r.id},'${(r.name||'').replace(/'/g,"\\'")}',${r.purchase_price},${r.real_inv})">
         <i class="bi bi-cash-coin me-1"></i>매도</button>` },
   ],
   apiUrl: '/api/real-estate',
-  onSave:   () => loadSummary(),
+  onSave:   (result, method, data) => { loadSummary(); if (method === 'POST' && result?.id) openBuyModal(result.id, data?.name || ''); },
   onDelete: () => loadSummary(),
   onLoad:   () => loadSummary(),
 });
@@ -565,7 +644,7 @@ const resGrid = new GridTable({
 document.querySelector('[href="#tab-residence"]').addEventListener('shown.bs.tab', () => resGrid.load());
 document.querySelector('[href="#tab-sold"]').addEventListener('shown.bs.tab', () => loadSoldRE());
 
-// ── 매도 모달 ─────────────────────────────────────────────
+// ── 공통 포맷 유틸 ─────────────────────────────────────────
 function fmtSellInput(el) {
   const raw = el.value.replace(/[^\d]/g, '');
   el.value = raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '';
@@ -573,10 +652,21 @@ function fmtSellInput(el) {
 function parseSellInt(id) {
   return parseInt((document.getElementById(id).value || '0').replace(/,/g, '')) || 0;
 }
+function fmtNumInput(el) {
+  const raw = el.value.replace(/[^\d]/g, '');
+  el.value = raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '';
+}
+function parseNumInt(el) {
+  return parseInt((el.value || '0').replace(/,/g, '')) || 0;
+}
 
+const PAYMENT_TYPES = ['계약금', '중도금', '잔금', '기타'];
+
+// ── 매도 모달 ─────────────────────────────────────────────
 let sellTargetId = null;
 let sellPurchasePrice = 0;
 let sellRealInv = 0;
+let _sellRows = [];   // [{type, scheduled, actual, amount}]
 
 function openSellModal(id, name, purchasePrice, realInv) {
   sellTargetId = id;
@@ -587,23 +677,74 @@ function openSellModal(id, name, purchasePrice, realInv) {
   document.getElementById('sell-purchase-display').textContent = fmt(purchasePrice) + '원';
   document.getElementById('sell-realinv-display').textContent = fmt(realInv) + '원';
   document.getElementById('sell-date').value = '';
-  document.getElementById('sell-price').value = '';
   document.getElementById('sell-tax').value = '';
   document.getElementById('sell-other').value = '';
   document.getElementById('sell-memo').value = '';
   document.getElementById('sell-profit-display').textContent = '-';
   document.getElementById('sell-roi-display').textContent = '-';
 
+  // 기존 매도 단계 불러오기 (있으면)
+  fetchJSON(`/api/real-estate-payments?real_estate_id=${id}`).then(rows => {
+    const sellRows = (rows || []).filter(r => r.direction === 'sell');
+    _sellRows = sellRows.length
+      ? sellRows.map(r => ({ id: r.id, type: r.payment_type, scheduled: r.scheduled_date || '', actual: r.actual_date || '', amount: r.amount }))
+      : [{ type: '계약금', scheduled: '', actual: '', amount: 0 },
+         { type: '잔금',   scheduled: '', actual: '', amount: 0 }];
+    renderSellRows();
+  });
+
   new bootstrap.Modal(document.getElementById('sellModal')).show();
 }
 
-function calcSellProfit() {
-  const sellPrice = parseSellInt('sell-price');
-  const tax       = parseSellInt('sell-tax');
-  const other     = parseSellInt('sell-other');
-  const profit    = sellPrice - sellPurchasePrice - tax - other;
-  const roi       = sellRealInv > 0 ? (profit / sellRealInv * 100).toFixed(1) : 0;
+function renderSellRows() {
+  const tbody = document.getElementById('sell-rows-body');
+  tbody.innerHTML = _sellRows.map((r, i) => `
+    <tr>
+      <td>
+        <select class="form-select form-select-sm" onchange="_sellRows[${i}].type=this.value">
+          ${PAYMENT_TYPES.map(t => `<option${t===r.type?' selected':''}>${t}</option>`).join('')}
+        </select>
+      </td>
+      <td><input type="date" class="form-control form-control-sm" value="${r.scheduled}"
+           onchange="_sellRows[${i}].scheduled=this.value"></td>
+      <td><input type="date" class="form-control form-control-sm" value="${r.actual}"
+           onchange="_sellRows[${i}].actual=this.value"></td>
+      <td>
+        <div class="input-group input-group-sm">
+          <input type="text" inputmode="numeric" class="form-control text-end"
+                 value="${r.amount ? r.amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g,',') : ''}"
+                 placeholder="0"
+                 oninput="fmtNumInput(this);_sellRows[${i}].amount=parseNumInt(this);calcSellProfit()">
+          <span class="input-group-text">원</span>
+        </div>
+      </td>
+      <td><button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeSellRow(${i})"><i class="bi bi-x"></i></button></td>
+    </tr>`).join('');
+  calcSellProfit();
+}
 
+function addSellRow() {
+  _sellRows.push({ type: '중도금', scheduled: '', actual: '', amount: 0 });
+  renderSellRows();
+}
+
+function removeSellRow(i) {
+  _sellRows.splice(i, 1);
+  renderSellRows();
+}
+
+function getSellTotal() {
+  return _sellRows.reduce((s, r) => s + (r.amount || 0), 0);
+}
+
+function calcSellProfit() {
+  const sellTotal = getSellTotal();
+  const tax   = parseSellInt('sell-tax');
+  const other = parseSellInt('sell-other');
+  const profit = sellTotal - sellPurchasePrice - tax - other;
+  const roi    = sellRealInv > 0 ? (profit / sellRealInv * 100).toFixed(1) : 0;
+
+  document.getElementById('sell-total-display').textContent = fmt(sellTotal) + '원';
   const profitEl = document.getElementById('sell-profit-display');
   const roiEl    = document.getElementById('sell-roi-display');
   profitEl.textContent = (profit >= 0 ? '+' : '') + fmt(profit) + '원';
@@ -612,27 +753,149 @@ function calcSellProfit() {
   roiEl.className      = 'fw-bold fs-6 ' + (roi >= 0 ? 'text-danger' : 'text-primary');
 }
 
-async function confirmSell() {
-  const sellDate  = document.getElementById('sell-date').value;
-  const sellPrice = parseSellInt('sell-price');
-  if (!sellDate || !sellPrice) {
-    alert('매도일과 매도가를 입력해주세요.');
-    return;
+async function _saveSellPayments() {
+  // 기존 매도 단계 삭제 후 재저장
+  const existing = await fetchJSON(`/api/real-estate-payments?real_estate_id=${sellTargetId}`);
+  const toDelete = (existing || []).filter(r => r.direction === 'sell');
+  for (const r of toDelete) {
+    await fetch(`/api/real-estate-payments/${r.id}`, { method: 'DELETE' });
   }
+  for (const r of _sellRows) {
+    if (!r.amount) continue;
+    await fetch('/api/real-estate-payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        real_estate_id: sellTargetId, direction: 'sell',
+        payment_type: r.type,
+        scheduled_date: r.scheduled || null,
+        actual_date: r.actual || null,
+        amount: r.amount, memo: '',
+      }),
+    });
+  }
+}
+
+async function saveSellSchedule() {
+  if (_sellRows.every(r => !r.amount)) { alert('금액을 하나 이상 입력해주세요.'); return; }
+  await _saveSellPayments();
+  bootstrap.Modal.getInstance(document.getElementById('sellModal')).hide();
+  alert('거래 일정이 저장되었습니다.\n실제 수령 시 상세 패널 > 거래 단계 탭에서 수령 날짜를 입력해주세요.');
+}
+
+async function confirmSell() {
+  const sellDate = document.getElementById('sell-date').value;
+  const sellTotal = getSellTotal();
+  if (!sellDate) { alert('잔금일(매도 확정일)을 입력해주세요.'); return; }
+  if (!sellTotal) { alert('거래 단계 금액을 입력해주세요.'); return; }
   const tax   = parseSellInt('sell-tax');
   const other = parseSellInt('sell-other');
-  const memo      = document.getElementById('sell-memo').value;
+  const memo  = document.getElementById('sell-memo').value;
+
+  const payments = _sellRows.filter(r => r.amount > 0).map(r => ({
+    payment_type: r.type, scheduled_date: r.scheduled || null,
+    actual_date: r.actual || null, amount: r.amount,
+  }));
 
   const res = await fetch(`/api/real-estate/${sellTargetId}/sell`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sell_date: sellDate, sell_price: sellPrice, tax, other_costs: other, memo }),
+    body: JSON.stringify({ sell_date: sellDate, sell_price: sellTotal, tax, other_costs: other, memo, payments }),
   });
   if (!res.ok) { alert('매도 등록 실패'); return; }
 
   bootstrap.Modal.getInstance(document.getElementById('sellModal')).hide();
   await reGrid.load();
   loadSummary();
+}
+
+// ── 매수 일정 모달 ─────────────────────────────────────────
+let buyTargetId   = null;
+let buyTargetName = '';
+let _buyRows = [];
+
+async function openBuyModal(id, name) {
+  buyTargetId   = id;
+  buyTargetName = name || '';
+  document.getElementById('buy-name-display').textContent = name || '';
+
+  const rows = await fetchJSON(`/api/real-estate-payments?real_estate_id=${id}`);
+  const buyRows = (rows || []).filter(r => r.direction === 'buy');
+  _buyRows = buyRows.length
+    ? buyRows.map(r => ({ id: r.id, type: r.payment_type, scheduled: r.scheduled_date || '', actual: r.actual_date || '', amount: r.amount }))
+    : [{ type: '계약금', scheduled: '', actual: '', amount: 0 },
+       { type: '잔금',   scheduled: '', actual: '', amount: 0 }];
+  renderBuyRows();
+
+  new bootstrap.Modal(document.getElementById('buyModal')).show();
+}
+
+function renderBuyRows() {
+  const tbody = document.getElementById('buy-rows-body');
+  tbody.innerHTML = _buyRows.map((r, i) => `
+    <tr>
+      <td>
+        <select class="form-select form-select-sm" onchange="_buyRows[${i}].type=this.value">
+          ${PAYMENT_TYPES.map(t => `<option${t===r.type?' selected':''}>${t}</option>`).join('')}
+        </select>
+      </td>
+      <td><input type="date" class="form-control form-control-sm" value="${r.scheduled}"
+           onchange="_buyRows[${i}].scheduled=this.value"></td>
+      <td><input type="date" class="form-control form-control-sm" value="${r.actual}"
+           onchange="_buyRows[${i}].actual=this.value"></td>
+      <td>
+        <div class="input-group input-group-sm">
+          <input type="text" inputmode="numeric" class="form-control text-end"
+                 value="${r.amount ? r.amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g,',') : ''}"
+                 placeholder="0"
+                 oninput="fmtNumInput(this);_buyRows[${i}].amount=parseNumInt(this);updateBuyTotal()">
+          <span class="input-group-text">원</span>
+        </div>
+      </td>
+      <td><button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="removeBuyRow(${i})"><i class="bi bi-x"></i></button></td>
+    </tr>`).join('');
+  updateBuyTotal();
+}
+
+function addBuyRow() {
+  _buyRows.push({ type: '중도금', scheduled: '', actual: '', amount: 0 });
+  renderBuyRows();
+}
+
+function removeBuyRow(i) {
+  _buyRows.splice(i, 1);
+  renderBuyRows();
+}
+
+function updateBuyTotal() {
+  const total = _buyRows.reduce((s, r) => s + (r.amount || 0), 0);
+  document.getElementById('buy-total-display').textContent = fmt(total) + '원';
+}
+
+async function saveBuySchedule() {
+  if (_buyRows.every(r => !r.amount)) { alert('금액을 하나 이상 입력해주세요.'); return; }
+
+  const existing = await fetchJSON(`/api/real-estate-payments?real_estate_id=${buyTargetId}`);
+  const toDelete = (existing || []).filter(r => r.direction === 'buy');
+  for (const r of toDelete) {
+    await fetch(`/api/real-estate-payments/${r.id}`, { method: 'DELETE' });
+  }
+  for (const r of _buyRows) {
+    if (!r.amount) continue;
+    await fetch('/api/real-estate-payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        real_estate_id: buyTargetId, direction: 'buy',
+        payment_type: r.type,
+        scheduled_date: r.scheduled || null,
+        actual_date: r.actual || null,
+        amount: r.amount, memo: '',
+      }),
+    });
+  }
+
+  bootstrap.Modal.getInstance(document.getElementById('buyModal')).hide();
 }
 
 // ── 매도 부동산 탭 ─────────────────────────────────────────
