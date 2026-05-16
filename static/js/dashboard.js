@@ -78,7 +78,18 @@ async function loadDashboard(year, month) {
   const monthLabel = `${y}년 ${parseInt(m)}월`;
 
   const d = await fetchJSON(`/api/dashboard?year=${y}&month=${m}`);
-  if (!d) return;
+  if (!d) {
+    document.getElementById('dashPaymentBanner').style.display = '';
+    document.getElementById('dashPaymentBanner').innerHTML =
+      `<div class="alert alert-danger">대시보드 데이터 로딩 실패. 서버 로그를 확인해주세요.</div>`;
+    return;
+  }
+  if (d.error) {
+    document.getElementById('dashPaymentBanner').style.display = '';
+    document.getElementById('dashPaymentBanner').innerHTML =
+      `<div class="alert alert-danger"><strong>오류:</strong> ${d.error}<br><small class="text-muted" style="white-space:pre-wrap">${d.trace||''}</small></div>`;
+    return;
+  }
   _kpiData = d;
   _assetsDetailed = null; // 월 변경 시 캐시 초기화
 
