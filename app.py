@@ -2228,14 +2228,33 @@ def api_real_estate_sell(rid):
     cur.execute(
         "INSERT INTO sold_real_estate "
         "(name, re_type, purchase_date, purchase_price, real_inv, sell_date, sell_price, tax, other_costs, profit, roi, memo, created_at) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
         (re['name'], re['re_type'], re['purchase_date'], purchase_price, real_inv,
          d.get('sell_date'), sell_price, tax, other_costs, profit, roi,
          d.get('memo'), str(date.today()))
     )
+    sold_id = cur.fetchone()['id']
     cur.close()
 
-    # 원본 데이터 삭제 (관련 레코드 먼저; real_estate_payments는 CASCADE)
+    cur = db.cursor()
+    # 1. 기존 매수/매도 결제 단계 일정을 새로운 sold_real_estate_id에 매핑하고 real_estate_id는 NULL로 분리
+    cur.execute(
+        "UPDATE real_estate_payments SET sold_real_estate_id = %s, real_estate_id = NULL WHERE real_estate_id = %s",
+        (sold_id, rid)
+    )
+
+    # 2. 이번 매도 확정 폼에서 넘어온 매도 거래 단계(payments) 저장
+    cur.execute("DELETE FROM real_estate_payments WHERE sold_real_estate_id = %s AND direction = 'sell'", (sold_id,))
+    payments = d.get('payments', [])
+    for p in payments:
+        cur.execute(
+            "INSERT INTO real_estate_payments (sold_real_estate_id, direction, payment_type, scheduled_date, actual_date, amount, memo) "
+            "VALUES (%s, 'sell', %s, %s, %s, %s, '')",
+            (sold_id, p.get('payment_type'), p.get('scheduled_date') or None, p.get('actual_date') or None, p.get('amount', 0))
+        )
+    cur.close()
+
+    # 원본 데이터 삭제 (관련 레코드 먼저; real_estate_payments는 분리 완료되어 영향 없음)
     cur = db.cursor()
     cur.execute("DELETE FROM tenant_contracts WHERE real_estate_id=%s", (rid,))
     cur.execute("DELETE FROM property_costs WHERE real_estate_id=%s", (rid,))
@@ -2272,11 +2291,17 @@ def api_re_payments():
     db = get_db()
     if request.method == 'GET':
         rid = request.args.get('real_estate_id')
+        sid = request.args.get('sold_real_estate_id')
         cur = db.cursor()
         if rid:
             cur.execute(
                 "SELECT * FROM real_estate_payments WHERE real_estate_id=%s ORDER BY scheduled_date, id",
                 (rid,)
+            )
+        elif sid:
+            cur.execute(
+                "SELECT * FROM real_estate_payments WHERE sold_real_estate_id=%s ORDER BY scheduled_date, id",
+                (sid,)
             )
         else:
             cur.execute(

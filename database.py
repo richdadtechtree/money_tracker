@@ -331,6 +331,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS real_estate_payments (
             id              SERIAL PRIMARY KEY,
             real_estate_id  INTEGER REFERENCES real_estate(id) ON DELETE CASCADE,
+            sold_real_estate_id INTEGER REFERENCES sold_real_estate(id) ON DELETE CASCADE,
             direction       TEXT NOT NULL,   -- 'buy' or 'sell'
             payment_type    TEXT NOT NULL,   -- '계약금', '중도금', '잔금', '기타'
             scheduled_date  TEXT,
@@ -348,6 +349,7 @@ def init_db():
         """CREATE TABLE IF NOT EXISTS real_estate_payments (
             id              SERIAL PRIMARY KEY,
             real_estate_id  INTEGER REFERENCES real_estate(id) ON DELETE CASCADE,
+            sold_real_estate_id INTEGER REFERENCES sold_real_estate(id) ON DELETE CASCADE,
             direction       TEXT NOT NULL,
             payment_type    TEXT NOT NULL,
             scheduled_date  TEXT,
@@ -364,6 +366,7 @@ def init_db():
         "ALTER TABLE card_tx  ADD COLUMN fund_group_locked INTEGER DEFAULT 0",
         "ALTER TABLE stocks   ADD COLUMN category          TEXT",
         "ALTER TABLE etf      ADD COLUMN category          TEXT",
+        "ALTER TABLE real_estate_payments ADD COLUMN sold_real_estate_id INTEGER REFERENCES sold_real_estate(id) ON DELETE CASCADE",
         # ETF 기존 데이터 → etf_tx 이전
         "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo) "
         "SELECT id, COALESCE(NULLIF(buy_date,''), TO_CHAR(NOW(),'YYYY-MM-DD')), 'buy', buy_price, quantity, 0, '기존데이터' "

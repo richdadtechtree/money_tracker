@@ -303,6 +303,127 @@
   </div>
 </div>
 
+<!-- 매도 부동산 상세 모달 -->
+<div class="modal fade" id="soldDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold text-success"><i class="bi bi-info-circle me-2"></i>매도 부동산 상세 정보</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- 기본 정보 카드 -->
+        <div class="card border-0 bg-light mb-3">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h4 class="fw-bold mb-0 text-dark" id="sold-detail-name"></h4>
+              <span class="badge bg-success-subtle text-success fs-6" id="sold-detail-type"></span>
+            </div>
+            <div class="row g-3">
+              <div class="col-6 col-sm-4">
+                <div class="text-muted small">취득일</div>
+                <div class="fw-semibold text-dark" id="sold-detail-purchase-date"></div>
+              </div>
+              <div class="col-6 col-sm-4">
+                <div class="text-muted small">매도일</div>
+                <div class="fw-semibold text-dark" id="sold-detail-sell-date"></div>
+              </div>
+              <div class="col-12 col-sm-4">
+                <div class="text-muted small">메모</div>
+                <div class="fw-semibold text-dark text-truncate" id="sold-detail-memo"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 정산 정보 카드 -->
+        <div class="card border-0 shadow-sm mb-3">
+          <div class="card-body">
+            <h6 class="fw-bold mb-3"><i class="bi bi-wallet2 me-2 text-success"></i>정산 내역</h6>
+            <div class="row g-3">
+              <div class="col-6 col-md-4">
+                <div class="text-muted small">취득가</div>
+                <div class="fw-semibold text-dark fs-5" id="sold-detail-purchase-price"></div>
+              </div>
+              <div class="col-6 col-md-4">
+                <div class="text-muted small">실투자금</div>
+                <div class="fw-semibold text-dark fs-5" id="sold-detail-real-inv"></div>
+              </div>
+              <div class="col-6 col-md-4">
+                <div class="text-muted small">매도가</div>
+                <div class="fw-semibold text-danger fs-5" id="sold-detail-sell-price"></div>
+              </div>
+              <div class="col-6 col-md-4">
+                <div class="text-muted small">세금</div>
+                <div class="fw-semibold text-muted fs-5" id="sold-detail-tax"></div>
+              </div>
+              <div class="col-6 col-md-4">
+                <div class="text-muted small">기타 비용</div>
+                <div class="fw-semibold text-muted fs-5" id="sold-detail-other-costs"></div>
+              </div>
+              <div class="col-6 col-md-4">
+                <div class="text-muted small">실현 수익 (수익률)</div>
+                <div class="fw-bold fs-5" id="sold-detail-profit-roi"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 거래 단계 정보 (매수/매도 일정 상세) -->
+        <div class="row g-3">
+          <!-- 매수 일정 -->
+          <div class="col-md-6">
+            <div class="card border-0 shadow-sm h-100">
+              <div class="card-body">
+                <h6 class="fw-bold mb-3 text-primary"><i class="bi bi-arrow-down-left-circle me-2"></i>매수 거래 단계</h6>
+                <div class="table-responsive">
+                  <table class="table table-sm table-hover mb-0">
+                    <thead class="table-light">
+                      <tr>
+                        <th>단계</th>
+                        <th>금액</th>
+                        <th>지급일</th>
+                      </tr>
+                    </thead>
+                    <tbody id="sold-detail-buy-payments">
+                      <tr><td colspan="3" class="text-center text-muted py-3 small">기록 없음</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- 매도 일정 -->
+          <div class="col-md-6">
+            <div class="card border-0 shadow-sm h-100">
+              <div class="card-body">
+                <h6 class="fw-bold mb-3 text-danger"><i class="bi bi-arrow-up-right-circle me-2"></i>매도 거래 단계</h6>
+                <div class="table-responsive">
+                  <table class="table table-sm table-hover mb-0">
+                    <thead class="table-light">
+                      <tr>
+                        <th>단계</th>
+                        <th>금액</th>
+                        <th>수령일</th>
+                      </tr>
+                    </thead>
+                    <tbody id="sold-detail-sell-payments">
+                      <tr><td colspan="3" class="text-center text-muted py-3 small">기록 없음</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- 매수 일정 모달 -->
 <div class="modal fade" id="buyModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered modal-lg">
@@ -363,6 +484,7 @@ const INCOME_TYPES   = new Set(['임대수익']);
 
 let currentReId   = null;
 let currentReName = null;
+let soldREList    = [];
 
 // ── 요약 & 배너 ──────────────────────────────────────────
 async function loadSummary() {
@@ -828,6 +950,7 @@ async function saveBuySchedule() {
 // ── 매도 부동산 탭 ─────────────────────────────────────────
 async function loadSoldRE() {
   const rows = await fetchJSON('/api/sold-real-estate');
+  soldREList = rows || [];
   const tbody = document.getElementById('soldTableBody');
   if (!rows || rows.length === 0) {
     tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">매도 이력이 없습니다</td></tr>';
@@ -837,7 +960,11 @@ async function loadSoldRE() {
     const profitCls = r.profit >= 0 ? 'text-danger fw-semibold' : 'text-primary fw-semibold';
     const roiCls    = r.roi    >= 0 ? 'text-danger fw-semibold' : 'text-primary fw-semibold';
     return `<tr>
-      <td>${r.name || '-'}</td>
+      <td>
+        <a href="#" class="text-decoration-none fw-semibold text-dark border-bottom border-secondary border-dashed" onclick="openSoldDetailModal(${r.id}); return false;">
+          ${r.name || '-'}
+        </a>
+      </td>
       <td>${r.re_type ? `<span class="badge bg-success-subtle text-success">${r.re_type}</span>` : '-'}</td>
       <td>${r.purchase_date || '-'}</td>
       <td class="text-end">${fmt(r.purchase_price)}원</td>
@@ -855,6 +982,62 @@ async function loadSoldRE() {
       </td>
     </tr>`;
   }).join('');
+}
+
+async function openSoldDetailModal(id) {
+  const item = soldREList.find(x => x.id === id);
+  if (!item) return;
+
+  document.getElementById('sold-detail-name').textContent = item.name || '-';
+  document.getElementById('sold-detail-type').textContent = item.re_type || '-';
+  document.getElementById('sold-detail-purchase-date').textContent = item.purchase_date || '-';
+  document.getElementById('sold-detail-sell-date').textContent = item.sell_date || '-';
+  document.getElementById('sold-detail-memo').textContent = item.memo || '-';
+
+  document.getElementById('sold-detail-purchase-price').textContent = fmt(item.purchase_price) + '원';
+  document.getElementById('sold-detail-real-inv').textContent = fmt(item.real_inv) + '원';
+  document.getElementById('sold-detail-sell-price').textContent = fmt(item.sell_price) + '원';
+  document.getElementById('sold-detail-tax').textContent = fmt(item.tax) + '원';
+  document.getElementById('sold-detail-other-costs').textContent = fmt(item.other_costs) + '원';
+
+  const profitCls = item.profit >= 0 ? 'text-danger' : 'text-primary';
+  document.getElementById('sold-detail-profit-roi').innerHTML = `<span class="${profitCls}">${item.profit >= 0 ? '+' : ''}${fmt(item.profit)}원 (${item.roi >= 0 ? '+' : ''}${item.roi}%)</span>`;
+
+  // 거래 단계(계약금/중도금/잔금) 불러오기
+  const payments = await fetchJSON(`/api/real-estate-payments?sold_real_estate_id=${id}&_t=${Date.now()}`) || [];
+
+  const buyBody = document.getElementById('sold-detail-buy-payments');
+  const sellBody = document.getElementById('sold-detail-sell-payments');
+
+  const buyFiltered = payments.filter(p => p.direction === 'buy');
+  const sellFiltered = payments.filter(p => p.direction === 'sell');
+
+  if (buyFiltered.length === 0) {
+    buyBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3 small">기록 없음</td></tr>';
+  } else {
+    buyBody.innerHTML = buyFiltered.map(p => `
+      <tr>
+        <td class="fw-semibold">${p.payment_type}</td>
+        <td class="text-end fw-semibold text-primary">${fmt(p.amount)}원</td>
+        <td class="text-muted small text-center">${p.actual_date || p.scheduled_date || '-'}</td>
+      </tr>
+    `).join('');
+  }
+
+  if (sellFiltered.length === 0) {
+    sellBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3 small">기록 없음</td></tr>';
+  } else {
+    sellBody.innerHTML = sellFiltered.map(p => `
+      <tr>
+        <td class="fw-semibold">${p.payment_type}</td>
+        <td class="text-end fw-semibold text-danger">${fmt(p.amount)}원</td>
+        <td class="text-muted small text-center">${p.actual_date || p.scheduled_date || '-'}</td>
+      </tr>
+    `).join('');
+  }
+
+  const modal = new bootstrap.Modal(document.getElementById('soldDetailModal'));
+  modal.show();
 }
 
 async function deleteSoldRE(sid) {
