@@ -101,6 +101,11 @@ def logout():
     session.clear()
     return redirect('/login')
 
+ALLOWED_EMAILS = [
+    'bbonoyo@gmail.com',
+    'mybpilatesmyb@gmail.com'
+]
+
 @app.route('/api/auth/google', methods=['POST'])
 def api_auth_google():
     d = request.json or {}
@@ -115,6 +120,10 @@ def api_auth_google():
             return jsonify({'ok': False, 'error': '유효하지 않은 구글 인증 토큰입니다.'}), 401
         
         payload = res.json()
+        email = payload.get('email', '').strip().lower()
+        
+        if email not in [addr.lower() for addr in ALLOWED_EMAILS]:
+            return jsonify({'ok': False, 'error': '승인되지 않은 구글 계정입니다. 접근 권한이 없습니다.'}), 403
         
         session['user'] = {
             'email': payload.get('email'),
