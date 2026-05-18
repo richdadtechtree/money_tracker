@@ -5,3 +5,5 @@ gunicorn
 openpyxl
 xlrd
 yfinance
+authlib
+Flask-Login

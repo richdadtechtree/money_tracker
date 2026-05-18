@@ -281,6 +281,15 @@ def init_db():
             value TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS users (
+            id          SERIAL PRIMARY KEY,
+            google_id   TEXT UNIQUE NOT NULL,
+            email       TEXT UNIQUE NOT NULL,
+            name        TEXT,
+            picture     TEXT,
+            created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS budget_categories (
             id         SERIAL PRIMARY KEY,
             name       TEXT NOT NULL UNIQUE,
@@ -355,6 +364,42 @@ def init_db():
             memo            TEXT,
             created_at      TEXT DEFAULT CURRENT_TIMESTAMP
         )""",
+        "ALTER TABLE income             ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE budget_recurring   ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE budget             ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE card_info          ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE card_tx            ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE stocks             ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE stock_tx           ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE etf                ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE etf_tx             ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE crypto             ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE residence          ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE real_estate        ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE loans              ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE pension            ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE goals              ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE cash_deposits      ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE card_mappings      ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE card_category_rules ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE categories         ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE tenant_contracts   ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE property_costs     ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE fund_groups        ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE fund_group_rules   ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE monthly_fund_budgets ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE asset_snapshots    ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE app_settings       ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE budget_categories  ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE budget_category_rules ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE stock_categories   ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE sold_real_estate   ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE ipo                ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE real_estate_payments ADD COLUMN user_id INTEGER REFERENCES users(id)",
+        "ALTER TABLE budget_categories DROP CONSTRAINT IF EXISTS budget_categories_name_key",
+        "ALTER TABLE budget_category_rules DROP CONSTRAINT IF EXISTS budget_category_rules_keyword_key",
+        "ALTER TABLE stock_categories DROP CONSTRAINT IF EXISTS stock_categories_name_key",
+        "ALTER TABLE categories DROP CONSTRAINT IF EXISTS categories_name_key",
         "ALTER TABLE budget   ADD COLUMN card_id          INTEGER REFERENCES card_info(id)",
         "ALTER TABLE budget   ADD COLUMN recurring_id     INTEGER REFERENCES budget_recurring(id)",
         "ALTER TABLE card_tx  ADD COLUMN budget_id         INTEGER REFERENCES budget(id)",
@@ -378,18 +423,6 @@ def init_db():
     try:
         with conn:
             with conn.cursor() as cur:
-                # 가계부 기본 카테고리 삽입
-                _budget_cats = ['식비','교통비','주거비','의료비','교육비','문화/여가','쇼핑','통신비','보험','술','기타']
-                for i, n in enumerate(_budget_cats):
-                    cur.execute("INSERT INTO budget_categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING", (n, i))
-                # 주식 구분 기본값 삽입
-                _stock_cats = ['스윙','올웨더','지수투자','TQQQ','공모주','사이클','해외스윙']
-                for i, n in enumerate(_stock_cats):
-                    cur.execute("INSERT INTO stock_categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING", (n, i))
-                # 기본 카테고리 삽입
-                for i, n in enumerate(['식비', '쇼핑', '교통', '의료', '문화', '기타']):
-                    cur.execute("INSERT INTO categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING", (n, i))
-                
                 # 기존 stocks 행을 stock_tx 매수 거래로 이전 (stock_tx가 비어있는 종목만)
                 cur.execute("""
                     INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo)
@@ -402,4 +435,23 @@ def init_db():
     except psycopg2.Error:
         pass
 
+    conn.close()
+
+
+def seed_user_defaults(user_id):
+    """새 사용자의 기본 카테고리를 삽입"""
+    conn = get_db()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                _budget_cats = ['식비','교통비','주거비','의료비','교육비','문화/여가','쇼핑','통신비','보험','술','기타']
+                for i, n in enumerate(_budget_cats):
+                    cur.execute("INSERT INTO budget_categories (name, sort_order, user_id) VALUES (%s, %s, %s)", (n, i, user_id))
+                _stock_cats = ['스윙','올웨더','지수투자','TQQQ','공모주','사이클','해외스윙']
+                for i, n in enumerate(_stock_cats):
+                    cur.execute("INSERT INTO stock_categories (name, sort_order, user_id) VALUES (%s, %s, %s)", (n, i, user_id))
+                for i, n in enumerate(['식비', '쇼핑', '교통', '의료', '문화', '기타']):
+                    cur.execute("INSERT INTO categories (name, sort_order, user_id) VALUES (%s, %s, %s)", (n, i, user_id))
+    except psycopg2.Error:
+        pass
     conn.close()
