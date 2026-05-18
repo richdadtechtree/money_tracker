@@ -2207,6 +2207,20 @@ def api_settings(key):
     return jsonify({'ok': True})
 
 
+@app.route('/api/real-estate/<int:rid>/save-sell-schedule', methods=['POST'])
+def api_real_estate_save_sell_schedule(rid):
+    d = request.json or {}
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        "UPDATE real_estate SET sell_date=%s, sell_tax=%s, sell_other_costs=%s, sell_memo=%s WHERE id=%s",
+        (d.get('sell_date') or None, int(d.get('sell_tax', 0)), int(d.get('sell_other_costs', 0)), d.get('sell_memo', ''), rid)
+    )
+    cur.close()
+    db.commit(); db.close()
+    return jsonify({'ok': True})
+
+
 # ── API: 매도 부동산 ──────────────────────────────────────────
 @app.route('/api/real-estate/<int:rid>/sell', methods=['POST'])
 def api_real_estate_sell(rid):

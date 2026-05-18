@@ -153,7 +153,7 @@
             <thead class="table-light">
               <tr>
                 <th>이름</th><th>유형</th><th>취득일</th>
-                <th class="text-end">취득가</th><th>매도일</th>
+                <th class="text-end">취득가</th><th class="text-end">실투자금</th><th>매도일</th>
                 <th class="text-end">매도가</th><th class="text-end">세금</th>
                 <th class="text-end">기타비용</th>
                 <th class="text-end">차익</th><th class="text-end">수익률</th>
@@ -719,13 +719,18 @@ function openSellModal(id, name, purchasePrice, realInv) {
   sellPurchasePrice = purchasePrice;
   sellRealInv = realInv;
 
+  const item = reGrid.rows.find(x => x.id === id) || {};
+
   document.getElementById('sell-name-display').textContent = name;
   document.getElementById('sell-purchase-display').textContent = fmt(purchasePrice) + '원';
   document.getElementById('sell-realinv-display').textContent = fmt(realInv) + '원';
-  document.getElementById('sell-date').value = '';
-  document.getElementById('sell-tax').value = '';
-  document.getElementById('sell-other').value = '';
-  document.getElementById('sell-memo').value = '';
+
+  // 임시 저장된 정산 및 매도 정보 채우기
+  document.getElementById('sell-date').value = item.sell_date || '';
+  document.getElementById('sell-tax').value = item.sell_tax ? item.sell_tax.toString().replace(/\B(?=(\d{3})+(?!\d))/g,',') : '';
+  document.getElementById('sell-other').value = item.sell_other_costs ? item.sell_other_costs.toString().replace(/\B(?=(\d{3})+(?!\d))/g,',') : '';
+  document.getElementById('sell-memo').value = item.sell_memo || '';
+
   document.getElementById('sell-profit-display').textContent = '-';
   document.getElementById('sell-roi-display').textContent = '-';
 
@@ -824,9 +829,27 @@ async function _saveSellPayments() {
 
 async function saveSellSchedule() {
   if (_sellRows.every(r => !r.amount)) { alert('금액을 하나 이상 입력해주세요.'); return; }
+
+  const sellDate = document.getElementById('sell-date').value;
+  const tax   = parseSellInt('sell-tax');
+  const other = parseSellInt('sell-other');
+  const memo  = document.getElementById('sell-memo').value;
+
+  // 1. 거래 일정 (계약금, 중도금, 잔금) 저장
   await _saveSellPayments();
+
+  // 2. 임시 입력한 정산 정보(잔금일, 세금, 기타비용, 메모) 저장
+  const res = await fetch(`/api/real-estate/${sellTargetId}/save-sell-schedule`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sell_date: sellDate, sell_tax: tax, sell_other_costs: other, sell_memo: memo }),
+  });
+  if (!res.ok) { alert('정산 정보 저장 실패'); return; }
+
   bootstrap.Modal.getInstance(document.getElementById('sellModal')).hide();
-  alert('거래 일정이 저장되었습니다.\n실제 수령 시 상세 패널 > 거래 단계 탭에서 수령 날짜를 입력해주세요.');
+  await reGrid.load(); // 그리드 리로드하여 메모리 캐시 최신화
+  loadSummary();
+  alert('거래 일정과 정산 정보가 임시 저장되었습니다.\n매도 확정 시 이 정보들이 반영됩니다.');
 }
 
 async function confirmSell() {
@@ -953,12 +976,17 @@ async function loadSoldRE() {
   soldREList = rows || [];
   const tbody = document.getElementById('soldTableBody');
   if (!rows || rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">매도 이력이 없습니다</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" class="text-center text-muted py-4">매도 이력이 없습니다</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(r => {
     const profitCls = r.profit >= 0 ? 'text-danger fw-semibold' : 'text-primary fw-semibold';
     const roiCls    = r.roi    >= 0 ? 'text-danger fw-semibold' : 'text-primary fw-semibold';
+    
+    // 취득가보다 실투자금이 적은 경우 (즉, 전세 보증금 등이 기입되어 있었던 경우) 투자금대비 뱃지 추가
+    const hasLease  = r.real_inv < r.purchase_price;
+    const roiBadge  = hasLease ? `<br><span class="badge bg-warning-subtle text-warning-emphasis p-1" style="font-size:10px; font-weight: 500;" title="전세 보증금 제외한 실투자금 대비 수익률">투자금대비</span>` : '';
+
     return `<tr>
       <td>
         <a href="#" class="text-decoration-none fw-semibold text-dark border-bottom border-secondary border-dashed" onclick="openSoldDetailModal(${r.id}); return false;">
@@ -968,12 +996,18 @@ async function loadSoldRE() {
       <td>${r.re_type ? `<span class="badge bg-success-subtle text-success">${r.re_type}</span>` : '-'}</td>
       <td>${r.purchase_date || '-'}</td>
       <td class="text-end">${fmt(r.purchase_price)}원</td>
+      <td class="text-end fw-semibold text-dark">${fmt(r.real_inv)}원</td>
       <td>${r.sell_date || '-'}</td>
       <td class="text-end">${fmt(r.sell_price)}원</td>
       <td class="text-end">${fmt(r.tax)}원</td>
       <td class="text-end">${fmt(r.other_costs)}원</td>
       <td class="text-end"><span class="${profitCls}">${r.profit >= 0 ? '+' : ''}${fmt(r.profit)}원</span></td>
-      <td class="text-end"><span class="${roiCls}">${r.roi >= 0 ? '+' : ''}${r.roi}%</span></td>
+      <td class="text-end">
+        <div class="d-flex flex-column align-items-end">
+          <span class="${roiCls}">${r.roi >= 0 ? '+' : ''}${r.roi}%</span>
+          ${roiBadge}
+        </div>
+      </td>
       <td>${r.memo || '-'}</td>
       <td class="text-center">
         <button class="btn btn-sm btn-outline-danger py-0" onclick="deleteSoldRE(${r.id})">
@@ -1001,7 +1035,9 @@ async function openSoldDetailModal(id) {
   document.getElementById('sold-detail-other-costs').textContent = fmt(item.other_costs) + '원';
 
   const profitCls = item.profit >= 0 ? 'text-danger' : 'text-primary';
-  document.getElementById('sold-detail-profit-roi').innerHTML = `<span class="${profitCls}">${item.profit >= 0 ? '+' : ''}${fmt(item.profit)}원 (${item.roi >= 0 ? '+' : ''}${item.roi}%)</span>`;
+  const hasLease  = item.real_inv < item.purchase_price;
+  const roiLabel  = hasLease ? `실투자금 대비 ${item.roi >= 0 ? '+' : ''}${item.roi}%` : `${item.roi >= 0 ? '+' : ''}${item.roi}%`;
+  document.getElementById('sold-detail-profit-roi').innerHTML = `<span class="${profitCls} fw-bold">${item.profit >= 0 ? '+' : ''}${fmt(item.profit)}원 (${roiLabel})</span>`;
 
   // 거래 단계(계약금/중도금/잔금) 불러오기
   const payments = await fetchJSON(`/api/real-estate-payments?sold_real_estate_id=${id}&_t=${Date.now()}`) || [];
