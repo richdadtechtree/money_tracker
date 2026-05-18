@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, session, redirect
 from flask_cors import CORS
 from database import get_db, init_db
 from datetime import datetime, date
@@ -30,6 +30,8 @@ except ImportError:
 
 app = Flask(__name__)
 CORS(app)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'richdadtechtree-money-secret-key-1029384756!')
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '881691238914-testlocalgoogleclientid.apps.googleusercontent.com')
 
 from flask.json.provider import DefaultJSONProvider
 class CustomJSONProvider(DefaultJSONProvider):
@@ -76,6 +78,52 @@ def _load_version():
 def inject_version():
     v = _load_version()
     return {"APP_VERSION": v.get("version", "1.00"), "APP_UPDATED": v.get("updated", "")}
+
+# ── 인증 미들웨어 및 구글 로그인 라우터 ──────────────────────────────────
+@app.before_request
+def enforce_auth():
+    # 1. 로그인 필요 없는 예외 경로 (로그인 페이지, 구글 로그인 API, 정적 에셋 등)
+    if request.path in ['/login', '/api/auth/google'] or request.path.startswith('/static'):
+        return None
+    
+    # 2. 세션에 로그인 사용자 정보가 없으면 로그인 페이지로 리디렉션
+    if 'user' not in session:
+        return redirect('/login')
+
+@app.route('/login')
+def login_page():
+    if 'user' in session:
+        return redirect('/')
+    return render_template('login.html', google_client_id=GOOGLE_CLIENT_ID)
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect('/login')
+
+@app.route('/api/auth/google', methods=['POST'])
+def api_auth_google():
+    d = request.json or {}
+    id_token = d.get('credential')
+    if not id_token:
+        return jsonify({'ok': False, 'error': '인증 토큰이 제공되지 않았습니다.'}), 400
+    
+    # 구글 서버를 통해 id_token 검증 (Zero dependency)
+    try:
+        res = http_req.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}", timeout=5)
+        if res.status_code != 200:
+            return jsonify({'ok': False, 'error': '유효하지 않은 구글 인증 토큰입니다.'}), 401
+        
+        payload = res.json()
+        
+        session['user'] = {
+            'email': payload.get('email'),
+            'name': payload.get('name'),
+            'picture': payload.get('picture')
+        }
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'구글 서버 인증 통신 중 오류: {str(e)}'}), 500
 
 # ── 페이지 라우터 ────────────────────────────────────────────
 @app.route('/')
