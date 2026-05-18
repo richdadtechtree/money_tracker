@@ -608,7 +608,7 @@ function openSellModal(id, name, purchasePrice, realInv) {
   document.getElementById('sell-roi-display').textContent = '-';
 
   // 기존 매도 단계 불러오기 (있으면)
-  fetchJSON(`/api/real-estate-payments?real_estate_id=${id}`).then(rows => {
+  fetchJSON(`/api/real-estate-payments?real_estate_id=${id}&_t=${Date.now()}`).then(rows => {
     const sellRows = (rows || []).filter(r => r.direction === 'sell');
     _sellRows = sellRows.length
       ? sellRows.map(r => ({ id: r.id, type: r.payment_type, scheduled: r.scheduled_date || '', actual: r.actual_date || '', amount: r.amount }))
@@ -679,7 +679,7 @@ function calcSellProfit() {
 
 async function _saveSellPayments() {
   // 기존 매도 단계 삭제 후 재저장
-  const existing = await fetchJSON(`/api/real-estate-payments?real_estate_id=${sellTargetId}`);
+  const existing = await fetchJSON(`/api/real-estate-payments?real_estate_id=${sellTargetId}&_t=${Date.now()}`);
   const toDelete = (existing || []).filter(r => r.direction === 'sell');
   for (const r of toDelete) {
     await fetch(`/api/real-estate-payments/${r.id}`, { method: 'DELETE' });
@@ -743,7 +743,7 @@ async function openBuyModal(id, name) {
   buyTargetName = name || '';
   document.getElementById('buy-name-display').textContent = name || '';
 
-  const rows = await fetchJSON(`/api/real-estate-payments?real_estate_id=${id}`);
+  const rows = await fetchJSON(`/api/real-estate-payments?real_estate_id=${id}&_t=${Date.now()}`);
   const buyRows = (rows || []).filter(r => r.direction === 'buy');
   _buyRows = buyRows.length
     ? buyRows.map(r => ({ id: r.id, type: r.payment_type, scheduled: r.scheduled_date || '', actual: r.actual_date || '', amount: r.amount }))
@@ -799,7 +799,7 @@ function updateBuyTotal() {
 async function saveBuySchedule() {
   if (_buyRows.every(r => !r.amount)) { alert('금액을 하나 이상 입력해주세요.'); return; }
 
-  const existing = await fetchJSON(`/api/real-estate-payments?real_estate_id=${buyTargetId}`);
+  const existing = await fetchJSON(`/api/real-estate-payments?real_estate_id=${buyTargetId}&_t=${Date.now()}`);
   const toDelete = (existing || []).filter(r => r.direction === 'buy');
   for (const r of toDelete) {
     await fetch(`/api/real-estate-payments/${r.id}`, { method: 'DELETE' });
@@ -820,6 +820,9 @@ async function saveBuySchedule() {
   }
 
   bootstrap.Modal.getInstance(document.getElementById('buyModal')).hide();
+  await reGrid.load();
+  loadSummary();
+  alert('매수 일정이 저장되었습니다.');
 }
 
 // ── 매도 부동산 탭 ─────────────────────────────────────────

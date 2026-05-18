@@ -2298,6 +2298,14 @@ def api_re_payments():
          d.get('amount', 0), d.get('memo'))
     )
     new_id = cur.fetchone()[0]
+
+    # 매수일정 잔금일에 취득일 자동 등록
+    if d.get('direction') == 'buy' and d.get('payment_type') == '잔금' and d.get('actual_date'):
+        cur.execute(
+            "UPDATE real_estate SET purchase_date = %s WHERE id = %s",
+            (d.get('actual_date'), d.get('real_estate_id'))
+        )
+
     cur.close()
     db.commit(); db.close()
     return jsonify({'id': new_id}), 201
@@ -2322,6 +2330,17 @@ def api_re_payment_detail(pid):
          d.get('scheduled_date') or None, d.get('actual_date') or None,
          d.get('amount', 0), d.get('memo'), pid)
     )
+
+    # 매수일정 잔금일에 취득일 자동 등록
+    if d.get('direction') == 'buy' and d.get('payment_type') == '잔금' and d.get('actual_date'):
+        cur.execute("SELECT real_estate_id FROM real_estate_payments WHERE id=%s", (pid,))
+        row = cur.fetchone()
+        if row and row[0]:
+            cur.execute(
+                "UPDATE real_estate SET purchase_date = %s WHERE id = %s",
+                (d.get('actual_date'), row[0])
+            )
+
     cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True})
