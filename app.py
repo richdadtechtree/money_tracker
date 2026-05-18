@@ -1152,7 +1152,7 @@ def api_etf():
     if request.method == 'GET':
         cur = db.cursor()
         cur.execute("""
-        SELECT e.id, e.name, e.ticker, e.current_price, e.etf_type, e.memo,
+        SELECT e.id, e.name, e.ticker, e.current_price, e.etf_type, e.category, e.memo,
           COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
           COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
           COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amount,
@@ -1184,9 +1184,9 @@ def api_etf():
     data = request.json
     cur = db.cursor()
     cur.execute(
-    "INSERT INTO etf (name, ticker, current_price, etf_type, memo) VALUES (%s,%s,%s,%s,%s)",
+    "INSERT INTO etf (name, ticker, current_price, etf_type, category, memo) VALUES (%s,%s,%s,%s,%s,%s)",
     (data.get('name'), data.get('ticker'),
-    data.get('current_price', 0), data.get('etf_type'), data.get('memo'))
+    data.get('current_price', 0), data.get('etf_type'), data.get('category'), data.get('memo'))
     )
     cur.close()
     db.commit()
@@ -1201,9 +1201,9 @@ def api_etf_detail(rid):
         data = request.json
         cur = db.cursor()
         cur.execute(
-        "UPDATE etf SET name=%s, ticker=%s, current_price=%s, etf_type=%s, memo=%s WHERE id=%s",
+        "UPDATE etf SET name=%s, ticker=%s, current_price=%s, etf_type=%s, category=%s, memo=%s WHERE id=%s",
         (data.get('name'), data.get('ticker'),
-        data.get('current_price', 0), data.get('etf_type'), data.get('memo'), rid)
+        data.get('current_price', 0), data.get('etf_type'), data.get('category'), data.get('memo'), rid)
         )
         cur.close()
         db.commit()
@@ -2578,26 +2578,34 @@ def api_stock_category_pnl():
         params = [date_fmt]
 
     db  = get_db()
+    ex_rate = get_current_exchange_rate()
     cur = db.cursor()
     cur.execute(f"""
-        WITH avg_costs AS (
-            SELECT t.stock_id,
-                SUM(CASE WHEN t.tx_type='buy' THEN t.price*t.quantity+t.fee ELSE 0 END) /
-                NULLIF(SUM(CASE WHEN t.tx_type='buy' THEN t.quantity ELSE 0 END), 0) AS avg_cost
-            FROM stock_tx t
-            JOIN stocks s ON s.id = t.stock_id
+        WITH combined_tx AS (
+            SELECT 'stock' as source, t.stock_id as asset_id, t.tx_date, t.tx_type, t.price, t.quantity, t.fee, s.category, s.ticker
+            FROM stock_tx t JOIN stocks s ON s.id = t.stock_id
+            UNION ALL
+            SELECT 'etf' as source, t.etf_id as asset_id, t.tx_date, t.tx_type, t.price, t.quantity, t.fee, e.category, e.ticker
+            FROM etf_tx t JOIN etf e ON e.id = t.etf_id
+        ),
+        avg_costs AS (
+            SELECT source, asset_id,
+                SUM(CASE WHEN tx_type='buy' THEN price*quantity+fee ELSE 0 END) /
+                NULLIF(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE 0 END), 0) AS avg_cost
+            FROM combined_tx s
             {inner_where}
-            GROUP BY t.stock_id
+            GROUP BY source, asset_id
         )
         SELECT
             to_char(t.tx_date::date, %s) AS period_key,
-            COALESCE(SUM((t.price - ac.avg_cost) * t.quantity - t.fee), 0) AS realized_pnl,
-            COALESCE(SUM(ac.avg_cost * t.quantity), 0) AS cost_basis
-        FROM stock_tx t
-        JOIN avg_costs ac ON ac.stock_id = t.stock_id
-        JOIN stocks s ON s.id = t.stock_id
+            COALESCE(SUM(((t.price - ac.avg_cost) * t.quantity - t.fee) * 
+                (CASE WHEN t.ticker IS NOT NULL AND t.ticker != '' AND t.ticker !~ '^[0-9]{{6}}$' THEN {ex_rate} ELSE 1 END)), 0) AS realized_pnl,
+            COALESCE(SUM(ac.avg_cost * t.quantity * 
+                (CASE WHEN t.ticker IS NOT NULL AND t.ticker != '' AND t.ticker !~ '^[0-9]{{6}}$' THEN {ex_rate} ELSE 1 END)), 0) AS cost_basis
+        FROM combined_tx t
+        JOIN avg_costs ac ON ac.source = t.source AND ac.asset_id = t.asset_id
         WHERE t.tx_type = 'sell'
-        {outer_where}
+        {outer_where.replace('s.category', 't.category')}
         GROUP BY period_key
         ORDER BY period_key
     """, params)

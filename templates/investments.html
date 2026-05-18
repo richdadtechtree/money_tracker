@@ -111,9 +111,17 @@
         미실현손익: <strong id="etf-profit">-</strong> &nbsp;|&nbsp;
         실현손익: <strong id="etf-realized">-</strong>
       </div>
-      <button class="btn btn-outline-primary btn-sm" onclick="etfGrid.addRow()">
-        <i class="bi bi-plus-lg me-1"></i>종목 등록
-      </button>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-info btn-sm" onclick="openCatPnlModal()">
+          <i class="bi bi-graph-up me-1"></i>구분별 수익률
+        </button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="openStockCatModal()">
+          <i class="bi bi-tag me-1"></i>구분 관리
+        </button>
+        <button class="btn btn-outline-primary btn-sm" onclick="etfGrid.addRow()">
+          <i class="bi bi-plus-lg me-1"></i>종목 등록
+        </button>
+      </div>
     </div>
 
     <!-- 포지션 현황 -->
@@ -126,7 +134,7 @@
           <table class="table table-hover mb-0" id="etfTable">
             <thead class="table-light">
               <tr>
-                <th>ETF명</th><th>티커</th><th>유형</th>
+                <th>ETF명</th><th>티커</th><th>유형</th><th>구분</th>
                 <th class="text-end">보유수량</th>
                 <th class="text-end">평균단가</th>
                 <th class="text-end">현재가</th>
@@ -309,12 +317,12 @@
   </div>
 </div>
 
-<!-- 주식 구분 관리 모달 -->
+<!-- 주식/ETF 구분 관리 모달 -->
 <div class="modal fade" id="stockCatModal" tabindex="-1">
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
       <div class="modal-header py-2">
-        <h6 class="modal-title">주식 구분 관리</h6>
+        <h6 class="modal-title">주식/ETF 구분 관리</h6>
         <button class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -451,6 +459,9 @@ const etfGrid = new GridTable({
     { key: 'etf_type', type: 'select',
       options: ['국내주식형','해외주식형','채권형','리츠형','원자재형','혼합형'],
       render: v => v ? `<span class="badge bg-primary-subtle text-primary">${v}</span>` : '-' },
+    { key: 'category', type: 'select',
+      options: () => allStockCategories.map(c => c.name),
+      render: v => v ? `<span class="badge bg-secondary-subtle text-secondary-emphasis">${v}</span>` : '-' },
     { key: '_qty',    type: 'computed', align: 'end',
       compute: r => (r.quantity == null ? '-' : r.quantity % 1 === 0 ? r.quantity : r.quantity.toFixed(4)) },
     { key: '_avg',    type: 'computed', align: 'end',
