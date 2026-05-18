@@ -407,6 +407,7 @@ def init_db():
         "ALTER TABLE card_tx  ADD COLUMN fund_group_id     INTEGER REFERENCES fund_groups(id)",
         "ALTER TABLE card_tx  ADD COLUMN fund_group_locked INTEGER DEFAULT 0",
         "ALTER TABLE stocks   ADD COLUMN category          TEXT",
+        "ALTER TABLE etf      ADD COLUMN category          TEXT",
         # ETF 기존 데이터 → etf_tx 이전
         "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo) "
         "SELECT id, COALESCE(NULLIF(buy_date,''), TO_CHAR(NOW(),'YYYY-MM-DD')), 'buy', buy_price, quantity, 0, '기존데이터' "

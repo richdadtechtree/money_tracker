@@ -126,7 +126,7 @@
           <table class="table table-hover mb-0" id="etfTable">
             <thead class="table-light">
               <tr>
-                <th>ETF명</th><th>티커</th><th>유형</th>
+                <th>ETF명</th><th>티커</th><th>유형</th><th>구분</th>
                 <th class="text-end">보유수량</th>
                 <th class="text-end">평균단가</th>
                 <th class="text-end">현재가</th>
@@ -449,6 +449,9 @@ const etfGrid = new GridTable({
     { key: 'etf_type', type: 'select',
       options: ['국내주식형','해외주식형','채권형','리츠형','원자재형','혼합형'],
       render: v => v ? `<span class="badge bg-primary-subtle text-primary">${v}</span>` : '-' },
+    { key: 'category', type: 'select',
+      options: () => allStockCategories.map(c => c.name),
+      render: v => v ? `<span class="badge bg-secondary-subtle text-secondary-emphasis">${v}</span>` : '-' },
     { key: '_qty',    type: 'computed', align: 'end',
       compute: r => (r.quantity == null ? '-' : r.quantity % 1 === 0 ? r.quantity : r.quantity.toFixed(4)) },
     { key: '_avg',    type: 'computed', align: 'end',
@@ -588,19 +591,21 @@ function openCatPnlModal() {
 }
 
 function loadCatPnl() {
-  // allStocks 데이터를 카테고리별로 집계
+  // 주식 + ETF 데이터를 카테고리별로 합산
   const cats = {};
-  allStocks.forEach(r => {
+  const addRow = r => {
     const cat = r.category || '미분류';
     if (!cats[cat]) cats[cat] = { eval: 0, cost: 0, unrealized: 0, realized: 0 };
     const mul = isForeign(r.ticker) ? usdKrw : 1;
-    const evalAmt = (r.eval_amount || 0) * mul;
+    const evalAmt   = (r.eval_amount    || 0) * mul;
     const unrealAmt = (r.unrealized_pnl || 0) * mul;
-    cats[cat].eval      += evalAmt;
-    cats[cat].cost      += evalAmt - unrealAmt;
+    cats[cat].eval       += evalAmt;
+    cats[cat].cost       += evalAmt - unrealAmt;
     cats[cat].unrealized += unrealAmt;
     cats[cat].realized   += (r.realized_pnl || 0) * mul;
-  });
+  };
+  allStocks.forEach(addRow);
+  allEtfs.forEach(addRow);
 
   const data = Object.entries(cats).map(([cat, v]) => ({
     category:      cat,

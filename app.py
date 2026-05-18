@@ -1285,7 +1285,7 @@ def api_etf():
     if request.method == 'GET':
         cur = db.cursor()
         cur.execute("""
-        SELECT e.id, e.name, e.ticker, e.current_price, e.etf_type, e.memo,
+        SELECT e.id, e.name, e.ticker, e.current_price, e.etf_type, e.category, e.memo,
           COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
           COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
           COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amount,
@@ -1318,9 +1318,9 @@ def api_etf():
     data = request.json
     cur = db.cursor()
     cur.execute(
-    "INSERT INTO etf (name, ticker, current_price, etf_type, memo, user_id) VALUES (%s,%s,%s,%s,%s,%s)",
+    "INSERT INTO etf (name, ticker, current_price, etf_type, category, memo, user_id) VALUES (%s,%s,%s,%s,%s,%s,%s)",
     (data.get('name'), data.get('ticker'),
-    data.get('current_price', 0), data.get('etf_type'), data.get('memo'), uid())
+    data.get('current_price', 0), data.get('etf_type'), data.get('category'), data.get('memo'), uid())
     )
     cur.close()
     db.commit()
@@ -1336,9 +1336,9 @@ def api_etf_detail(rid):
         data = request.json
         cur = db.cursor()
         cur.execute(
-        "UPDATE etf SET name=%s, ticker=%s, current_price=%s, etf_type=%s, memo=%s WHERE id=%s AND user_id=%s",
+        "UPDATE etf SET name=%s, ticker=%s, current_price=%s, etf_type=%s, category=%s, memo=%s WHERE id=%s AND user_id=%s",
         (data.get('name'), data.get('ticker'),
-        data.get('current_price', 0), data.get('etf_type'), data.get('memo'), rid, uid())
+        data.get('current_price', 0), data.get('etf_type'), data.get('category'), data.get('memo'), rid, uid())
         )
         cur.close()
         db.commit()
