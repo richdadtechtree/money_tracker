@@ -2314,9 +2314,32 @@ def api_sold_real_estate():
     return jsonify(rows_to_list(rows))
 
 
-@app.route('/api/sold-real-estate/<int:sid>', methods=['DELETE'])
+@app.route('/api/sold-real-estate/<int:sid>', methods=['PUT', 'DELETE'])
 def api_sold_real_estate_detail(sid):
     db = get_db()
+    if request.method == 'PUT':
+        d = request.json or {}
+        purchase_price = int(d.get('purchase_price', 0))
+        real_inv = int(d.get('real_inv', 0))
+        sell_price = int(d.get('sell_price', 0))
+        tax = int(d.get('tax', 0))
+        other_costs = int(d.get('other_costs', 0))
+        
+        # 차익 및 수익률 자동 재계산 (데이터 일관성 보장)
+        profit = sell_price - purchase_price - tax - other_costs
+        roi = round(profit / real_inv * 100, 1) if real_inv > 0 else 0.0
+
+        cur = db.cursor()
+        cur.execute(
+            "UPDATE sold_real_estate SET name=%s, re_type=%s, purchase_date=%s, purchase_price=%s, real_inv=%s, "
+            "sell_date=%s, sell_price=%s, tax=%s, other_costs=%s, profit=%s, roi=%s, memo=%s, lease_memo=%s WHERE id=%s",
+            (d.get('name'), d.get('re_type'), d.get('purchase_date'), purchase_price, real_inv,
+             d.get('sell_date'), sell_price, tax, other_costs, profit, roi, d.get('memo'), d.get('lease_memo'), sid)
+        )
+        cur.close()
+        db.commit(); db.close()
+        return jsonify({'ok': True})
+
     cur = db.cursor()
     cur.execute("DELETE FROM sold_real_estate WHERE id=%s", (sid,))
     cur.close()

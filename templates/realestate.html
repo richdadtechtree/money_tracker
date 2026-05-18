@@ -312,114 +312,213 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <!-- 기본 정보 카드 -->
-        <div class="card border-0 bg-light mb-3">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-              <h4 class="fw-bold mb-0 text-dark" id="sold-detail-name"></h4>
-              <span class="badge bg-success-subtle text-success fs-6" id="sold-detail-type"></span>
+        
+        <!-- 1. 조회 모드 컨테이너 -->
+        <div id="sold-view-container">
+          <!-- 기본 정보 카드 -->
+          <div class="card border-0 bg-light mb-3">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4 class="fw-bold mb-0 text-dark" id="sold-detail-name"></h4>
+                <span class="badge bg-success-subtle text-success fs-6" id="sold-detail-type"></span>
+              </div>
+              <div class="row g-3">
+                <div class="col-6 col-sm-3">
+                  <div class="text-muted small">취득일</div>
+                  <div class="fw-semibold text-dark" id="sold-detail-purchase-date"></div>
+                </div>
+                <div class="col-6 col-sm-3">
+                  <div class="text-muted small">매도일</div>
+                  <div class="fw-semibold text-dark" id="sold-detail-sell-date"></div>
+                </div>
+                <div class="col-6 col-sm-3">
+                  <div class="text-muted small">매도 메모</div>
+                  <div class="fw-semibold text-dark text-truncate" id="sold-detail-memo" style="max-width: 150px;" title=""></div>
+                </div>
+                <div class="col-6 col-sm-3">
+                  <div class="text-muted small">임차 계약 내역</div>
+                  <div class="fw-semibold text-dark text-truncate" id="sold-detail-lease-memo" style="max-width: 150px;" title=""></div>
+                </div>
+              </div>
             </div>
-            <div class="row g-3">
-              <div class="col-6 col-sm-4">
-                <div class="text-muted small">취득일</div>
-                <div class="fw-semibold text-dark" id="sold-detail-purchase-date"></div>
+          </div>
+
+          <!-- 정산 정보 카드 -->
+          <div class="card border-0 shadow-sm mb-3">
+            <div class="card-body">
+              <h6 class="fw-bold mb-3"><i class="bi bi-wallet2 me-2 text-success"></i>정산 내역</h6>
+              <div class="row g-3">
+                <div class="col-6 col-md-4">
+                  <div class="text-muted small">취득가</div>
+                  <div class="fw-semibold text-dark fs-5" id="sold-detail-purchase-price"></div>
+                </div>
+                <div class="col-6 col-md-4">
+                  <div class="text-muted small">실투자금</div>
+                  <div class="fw-semibold text-dark fs-5" id="sold-detail-real-inv"></div>
+                </div>
+                <div class="col-6 col-md-4">
+                  <div class="text-muted small">매도가</div>
+                  <div class="fw-semibold text-danger fs-5" id="sold-detail-sell-price"></div>
+                </div>
+                <div class="col-6 col-md-4">
+                  <div class="text-muted small">세금</div>
+                  <div class="fw-semibold text-muted fs-5" id="sold-detail-tax"></div>
+                </div>
+                <div class="col-6 col-md-4">
+                  <div class="text-muted small">기타 비용</div>
+                  <div class="fw-semibold text-muted fs-5" id="sold-detail-other-costs"></div>
+                </div>
+                <div class="col-6 col-md-4">
+                  <div class="text-muted small">실현 수익 (수익률)</div>
+                  <div class="fw-bold fs-5" id="sold-detail-profit-roi"></div>
+                </div>
               </div>
-              <div class="col-6 col-sm-4">
-                <div class="text-muted small">매도일</div>
-                <div class="fw-semibold text-dark" id="sold-detail-sell-date"></div>
+            </div>
+          </div>
+
+          <!-- 거래 단계 정보 (매수/매도 일정 상세) -->
+          <div class="row g-3">
+            <!-- 매수 일정 -->
+            <div class="col-md-6">
+              <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                  <h6 class="fw-bold mb-3 text-primary"><i class="bi bi-arrow-down-left-circle me-2"></i>매수 거래 단계</h6>
+                  <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                      <thead class="table-light">
+                        <tr>
+                          <th>단계</th>
+                          <th>금액</th>
+                          <th>지급일</th>
+                        </tr>
+                      </thead>
+                      <tbody id="sold-detail-buy-payments">
+                        <tr><td colspan="3" class="text-center text-muted py-3 small">기록 없음</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-              <div class="col-12 col-sm-4">
-                <div class="text-muted small">메모</div>
-                <div class="fw-semibold text-dark text-truncate" id="sold-detail-memo"></div>
+            </div>
+            <!-- 매도 일정 -->
+            <div class="col-md-6">
+              <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                  <h6 class="fw-bold mb-3 text-danger"><i class="bi bi-arrow-up-right-circle me-2"></i>매도 거래 단계</h6>
+                  <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                      <thead class="table-light">
+                        <tr>
+                          <th>단계</th>
+                          <th>금액</th>
+                          <th>수령일</th>
+                        </tr>
+                      </thead>
+                      <tbody id="sold-detail-sell-payments">
+                        <tr><td colspan="3" class="text-center text-muted py-3 small">기록 없음</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- 정산 정보 카드 -->
-        <div class="card border-0 shadow-sm mb-3">
-          <div class="card-body">
-            <h6 class="fw-bold mb-3"><i class="bi bi-wallet2 me-2 text-success"></i>정산 내역</h6>
-            <div class="row g-3">
-              <div class="col-6 col-md-4">
-                <div class="text-muted small">취득가</div>
-                <div class="fw-semibold text-dark fs-5" id="sold-detail-purchase-price"></div>
+        <!-- 2. 편집 모드 컨테이너 -->
+        <div id="sold-edit-container" style="display: none;">
+          <div class="card border-0 bg-light mb-3">
+            <div class="card-body">
+              <h6 class="fw-bold mb-3 text-success"><i class="bi bi-pencil-square me-2"></i>기본 정보 수정</h6>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label small fw-semibold">이름</label>
+                  <input type="text" id="sold-edit-name" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small fw-semibold">유형</label>
+                  <select id="sold-edit-type" class="form-select form-select-sm">
+                    <option>아파트</option>
+                    <option>빌라</option>
+                    <option>오피스텔</option>
+                    <option>상가</option>
+                    <option>토지</option>
+                    <option>기타</option>
+                  </select>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small fw-semibold">취득일</label>
+                  <input type="date" id="sold-edit-purchase-date" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small fw-semibold">매도일</label>
+                  <input type="date" id="sold-edit-sell-date" class="form-control form-control-sm">
+                </div>
               </div>
-              <div class="col-6 col-md-4">
-                <div class="text-muted small">실투자금</div>
-                <div class="fw-semibold text-dark fs-5" id="sold-detail-real-inv"></div>
+            </div>
+          </div>
+
+          <div class="card border-0 shadow-sm mb-3">
+            <div class="card-body">
+              <h6 class="fw-bold mb-3 text-success"><i class="bi bi-wallet2 me-2"></i>정산 금액 수정</h6>
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label class="form-label small fw-semibold">취득가</label>
+                  <input type="text" id="sold-edit-purchase-price" class="form-control form-control-sm text-end" oninput="fmtNumInput(this)">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small fw-semibold">실투자금</label>
+                  <input type="text" id="sold-edit-real-inv" class="form-control form-control-sm text-end" oninput="fmtNumInput(this)">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small fw-semibold">매도가</label>
+                  <input type="text" id="sold-edit-sell-price" class="form-control form-control-sm text-end" oninput="fmtNumInput(this)">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small fw-semibold">세금</label>
+                  <input type="text" id="sold-edit-tax" class="form-control form-control-sm text-end" oninput="fmtNumInput(this)">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small fw-semibold">기타 비용</label>
+                  <input type="text" id="sold-edit-other-costs" class="form-control form-control-sm text-end" oninput="fmtNumInput(this)">
+                </div>
               </div>
-              <div class="col-6 col-md-4">
-                <div class="text-muted small">매도가</div>
-                <div class="fw-semibold text-danger fs-5" id="sold-detail-sell-price"></div>
-              </div>
-              <div class="col-6 col-md-4">
-                <div class="text-muted small">세금</div>
-                <div class="fw-semibold text-muted fs-5" id="sold-detail-tax"></div>
-              </div>
-              <div class="col-6 col-md-4">
-                <div class="text-muted small">기타 비용</div>
-                <div class="fw-semibold text-muted fs-5" id="sold-detail-other-costs"></div>
-              </div>
-              <div class="col-6 col-md-4">
-                <div class="text-muted small">실현 수익 (수익률)</div>
-                <div class="fw-bold fs-5" id="sold-detail-profit-roi"></div>
+            </div>
+          </div>
+
+          <div class="card border-0 shadow-sm">
+            <div class="card-body">
+              <h6 class="fw-bold mb-3 text-success"><i class="bi bi-chat-left-text me-2"></i>메모 및 계약 상세</h6>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label small fw-semibold">매도 메모</label>
+                  <textarea id="sold-edit-memo" class="form-control form-control-sm" rows="3" placeholder="매도 관련 특이사항을 적어주세요."></textarea>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small fw-semibold">마지막 임차 계약 내역 (전세/월세)</label>
+                  <textarea id="sold-edit-lease-memo" class="form-control form-control-sm" rows="3" placeholder="예: 전세 4억 (2024-02 ~ 2026-02)"></textarea>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- 거래 단계 정보 (매수/매도 일정 상세) -->
-        <div class="row g-3">
-          <!-- 매수 일정 -->
-          <div class="col-md-6">
-            <div class="card border-0 shadow-sm h-100">
-              <div class="card-body">
-                <h6 class="fw-bold mb-3 text-primary"><i class="bi bi-arrow-down-left-circle me-2"></i>매수 거래 단계</h6>
-                <div class="table-responsive">
-                  <table class="table table-sm table-hover mb-0">
-                    <thead class="table-light">
-                      <tr>
-                        <th>단계</th>
-                        <th>금액</th>
-                        <th>지급일</th>
-                      </tr>
-                    </thead>
-                    <tbody id="sold-detail-buy-payments">
-                      <tr><td colspan="3" class="text-center text-muted py-3 small">기록 없음</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-          <!-- 매도 일정 -->
-          <div class="col-md-6">
-            <div class="card border-0 shadow-sm h-100">
-              <div class="card-body">
-                <h6 class="fw-bold mb-3 text-danger"><i class="bi bi-arrow-up-right-circle me-2"></i>매도 거래 단계</h6>
-                <div class="table-responsive">
-                  <table class="table table-sm table-hover mb-0">
-                    <thead class="table-light">
-                      <tr>
-                        <th>단계</th>
-                        <th>금액</th>
-                        <th>수령일</th>
-                      </tr>
-                    </thead>
-                    <tbody id="sold-detail-sell-payments">
-                      <tr><td colspan="3" class="text-center text-muted py-3 small">기록 없음</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
       <div class="modal-footer border-0 pt-0">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
+        <!-- 조회 모드 푸터 -->
+        <div id="sold-view-footer" class="w-100 d-flex justify-content-between">
+          <button type="button" class="btn btn-outline-success" onclick="toggleSoldEditMode(true)"><i class="bi bi-pencil-square me-1"></i>정보 수정</button>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
+        </div>
+        <!-- 편집 모드 푸터 -->
+        <div id="sold-edit-footer" class="w-100 d-flex justify-content-end gap-2" style="display: none;">
+          <button type="button" class="btn btn-success" onclick="saveSoldREEdit()"><i class="bi bi-check-lg me-1"></i>저장</button>
+          <button type="button" class="btn btn-outline-secondary" onclick="toggleSoldEditMode(false)">취소</button>
+        </div>
       </div>
+    </div>
+  </div>
+</div>
     </div>
   </div>
 </div>
@@ -1018,15 +1117,31 @@ async function loadSoldRE() {
   }).join('');
 }
 
+let activeSoldId = null;
+
+function toggleSoldEditMode(isEdit) {
+  document.getElementById('sold-view-container').style.display = isEdit ? 'none' : 'block';
+  document.getElementById('sold-edit-container').style.display = isEdit ? 'block' : 'none';
+  document.getElementById('sold-view-footer').style.display = isEdit ? 'none' : 'flex';
+  document.getElementById('sold-edit-footer').style.display = isEdit ? 'flex' : 'none';
+}
+
 async function openSoldDetailModal(id) {
+  activeSoldId = id;
   const item = soldREList.find(x => x.id === id);
   if (!item) return;
 
+  // 1. 조회 필드 채우기
   document.getElementById('sold-detail-name').textContent = item.name || '-';
   document.getElementById('sold-detail-type').textContent = item.re_type || '-';
   document.getElementById('sold-detail-purchase-date').textContent = item.purchase_date || '-';
   document.getElementById('sold-detail-sell-date').textContent = item.sell_date || '-';
   document.getElementById('sold-detail-memo').textContent = item.memo || '-';
+  document.getElementById('sold-detail-memo').setAttribute('title', item.memo || '');
+  
+  // 임차 계약 내역 추가 채우기
+  document.getElementById('sold-detail-lease-memo').textContent = item.lease_memo || '-';
+  document.getElementById('sold-detail-lease-memo').setAttribute('title', item.lease_memo || '');
 
   document.getElementById('sold-detail-purchase-price').textContent = fmt(item.purchase_price) + '원';
   document.getElementById('sold-detail-real-inv').textContent = fmt(item.real_inv) + '원';
@@ -1038,6 +1153,22 @@ async function openSoldDetailModal(id) {
   const hasLease  = item.real_inv < item.purchase_price;
   const roiLabel  = hasLease ? `실투자금 대비 ${item.roi >= 0 ? '+' : ''}${item.roi}%` : `${item.roi >= 0 ? '+' : ''}${item.roi}%`;
   document.getElementById('sold-detail-profit-roi').innerHTML = `<span class="${profitCls} fw-bold">${item.profit >= 0 ? '+' : ''}${fmt(item.profit)}원 (${roiLabel})</span>`;
+
+  // 2. 편집 필드 채우기
+  document.getElementById('sold-edit-name').value = item.name || '';
+  document.getElementById('sold-edit-type').value = item.re_type || '아파트';
+  document.getElementById('sold-edit-purchase-date').value = item.purchase_date || '';
+  document.getElementById('sold-edit-sell-date').value = item.sell_date || '';
+  document.getElementById('sold-edit-purchase-price').value = item.purchase_price ? item.purchase_price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '0';
+  document.getElementById('sold-edit-real-inv').value = item.real_inv ? item.real_inv.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '0';
+  document.getElementById('sold-edit-sell-price').value = item.sell_price ? item.sell_price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '0';
+  document.getElementById('sold-edit-tax').value = item.tax ? item.tax.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '0';
+  document.getElementById('sold-edit-other-costs').value = item.other_costs ? item.other_costs.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '0';
+  document.getElementById('sold-edit-memo').value = item.memo || '';
+  document.getElementById('sold-edit-lease-memo').value = item.lease_memo || '';
+
+  // 상세 창을 열 때는 항상 '조회 모드'로 시작하도록 초기화
+  toggleSoldEditMode(false);
 
   // 거래 단계(계약금/중도금/잔금) 불러오기
   const payments = await fetchJSON(`/api/real-estate-payments?sold_real_estate_id=${id}&_t=${Date.now()}`) || [];
@@ -1074,6 +1205,41 @@ async function openSoldDetailModal(id) {
 
   const modal = new bootstrap.Modal(document.getElementById('soldDetailModal'));
   modal.show();
+}
+
+async function saveSoldREEdit() {
+  if (!activeSoldId) return;
+
+  const name = document.getElementById('sold-edit-name').value.trim();
+  if (!name) { alert('이름을 입력해주세요.'); return; }
+
+  const body = {
+    name: name,
+    re_type: document.getElementById('sold-edit-type').value,
+    purchase_date: document.getElementById('sold-edit-purchase-date').value,
+    sell_date: document.getElementById('sold-edit-sell-date').value,
+    purchase_price: parseInt((document.getElementById('sold-edit-purchase-price').value || '0').replace(/,/g, '')) || 0,
+    real_inv: parseInt((document.getElementById('sold-edit-real-inv').value || '0').replace(/,/g, '')) || 0,
+    sell_price: parseInt((document.getElementById('sold-edit-sell-price').value || '0').replace(/,/g, '')) || 0,
+    tax: parseInt((document.getElementById('sold-edit-tax').value || '0').replace(/,/g, '')) || 0,
+    other_costs: parseInt((document.getElementById('sold-edit-other-costs').value || '0').replace(/,/g, '')) || 0,
+    memo: document.getElementById('sold-edit-memo').value,
+    lease_memo: document.getElementById('sold-edit-lease-memo').value
+  };
+
+  const res = await fetch(`/api/sold-real-estate/${activeSoldId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  if (res.ok) {
+    bootstrap.Modal.getInstance(document.getElementById('soldDetailModal')).hide();
+    await loadSoldRE(); // 리스트 즉시 새로고침
+    alert('매도 부동산 정보가 정상적으로 수정되었습니다.');
+  } else {
+    alert('매도 부동산 정보 수정 실패');
+  }
 }
 
 async function deleteSoldRE(sid) {

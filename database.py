@@ -318,6 +318,7 @@ def init_db():
             profit          INTEGER DEFAULT 0,
             roi             REAL DEFAULT 0,
             memo            TEXT,
+            lease_memo      TEXT,
             created_at      TEXT
         );
 
@@ -375,6 +376,7 @@ def init_db():
         "ALTER TABLE real_estate ADD COLUMN sell_tax INTEGER DEFAULT 0",
         "ALTER TABLE real_estate ADD COLUMN sell_other_costs INTEGER DEFAULT 0",
         "ALTER TABLE real_estate ADD COLUMN sell_memo TEXT",
+        "ALTER TABLE sold_real_estate ADD COLUMN lease_memo TEXT",
         # ETF 기존 데이터 → etf_tx 이전
         "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo) "
         "SELECT id, COALESCE(NULLIF(buy_date,''), TO_CHAR(NOW(),'YYYY-MM-DD')), 'buy', buy_price, quantity, 0, '기존데이터' "
