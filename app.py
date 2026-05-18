@@ -2607,10 +2607,10 @@ def api_stock_category_pnl():
     cur = db.cursor()
     cur.execute(f"""
         WITH combined_tx AS (
-            SELECT 'stock' as source, t.stock_id as asset_id, t.tx_date, t.tx_type, t.price, t.quantity, t.fee, s.category, s.ticker
+            SELECT 'stock' as source, t.stock_id as asset_id, t.tx_date::text, t.tx_type, t.price, t.quantity, t.fee, s.category, s.ticker
             FROM stock_tx t JOIN stocks s ON s.id = t.stock_id
             UNION ALL
-            SELECT 'etf' as source, t.etf_id as asset_id, t.tx_date, t.tx_type, t.price, t.quantity, t.fee, e.category, e.ticker
+            SELECT 'etf' as source, t.etf_id as asset_id, t.tx_date::text, t.tx_type, t.price, t.quantity, t.fee, e.category, e.ticker
             FROM etf_tx t JOIN etf e ON e.id = t.etf_id
         ),
         avg_costs AS (
