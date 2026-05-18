@@ -310,7 +310,7 @@ class GridTable {
     if (this._tr) this.cancelEdit();
     this._tr = tr;
     const id = tr.dataset.id;
-    const r  = id === 'new' ? {} : (this.rows.find(x => String(x.id) === id) || {});
+    const r  = id === 'new' ? { id: 'new' } : (this.rows.find(x => String(x.id) === id) || {});
     tr.innerHTML = this._editInner(r);
     tr.classList.add('grid-editing');
     tr.querySelectorAll('input[data-numeric]').forEach(el => {

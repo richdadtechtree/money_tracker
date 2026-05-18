@@ -686,15 +686,41 @@ const reGrid = new GridTable({
         <i class="bi bi-cash-coin me-1"></i>매도</button>` },
   ],
   apiUrl: '/api/real-estate',
-  onSave:   (result, method, data) => {
+  onSave:   async (result, method, data) => {
     loadSummary();
     if (method === 'POST' && result?.id) {
-      setTimeout(() => openBuyModal(result.id, data?.name || ''), 200);
+      // 신규 등록 시 임시 저장된 매수 일정이 있으면 DB에 동시 저장
+      if (tempBuyRows && tempBuyRows.length > 0) {
+        for (const r of tempBuyRows) {
+          if (!r.amount) continue;
+          await fetch('/api/real-estate-payments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              real_estate_id: result.id, direction: 'buy',
+              payment_type: r.type,
+              scheduled_date: r.scheduled || null,
+              actual_date: r.actual || null,
+              amount: r.amount, memo: '',
+            }),
+          });
+        }
+        tempBuyRows = null; // 저장 완료 후 비우기
+        await reGrid.load(); // 최신 실투자금 및 수익률 반영 위해 리로드!
+        loadSummary();
+      }
     }
   },
   onDelete: () => loadSummary(),
   onLoad:   () => loadSummary(),
 });
+
+// 신규 추가 취소 시 임시 매수 일정 초기화 데코레이터
+const originalCancel = reGrid.cancelEdit;
+reGrid.cancelEdit = function() {
+  tempBuyRows = null; // 임시 매수 일정 비우기
+  originalCancel.apply(this, arguments);
+};
 
 // ── 상세 패널 ────────────────────────────────────────────
 function selectRE(id, name) {
@@ -981,18 +1007,32 @@ async function confirmSell() {
 let buyTargetId   = null;
 let buyTargetName = '';
 let _buyRows = [];
+let tempBuyRows = null; // 부동산 추가 시 임시 저장용 매수 일정
 
 async function openBuyModal(id, name) {
   buyTargetId   = id;
   buyTargetName = name || '';
-  document.getElementById('buy-name-display').textContent = name || '';
+  document.getElementById('buy-name-display').textContent = name || '신규 부동산 매수 일정';
 
-  const rows = await fetchJSON(`/api/real-estate-payments?real_estate_id=${id}&_t=${Date.now()}`);
-  const buyRows = (rows || []).filter(r => r.direction === 'buy');
-  _buyRows = buyRows.length
-    ? buyRows.map(r => ({ id: r.id, type: r.payment_type, scheduled: r.scheduled_date || '', actual: r.actual_date || '', amount: r.amount }))
-    : [{ type: '계약금', scheduled: '', actual: '', amount: 0 },
-       { type: '잔금',   scheduled: '', actual: '', amount: 0 }];
+  if (id === 'new') {
+    // 신규 부동산 추가 중인 경우: 임시 저장된 매수 일정이 있으면 복사하고, 없으면 기본값 설정
+    if (tempBuyRows && tempBuyRows.length > 0) {
+      _buyRows = JSON.parse(JSON.stringify(tempBuyRows));
+    } else {
+      _buyRows = [
+        { type: '계약금', scheduled: '', actual: '', amount: 0 },
+        { type: '잔금',   scheduled: '', actual: '', amount: 0 }
+      ];
+    }
+  } else {
+    // 기존 부동산의 경우: DB에서 조회
+    const rows = await fetchJSON(`/api/real-estate-payments?real_estate_id=${id}&_t=${Date.now()}`);
+    const buyRows = (rows || []).filter(r => r.direction === 'buy');
+    _buyRows = buyRows.length
+      ? buyRows.map(r => ({ id: r.id, type: r.payment_type, scheduled: r.scheduled_date || '', actual: r.actual_date || '', amount: r.amount }))
+      : [{ type: '계약금', scheduled: '', actual: '', amount: 0 },
+         { type: '잔금',   scheduled: '', actual: '', amount: 0 }];
+  }
   renderBuyRows();
 
   bootstrap.Modal.getOrCreateInstance(document.getElementById('buyModal')).show();
@@ -1043,6 +1083,15 @@ function updateBuyTotal() {
 async function saveBuySchedule() {
   if (_buyRows.every(r => !r.amount)) { alert('금액을 하나 이상 입력해주세요.'); return; }
 
+  if (buyTargetId === 'new') {
+    // 신규 부동산 추가 중인 경우: 메모리에 임시 저장하고 창만 닫음 (그리드 리로드 방지)
+    tempBuyRows = JSON.parse(JSON.stringify(_buyRows));
+    bootstrap.Modal.getInstance(document.getElementById('buyModal')).hide();
+    alert('매수 일정이 임시 저장되었습니다.\n부동산 정보 입력칸 오른쪽의 저장(체크버튼)을 누르면 최종 저장됩니다.');
+    return;
+  }
+
+  // 기존 부동산의 경우: DB에 즉시 저장
   const existing = await fetchJSON(`/api/real-estate-payments?real_estate_id=${buyTargetId}&_t=${Date.now()}`);
   const toDelete = (existing || []).filter(r => r.direction === 'buy');
   for (const r of toDelete) {
