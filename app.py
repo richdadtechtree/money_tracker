@@ -2571,7 +2571,7 @@ def api_stock_category_pnl():
     if category and category != '전체':
         inner_where = "WHERE s.category = %s"
         outer_where = "AND s.category = %s"
-        params = [date_fmt, category, category]
+        params = [category, date_fmt, category]
     else:
         inner_where = ""
         outer_where = ""
