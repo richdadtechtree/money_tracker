@@ -224,7 +224,7 @@
 
         <div class="mb-3">
           <label class="form-label fw-semibold">잔금일 (최종 매도 확정일) <span class="text-danger">*</span></label>
-          <input type="date" class="form-control" id="sell-date">
+          <input type="date" class="form-control" id="sell-date" max="9999-12-31">
         </div>
 
         <!-- 거래 단계 (계약금/중도금/잔금) -->
@@ -448,11 +448,11 @@
                 </div>
                 <div class="col-md-6">
                   <label class="form-label small fw-semibold">취득일</label>
-                  <input type="date" id="sold-edit-purchase-date" class="form-control form-control-sm">
+                  <input type="date" id="sold-edit-purchase-date" class="form-control form-control-sm" max="9999-12-31">
                 </div>
                 <div class="col-md-6">
                   <label class="form-label small fw-semibold">매도일</label>
-                  <input type="date" id="sold-edit-sell-date" class="form-control form-control-sm">
+                  <input type="date" id="sold-edit-sell-date" class="form-control form-control-sm" max="9999-12-31">
                 </div>
               </div>
             </div>
@@ -856,9 +856,9 @@ function renderSellRows() {
         </select>
       </td>
       <td><input type="date" class="form-control form-control-sm" value="${r.scheduled}"
-           onchange="_sellRows[${i}].scheduled=this.value"></td>
+           max="9999-12-31" onchange="_sellRows[${i}].scheduled=this.value"></td>
       <td><input type="date" class="form-control form-control-sm" value="${r.actual}"
-           onchange="_sellRows[${i}].actual=this.value"></td>
+           max="9999-12-31" onchange="_sellRows[${i}].actual=this.value"></td>
       <td>
         <div class="input-group input-group-sm">
           <input type="text" inputmode="numeric" class="form-control text-end"
@@ -1008,9 +1008,9 @@ function renderBuyRows() {
         </select>
       </td>
       <td><input type="date" class="form-control form-control-sm" value="${r.scheduled}"
-           onchange="_buyRows[${i}].scheduled=this.value"></td>
+           max="9999-12-31" onchange="_buyRows[${i}].scheduled=this.value"></td>
       <td><input type="date" class="form-control form-control-sm" value="${r.actual}"
-           onchange="_buyRows[${i}].actual=this.value"></td>
+           max="9999-12-31" onchange="_buyRows[${i}].actual=this.value"></td>
       <td>
         <div class="input-group input-group-sm">
           <input type="text" inputmode="numeric" class="form-control text-end"

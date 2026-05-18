@@ -478,3 +478,10 @@ function initYearMonthFilters(yearId, monthId, defaultYear, defaultMonth) {
     monthSel.appendChild(opt);
   }
 }
+
+// 모든 date 타입 인풋에 대해 6자리 연도 입력 방지 및 4자리 자동 탭 브라우저 기능 활성화
+document.addEventListener('focusin', function(e) {
+  if (e.target && e.target.type === 'date' && !e.target.hasAttribute('max')) {
+    e.target.setAttribute('max', '9999-12-31');
+  }
+});
