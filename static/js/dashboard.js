@@ -373,12 +373,21 @@ function renderGoalsProgress(goals) {
 
 // ── 프라이빗 모드 ─────────────────────────────────────────────
 async function initPrivacyMode() {
+  // 깜빡임 방지: 로컬에서 즉시 동기식으로 적용
+  const cached = localStorage.getItem('privacyMode');
+  if (cached === 'true') applyPrivacyMode(true);
+
   const res = await fetchJSON('/api/settings/privacyMode');
-  applyPrivacyMode(res?.value === 'true');
+  const on = res?.value === 'true';
+  if (String(on) !== cached) {
+    localStorage.setItem('privacyMode', on);
+    applyPrivacyMode(on);
+  }
 }
 
 async function togglePrivacy() {
   const on = !document.body.classList.contains('privacy-mode');
+  localStorage.setItem('privacyMode', on);
   applyPrivacyMode(on);
   await fetch('/api/settings/privacyMode', {
     method: 'PUT',
