@@ -583,26 +583,22 @@ const ipoGrid = new GridTable({
     { key: 'quantity',     type: 'number', align: 'end', step: 0.001 },
     { key: 'lockup_ratio',   type: 'number', align: 'end', step: 0.01,
       render: (v, r) => {
-        const val = v != null && v !== '' ? v + '%' : '-';
-        const lockup = parseFloat(r.lockup_ratio) || 0;
-        const floating = parseFloat(r.floating_ratio) || 0;
-        const isSafe = (lockup >= 7) && (floating > 0 && floating < 30);
-        if (isSafe && v != null && v !== '') {
-          return `<span class="text-success fw-bold">${val}</span>`;
+        if (v == null || v === '') return '-';
+        const num = parseFloat(v) || 0;
+        if (num >= 7) {
+          return `<span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1" style="font-size:0.8rem">${num}%</span>`;
         }
-        return val;
+        return `<span>${num}%</span>`;
       }
     },
     { key: 'floating_ratio', type: 'number', align: 'end', step: 0.01,
       render: (v, r) => {
-        const val = v != null && v !== '' ? v + '%' : '-';
-        const lockup = parseFloat(r.lockup_ratio) || 0;
-        const floating = parseFloat(r.floating_ratio) || 0;
-        const isSafe = (lockup >= 7) && (floating > 0 && floating < 30);
-        if (isSafe && v != null && v !== '') {
-          return `<span class="text-success fw-bold">${val}</span>`;
+        if (v == null || v === '') return '-';
+        const num = parseFloat(v) || 0;
+        if (num > 0 && num < 30) {
+          return `<span class="badge bg-info-subtle text-info border border-info-subtle px-2 py-1" style="font-size:0.8rem">${num}%</span>`;
         }
-        return val;
+        return `<span>${num}%</span>`;
       }
     },
     { key: 'realized_pnl', type: 'number', align: 'end', render: v => pnlHtml(v) },
