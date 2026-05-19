@@ -90,9 +90,9 @@ def init_db():
             name            TEXT,
             ticker          TEXT,
             buy_date        TEXT,
-            buy_price       INTEGER DEFAULT 0,
+            buy_price       REAL DEFAULT 0,
             quantity        REAL DEFAULT 0,
-            current_price   INTEGER DEFAULT 0,
+            current_price   REAL DEFAULT 0,
             dividend        INTEGER DEFAULT 0,
             memo            TEXT
         );
@@ -102,9 +102,9 @@ def init_db():
             stock_id    INTEGER NOT NULL REFERENCES stocks(id),
             tx_date     TEXT    NOT NULL,
             tx_type     TEXT    NOT NULL,
-            price       INTEGER NOT NULL DEFAULT 0,
+            price       REAL NOT NULL DEFAULT 0,
             quantity    REAL    NOT NULL DEFAULT 0,
-            fee         INTEGER DEFAULT 0,
+            fee         REAL DEFAULT 0,
             memo        TEXT
         );
 
@@ -113,9 +113,9 @@ def init_db():
             name            TEXT,
             ticker          TEXT,
             buy_date        TEXT,
-            buy_price       INTEGER DEFAULT 0,
+            buy_price       REAL DEFAULT 0,
             quantity        REAL DEFAULT 0,
-            current_price   INTEGER DEFAULT 0,
+            current_price   REAL DEFAULT 0,
             etf_type        TEXT,
             category        TEXT,
             memo            TEXT
@@ -275,9 +275,9 @@ def init_db():
             etf_id  INTEGER NOT NULL REFERENCES etf(id),
             tx_date TEXT    NOT NULL,
             tx_type TEXT    NOT NULL,
-            price   INTEGER NOT NULL DEFAULT 0,
+            price   REAL NOT NULL DEFAULT 0,
             quantity REAL   NOT NULL DEFAULT 0,
-            fee     INTEGER DEFAULT 0,
+            fee     REAL DEFAULT 0,
             memo    TEXT
         );
 
@@ -410,6 +410,15 @@ def init_db():
         "INSERT INTO stock_categories (name, sort_order) VALUES "
         "('스윙',0),('올웨더',1),('지수투자',2),('TQQQ',3),('공모주',4),('사이클',5),('해외스윙',6) "
         "ON CONFLICT (name) DO NOTHING",
+        # 외국 주식/ETF 거래 소수점 입력용 REAL 타입 마이그레이션
+        "ALTER TABLE stocks ALTER COLUMN buy_price TYPE REAL",
+        "ALTER TABLE stocks ALTER COLUMN current_price TYPE REAL",
+        "ALTER TABLE stock_tx ALTER COLUMN price TYPE REAL",
+        "ALTER TABLE stock_tx ALTER COLUMN fee TYPE REAL",
+        "ALTER TABLE etf ALTER COLUMN buy_price TYPE REAL",
+        "ALTER TABLE etf ALTER COLUMN current_price TYPE REAL",
+        "ALTER TABLE etf_tx ALTER COLUMN price TYPE REAL",
+        "ALTER TABLE etf_tx ALTER COLUMN fee TYPE REAL",
     ]
     for sql in migrations:
         try:
