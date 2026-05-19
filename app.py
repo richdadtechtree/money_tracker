@@ -4517,7 +4517,7 @@ def sync_page():
 
 
 @app.route('/api/settings', methods=['GET', 'POST'])
-def api_settings():
+def api_general_settings():
     db = get_db()
     if request.method == 'GET':
         cur = db.cursor()
