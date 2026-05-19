@@ -1416,9 +1416,10 @@ def api_ipo():
     data = request.json
     cur = db.cursor()
     cur.execute(
-        "INSERT INTO ipo (name, listing_date, ipo_price, quantity, realized_pnl, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        "INSERT INTO ipo (name, listing_date, ipo_price, quantity, realized_pnl, fee, memo, lockup_ratio, floating_ratio) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (data.get('name'), data.get('listing_date'), data.get('ipo_price', 0),
-         data.get('quantity', 0), data.get('realized_pnl', 0), data.get('fee', 0), data.get('memo'))
+         data.get('quantity', 0), data.get('realized_pnl', 0), data.get('fee', 0), data.get('memo'),
+         data.get('lockup_ratio', 0), data.get('floating_ratio', 0))
     )
     cur.close()
     db.commit()
@@ -1433,9 +1434,10 @@ def api_ipo_detail(rid):
         data = request.json
         cur = db.cursor()
         cur.execute(
-            "UPDATE ipo SET name=%s, listing_date=%s, ipo_price=%s, quantity=%s, realized_pnl=%s, fee=%s, memo=%s WHERE id=%s",
+            "UPDATE ipo SET name=%s, listing_date=%s, ipo_price=%s, quantity=%s, realized_pnl=%s, fee=%s, memo=%s, lockup_ratio=%s, floating_ratio=%s WHERE id=%s",
             (data.get('name'), data.get('listing_date'), data.get('ipo_price', 0),
-             data.get('quantity', 0), data.get('realized_pnl', 0), data.get('fee', 0), data.get('memo'), rid)
+             data.get('quantity', 0), data.get('realized_pnl', 0), data.get('fee', 0), data.get('memo'),
+             data.get('lockup_ratio', 0), data.get('floating_ratio', 0), rid)
         )
         cur.close()
         db.commit()

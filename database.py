@@ -330,7 +330,9 @@ def init_db():
             quantity        REAL DEFAULT 0,
             realized_pnl    INTEGER DEFAULT 0,
             fee             INTEGER DEFAULT 0,
-            memo            TEXT
+            memo            TEXT,
+            lockup_ratio    REAL DEFAULT 0,
+            floating_ratio  REAL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS real_estate_payments (
@@ -377,6 +379,8 @@ def init_db():
         "ALTER TABLE real_estate ADD COLUMN IF NOT EXISTS sell_other_costs INTEGER DEFAULT 0",
         "ALTER TABLE real_estate ADD COLUMN IF NOT EXISTS sell_memo TEXT",
         "ALTER TABLE sold_real_estate ADD COLUMN IF NOT EXISTS lease_memo TEXT",
+        "ALTER TABLE ipo ADD COLUMN IF NOT EXISTS lockup_ratio REAL DEFAULT 0",
+        "ALTER TABLE ipo ADD COLUMN IF NOT EXISTS floating_ratio REAL DEFAULT 0",
         # ETF 기존 데이터 → etf_tx 이전
         "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo) "
         "SELECT id, COALESCE(NULLIF(buy_date,''), TO_CHAR(NOW(),'YYYY-MM-DD')), 'buy', buy_price, quantity, 0, '기존데이터' "
