@@ -226,9 +226,14 @@
         총 수수료: <strong id="ipo-total-fee" class="text-primary">-</strong> &nbsp;|&nbsp;
         총 순손익: <strong id="ipo-net-pnl" class="text-danger">-</strong>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="ipoGrid.addRow()">
-        <i class="bi bi-plus-lg me-1"></i>공모주 등록
-      </button>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-success btn-sm" onclick="openIpoPnlModal()">
+          <i class="bi bi-graph-up me-1"></i>수익 차트
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="ipoGrid.addRow()">
+          <i class="bi bi-plus-lg me-1"></i>공모주 등록
+        </button>
+      </div>
     </div>
     <div class="card border-0 shadow-sm mb-3">
       <div class="card-header bg-white border-0 pt-3 pb-2 fw-semibold">
@@ -317,6 +322,64 @@
     </div>
   </div>
 </div>
+
+
+<!-- 공모주 수익 현황 모달 -->
+<div class="modal fade" id="ipoPnlModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold"><i class="bi bi-graph-up me-2 text-success"></i>공모주 수익 현황</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- 기간 선택 컨트롤 -->
+        <div class="d-flex gap-3 align-items-end mb-3">
+          <div>
+            <div class="small text-muted mb-1">기간</div>
+            <div class="btn-group btn-group-sm" id="ipoPnlPeriodBtns">
+              <button class="btn btn-outline-secondary active" data-period="monthly" onclick="setIpoPnlPeriod(this)">월별</button>
+              <button class="btn btn-outline-secondary"        data-period="yearly"  onclick="setIpoPnlPeriod(this)">연도별</button>
+              <button class="btn btn-outline-secondary"        data-period="all"     onclick="setIpoPnlPeriod(this)">전체 누계</button>
+            </div>
+          </div>
+        </div>
+        <!-- 요약 카드 -->
+        <div class="row g-2 mb-3">
+          <div class="col-6 col-sm-3">
+            <div class="rounded bg-light p-2 text-center">
+              <div class="small text-muted">총 순손익</div>
+              <div id="ipoSumNetPnl" class="fw-bold">-</div>
+            </div>
+          </div>
+          <div class="col-6 col-sm-3">
+            <div class="rounded bg-light p-2 text-center">
+              <div class="small text-muted">수익률</div>
+              <div id="ipoSumRate" class="fw-bold">-</div>
+            </div>
+          </div>
+          <div class="col-6 col-sm-3">
+            <div class="rounded bg-light p-2 text-center">
+              <div class="small text-muted">최고 수익 종목</div>
+              <div id="ipoSumBest" class="fw-bold small text-truncate">-</div>
+            </div>
+          </div>
+          <div class="col-6 col-sm-3">
+            <div class="rounded bg-light p-2 text-center">
+              <div class="small text-muted">참여/수익/손실</div>
+              <div id="ipoSumWinLoss" class="fw-bold">-</div>
+            </div>
+          </div>
+        </div>
+        <!-- 차트 -->
+        <div style="position:relative; height:320px">
+          <canvas id="ipoPnlChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 <!-- 주식/ETF 구분 관리 모달 -->
 <div class="modal fade" id="stockCatModal" tabindex="-1">
@@ -702,6 +765,131 @@ async function loadCatPnl() {
           data: cumVals,
           borderColor: '#fd7e14',
           backgroundColor: 'rgba(253,126,20,0.08)',
+          tension: 0.3,
+          pointRadius: data.length > 24 ? 2 : 4,
+          pointHoverRadius: 6,
+          fill: true,
+          yAxisID: 'y',
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 12, padding: 16 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const v = ctx.parsed.y;
+              return ` ${ctx.dataset.label}: ${v >= 0 ? '+' : ''}${Math.round(v).toLocaleString('ko-KR')}원`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false } },
+        y: {
+          grid: { color: 'rgba(0,0,0,0.05)' },
+          ticks: {
+            callback: v => {
+              const abs = Math.abs(v);
+              if (abs >= 100000000) return (v / 100000000).toFixed(1) + '억';
+              if (abs >= 10000)     return (v / 10000).toFixed(0) + '만';
+              return v.toLocaleString('ko-KR');
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+// ── 공모주 수익 현황 차트 ──
+let ipoPnlChart = null;
+let _ipoPnlPeriod = 'monthly';
+
+function openIpoPnlModal() {
+  document.querySelectorAll('#ipoPnlPeriodBtns .btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.period === 'monthly');
+  });
+  _ipoPnlPeriod = 'monthly';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('ipoPnlModal')).show();
+  loadIpoPnl();
+}
+
+function setIpoPnlPeriod(btn) {
+  document.querySelectorAll('#ipoPnlPeriodBtns .btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  _ipoPnlPeriod = btn.dataset.period;
+  loadIpoPnl();
+}
+
+async function loadIpoPnl() {
+  // 1. 요약 통계 계산
+  const rows = ipoGrid.rows || [];
+  const totalPnl = rows.reduce((s, r) => s + ((r.realized_pnl || 0) - (r.fee || 0)), 0);
+  const totalCost = rows.reduce((s, r) => s + ((r.ipo_price || 0) * (r.quantity || 0)), 0);
+  const overallRate = totalCost ? (totalPnl / totalCost * 100) : 0;
+
+  let best = null;
+  rows.forEach(r => {
+    const net = (r.realized_pnl || 0) - (r.fee || 0);
+    if (net > 0 && (!best || net > ((best.realized_pnl || 0) - (best.fee || 0)))) {
+      best = r;
+    }
+  });
+
+  const wins = rows.filter(r => ((r.realized_pnl || 0) - (r.fee || 0)) > 0).length;
+  const losses = rows.filter(r => ((r.realized_pnl || 0) - (r.fee || 0)) < 0).length;
+
+  const pnlSpan = v => {
+    const cls = v > 0 ? 'text-danger' : v < 0 ? 'text-primary' : 'text-muted';
+    return `<span class="${cls}">${v >= 0 ? '+' : ''}${fmt(Math.round(v))}원</span>`;
+  };
+
+  document.getElementById('ipoSumNetPnl').innerHTML = pnlSpan(totalPnl);
+  document.getElementById('ipoSumRate').innerHTML = rateHtml(overallRate);
+  document.getElementById('ipoSumBest').textContent =
+    best ? `${best.name} (+${fmt((best.realized_pnl || 0) - (best.fee || 0))}원)` : '-';
+  document.getElementById('ipoSumWinLoss').innerHTML =
+    `<span class="text-danger">${wins}승</span> / <span class="text-primary">${losses}패</span>`;
+
+  // 2. 차트 데이터 로딩
+  const data = await fetchJSON(`/api/ipo-pnl?period=${_ipoPnlPeriod}`) || [];
+  
+  const labels = data.map(d => d.label);
+  const pnlVals = data.map(d => d.net_pnl);
+  const cumVals = data.map(d => d.cumulative_pnl);
+
+  const barColors = pnlVals.map(v => v >= 0 ? 'rgba(220,53,69,0.72)' : 'rgba(13,110,253,0.72)');
+  const barBorders = pnlVals.map(v => v >= 0 ? 'rgb(220,53,69)' : 'rgb(13,110,253)');
+
+  const ctx = document.getElementById('ipoPnlChart').getContext('2d');
+  if (ipoPnlChart) ipoPnlChart.destroy();
+  ipoPnlChart = new Chart(ctx, {
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'bar',
+          label: '순손익',
+          data: pnlVals,
+          backgroundColor: barColors,
+          borderColor: barBorders,
+          borderWidth: 1,
+          borderRadius: 4,
+          yAxisID: 'y',
+          order: 2,
+        },
+        {
+          type: 'line',
+          label: '누계손익',
+          data: cumVals,
+          borderColor: '#198754',
+          backgroundColor: 'rgba(25,135,84,0.08)',
           tension: 0.3,
           pointRadius: data.length > 24 ? 2 : 4,
           pointHoverRadius: 6,

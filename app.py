@@ -2812,6 +2812,68 @@ def api_stock_category_pnl():
     return jsonify(result)
 
 
+# ── API: 공모주 실현손익 차트 ──────────────────────────────────
+@app.route('/api/ipo-pnl')
+def api_ipo_pnl():
+    """공모주 월별/연도별/전체 실현손익 및 누계"""
+    period = request.args.get('period', 'monthly')
+    date_fmt = 'YYYY' if period == 'yearly' else 'YYYY-MM'
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(f"""
+        SELECT 
+            to_char(listing_date::date, '{date_fmt}') AS period_key,
+            COALESCE(SUM(realized_pnl - fee), 0) AS net_pnl,
+            COALESCE(SUM(realized_pnl), 0) AS realized_pnl,
+            COALESCE(SUM(fee), 0) AS total_fee,
+            COALESCE(SUM(ipo_price * quantity), 0) AS cost_basis
+        FROM ipo
+        WHERE listing_date IS NOT NULL AND listing_date != ''
+        GROUP BY period_key
+        ORDER BY period_key
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    db.close()
+
+    data_map = {r['period_key']: {
+        'net_pnl': float(r['net_pnl']),
+        'realized_pnl': float(r['realized_pnl']),
+        'fee': float(r['total_fee']),
+        'cost': float(r['cost_basis'])
+    } for r in rows}
+
+    if period == 'monthly':
+        today = date.today()
+        keys = []
+        for i in range(11, -1, -1):
+            mo = today.month - i
+            yr = today.year
+            while mo <= 0:
+                mo += 12; yr -= 1
+            keys.append(f"{yr}-{mo:02d}")
+        cumulative = sum(v['net_pnl'] for k, v in data_map.items() if k < keys[0])
+    else:
+        keys = sorted(data_map.keys())
+        cumulative = 0
+
+    result = []
+    for k in keys:
+        d = data_map.get(k, {'net_pnl': 0, 'realized_pnl': 0, 'fee': 0, 'cost': 0})
+        cumulative += d['net_pnl']
+        result.append({
+            'label': k,
+            'net_pnl': round(d['net_pnl']),
+            'realized_pnl': round(d['realized_pnl']),
+            'fee': round(d['fee']),
+            'cost_basis': round(d['cost']),
+            'cumulative_pnl': round(cumulative),
+        })
+
+    return jsonify(result)
+
+
 # ── API: 월별 실현손익 ───────────────────────────────────────
 @app.route('/api/investment-monthly')
 def api_investment_monthly():
