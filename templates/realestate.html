@@ -48,7 +48,7 @@
   <!-- 보유 부동산 탭 -->
   <div class="tab-pane fade show active" id="tab-re">
     <div class="d-flex justify-content-end mb-3">
-      <button class="btn btn-success btn-sm" onclick="reGrid.addRow()">
+      <button class="btn btn-success btn-sm" onclick="startAddRE()">
         <i class="bi bi-plus-lg me-1"></i>부동산 추가
       </button>
     </div>
@@ -535,6 +535,9 @@
         <div class="card bg-light border-0 mb-3">
           <div class="card-body py-2">
             <div class="fw-semibold" id="buy-name-display"></div>
+            <div id="buy-new-help" style="display:none" class="text-muted small mt-1">
+              <i class="bi bi-info-circle me-1"></i>부동산 추가 전 매수 일정을 미리 입력할 수 있습니다. 나중에 등록하려면 아래 <strong>나중에 등록</strong> 버튼을 눌러 건너뛰세요.
+            </div>
           </div>
         </div>
 
@@ -564,10 +567,22 @@
         </div>
       </div>
       <div class="modal-footer border-0 pt-0">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
-        <button type="button" class="btn btn-primary" onclick="saveBuySchedule()">
-          <i class="bi bi-check-lg me-1"></i>저장
-        </button>
+        <!-- 기존 부동산 또는 grid row에서 재입력 -->
+        <div id="buy-footer-existing" class="w-100 d-flex justify-content-end gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
+          <button type="button" class="btn btn-primary" onclick="saveBuySchedule()">
+            <i class="bi bi-check-lg me-1"></i>저장
+          </button>
+        </div>
+        <!-- 신규 부동산 추가 최초 팝업 -->
+        <div id="buy-footer-new" class="w-100 d-flex justify-content-between" style="display:none">
+          <button type="button" class="btn btn-outline-secondary" onclick="skipBuyAndAdd()">
+            <i class="bi bi-clock me-1"></i>나중에 등록
+          </button>
+          <button type="button" class="btn btn-primary" onclick="saveBuyScheduleAndAdd()">
+            <i class="bi bi-check-lg me-1"></i>저장 후 계속
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -677,9 +692,13 @@ const reGrid = new GridTable({
         onclick="event.stopPropagation();selectRE(${r.id},'${(r.name||'').replace(/'/g,"\\'")}')">
         <i class="bi bi-layout-sidebar-reverse"></i></button>` },
     { key: '_buy_sched', type: 'computed',
-      compute: r => `<button class="btn btn-sm btn-outline-primary py-0"
-          onclick="event.stopPropagation();openBuyModal(${r.id},'${(r.name||'').replace(/'/g,"\\'")}')">
-          <i class="bi bi-calendar-check me-1"></i>입력</button>` },
+      compute: r => {
+        const idParam = r.id ? r.id : "'new'";
+        const nameParam = (r.name||'').replace(/'/g,"\\'");
+        return `<button class="btn btn-sm btn-outline-primary py-0"
+            onclick="event.stopPropagation();openBuyModal(${idParam},'${nameParam}')">
+            <i class="bi bi-calendar-check me-1"></i>입력</button>`;
+      }},
     { key: '_sell', type: 'computed',
       compute: r => `<button class="btn btn-sm btn-outline-danger py-0"
         onclick="event.stopPropagation();openSellModal(${r.id},'${(r.name||'').replace(/'/g,"\\'")}',${r.purchase_price},${r.real_inv})">
@@ -1008,6 +1027,31 @@ let buyTargetId   = null;
 let buyTargetName = '';
 let _buyRows = [];
 let tempBuyRows = null; // 부동산 추가 시 임시 저장용 매수 일정
+let _isNewREAdd = false; // '부동산 추가' 버튼으로 최초 팝업된 경우
+
+function startAddRE() {
+  _isNewREAdd = true;
+  tempBuyRows = null;
+  openBuyModal('new', '');
+}
+
+function skipBuyAndAdd() {
+  tempBuyRows = null;
+  _isNewREAdd = false;
+  bootstrap.Modal.getInstance(document.getElementById('buyModal')).hide();
+  reGrid.addRow();
+}
+
+function saveBuyScheduleAndAdd() {
+  if (_buyRows.some(r => r.amount)) {
+    tempBuyRows = JSON.parse(JSON.stringify(_buyRows));
+  } else {
+    tempBuyRows = null;
+  }
+  _isNewREAdd = false;
+  bootstrap.Modal.getInstance(document.getElementById('buyModal')).hide();
+  reGrid.addRow();
+}
 
 async function openBuyModal(id, name) {
   buyTargetId   = id;
@@ -1034,6 +1078,11 @@ async function openBuyModal(id, name) {
          { type: '잔금',   scheduled: '', actual: '', amount: 0 }];
   }
   renderBuyRows();
+
+  const showNewFooter = (id === 'new') && _isNewREAdd;
+  document.getElementById('buy-footer-existing').style.display = showNewFooter ? 'none' : '';
+  document.getElementById('buy-footer-new').style.display      = showNewFooter ? '' : 'none';
+  document.getElementById('buy-new-help').style.display        = showNewFooter ? '' : 'none';
 
   bootstrap.Modal.getOrCreateInstance(document.getElementById('buyModal')).show();
 }
