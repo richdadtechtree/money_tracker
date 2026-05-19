@@ -207,6 +207,9 @@ document.querySelectorAll('#sidebar .nav-link').forEach(el => {
 
 // 앱 기동 시 랜덤 2초 팝업 처리
 document.addEventListener('DOMContentLoaded', async () => {
+  // 로그인 상태일 때만 팝업 실행
+  if (!document.getElementById('user-display-name')) return;
+  
   if (!sessionStorage.getItem('welcome_popup_shown')) {
     try {
       const res = await fetch('/api/settings');
