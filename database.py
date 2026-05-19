@@ -394,15 +394,40 @@ def init_db():
         with conn:
             with conn.cursor() as cur:
                 # 가계부 기본 카테고리 삽입
-                _budget_cats = ['식비','교통비','주거비','의료비','교육비','문화/여가','쇼핑','통신비','보험','술','기타']
+                _budget_cats = [
+                    '식비', '카페/간식', '술/유흥',
+                    '교통비', '주유/주차',
+                    '주거/관리비', '공과금/세금',
+                    '통신비', '보험',
+                    '의료/건강', '약국',
+                    '쇼핑/의류', '미용/뷰티',
+                    '교육/학원', '육아/아이',
+                    '문화/여가', '여행/숙박',
+                    '경조사/선물', '반려동물',
+                    '구독/멤버십', '저축/투자',
+                    '기타',
+                ]
                 for i, n in enumerate(_budget_cats):
                     cur.execute("INSERT INTO budget_categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING", (n, i))
                 # 주식 구분 기본값 삽입
                 _stock_cats = ['스윙','올웨더','지수투자','TQQQ','공모주','사이클','해외스윙']
                 for i, n in enumerate(_stock_cats):
                     cur.execute("INSERT INTO stock_categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING", (n, i))
-                # 기본 카테고리 삽입
-                for i, n in enumerate(['식비', '쇼핑', '교통', '의료', '문화', '기타']):
+                # 카드 거래 기본 카테고리 삽입 (budget_categories와 동일하게 맞춤)
+                _card_cats = [
+                    '식비', '카페/간식', '술/유흥',
+                    '교통비', '주유/주차',
+                    '주거/관리비', '공과금/세금',
+                    '통신비', '보험',
+                    '의료/건강', '약국',
+                    '쇼핑/의류', '미용/뷰티',
+                    '교육/학원', '육아/아이',
+                    '문화/여가', '여행/숙박',
+                    '경조사/선물', '반려동물',
+                    '구독/멤버십', '저축/투자',
+                    '기타',
+                ]
+                for i, n in enumerate(_card_cats):
                     cur.execute("INSERT INTO categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING", (n, i))
                 
                 # 기존 stocks 행을 stock_tx 매수 거래로 이전 (stock_tx가 비어있는 종목만)
