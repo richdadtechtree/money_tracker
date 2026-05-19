@@ -4505,10 +4505,65 @@ def api_fund_group_hint():
     return jsonify({'fund_group_id': fund_group_id})
 
 
-# ── 동기화 페이지 ────────────────────────────────────────────
+# ── 설정 및 동기화 페이지 ─────────────────────────────────────
+@app.route('/settings')
+def settings_page():
+    return render_template('settings.html')
+
+
 @app.route('/sync')
 def sync_page():
-    return render_template('sync.html')
+    return redirect('/settings')
+
+
+@app.route('/api/settings', methods=['GET', 'POST'])
+def api_settings():
+    db = get_db()
+    if request.method == 'GET':
+        cur = db.cursor()
+        cur.execute("SELECT key, value FROM app_settings WHERE key IN ('settings_happiness', 'settings_goals', 'settings_vision_board', 'settings_popup_config')")
+        rows = cur.fetchall()
+        cur.close()
+        db.close()
+        
+        # Defaults
+        res = {
+            'settings_happiness': [],
+            'settings_goals': {},
+            'settings_vision_board': '',
+            'settings_popup_config': {'happiness_enabled': True, 'vision_enabled': True, 'goals_enabled': True}
+        }
+        for r in rows:
+            key, val = r['key'], r['value']
+            if val:
+                try:
+                    if key in ('settings_happiness', 'settings_goals', 'settings_popup_config'):
+                        res[key] = json.loads(val)
+                    else:
+                        res[key] = val
+                except Exception:
+                    res[key] = val
+        return jsonify(res)
+    else:
+        data = request.json
+        cur = db.cursor()
+        for key in ('settings_happiness', 'settings_goals', 'settings_vision_board', 'settings_popup_config'):
+            if key in data:
+                val = data[key]
+                if key in ('settings_happiness', 'settings_goals', 'settings_popup_config'):
+                    val_str = json.dumps(val)
+                else:
+                    val_str = val
+                
+                cur.execute("SELECT 1 FROM app_settings WHERE key=%s", (key,))
+                if cur.fetchone():
+                    cur.execute("UPDATE app_settings SET value=%s WHERE key=%s", (val_str, key))
+                else:
+                    cur.execute("INSERT INTO app_settings (key, value) VALUES (%s, %s)", (key, val_str))
+        cur.close()
+        db.commit()
+        db.close()
+        return jsonify({'ok': True})
 
 
 SOURCE_FILES = [
@@ -4518,7 +4573,7 @@ SOURCE_FILES = [
     'templates/cards.html', 'templates/investments.html',
     'templates/realestate.html', 'templates/loans.html',
     'templates/pension.html', 'templates/goals.html',
-    'templates/monthly.html', 'templates/sync.html',
+    'templates/monthly.html', 'templates/settings.html',
     'templates/fund_management.html',
     'static/css/style.css', 'static/js/common.js', 'static/js/dashboard.js',
 ]

@@ -7,6 +7,59 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <link href="/static/css/style.css?v={{ APP_VERSION }}" rel="stylesheet">
+  <style>
+    #app-welcome-popup {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 10000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s ease;
+    }
+    #app-welcome-popup.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    #app-welcome-popup .popup-card {
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 20px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+      max-width: 540px;
+      width: 90%;
+      padding: 30px;
+      transform: scale(0.92);
+      transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      color: #1e293b;
+    }
+    .dark-mode #app-welcome-popup .popup-card {
+      background: rgba(30, 41, 59, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #f8fafc;
+    }
+    #app-welcome-popup.show .popup-card {
+      transform: scale(1);
+    }
+    #app-welcome-popup .popup-card .bg-light {
+      background-color: #f1f5f9 !important;
+      color: #1e293b !important;
+      border: 1px solid #e2e8f0 !important;
+    }
+    .dark-mode #app-welcome-popup .popup-card .bg-light {
+      background-color: #334155 !important;
+      color: #f8fafc !important;
+      border: 1px solid #475569 !important;
+    }
+  </style>
   {% block styles %}{% endblock %}
 </head>
 <body>
@@ -86,6 +139,10 @@
     <a href="/tech-tree" class="nav-link {% if request.path == '/tech-tree' %}active{% endif %}">
       <i class="bi bi-diagram-3"></i>자본주의 테크트리
     </a>
+    <div class="sidebar-section-label">설정</div>
+    <a href="/settings" class="nav-link {% if request.path == '/settings' %}active{% endif %}">
+      <i class="bi bi-gear"></i>설정
+    </a>
   </div>
 
   <div class="sidebar-footer">
@@ -93,9 +150,6 @@
       <i id="darkModeIcon" class="bi bi-moon-stars me-1"></i>
       <span id="darkModeLabel">다크 모드</span>
     </button>
-    <a href="/sync" class="btn btn-sm btn-outline-secondary w-100 mb-2 {% if request.path == '/sync' %}active{% endif %}">
-      <i class="bi bi-arrow-left-right me-1"></i>데이터 동기화
-    </a>
     
     {% if session.get('user') %}
     <div class="pt-2 border-top border-secondary border-opacity-25 mt-2">
@@ -126,6 +180,13 @@
   </footer>
 </div>
 
+<!-- 웰컴 설정 팝업 오버레이 -->
+<div id="app-welcome-popup">
+  <div class="popup-card">
+    <div id="popup-content-area"></div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <script src="/static/js/common.js?v={{ APP_VERSION }}"></script>
@@ -143,6 +204,85 @@ function closeSidebar() {
 // 모바일에서 메뉴 항목 클릭 시 드로어 닫기
 document.querySelectorAll('#sidebar .nav-link').forEach(el => {
   el.addEventListener('click', () => { if (window.innerWidth <= 768) closeSidebar(); });
+});
+
+// 앱 기동 시 랜덤 2초 팝업 처리
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!sessionStorage.getItem('welcome_popup_shown')) {
+    try {
+      const res = await fetch('/api/settings');
+      if (!res.ok) return;
+      const settings = await res.json();
+      
+      const config = settings.settings_popup_config || {};
+      const activePopups = [];
+      
+      // 1. 나의 행복 10계명
+      if (config.happiness_enabled && settings.settings_happiness && settings.settings_happiness.some(x => x && x.trim())) {
+        activePopups.push({ type: 'happiness', data: settings.settings_happiness });
+      }
+      // 2. 비전보드
+      if (config.vision_enabled && settings.settings_vision_board) {
+        activePopups.push({ type: 'vision', data: settings.settings_vision_board });
+      }
+      // 3. 목표
+      if (config.goals_enabled && settings.settings_goals && Object.values(settings.settings_goals).some(x => x && x.trim())) {
+        activePopups.push({ type: 'goals', data: settings.settings_goals });
+      }
+      
+      if (activePopups.length > 0) {
+        const chosen = activePopups[Math.floor(Math.random() * activePopups.length)];
+        const popupEl = document.getElementById('app-welcome-popup');
+        const contentEl = document.getElementById('popup-content-area');
+        
+        let html = '';
+        if (chosen.type === 'happiness') {
+          html = `
+            <div class="text-center">
+              <h5 class="fw-bold mb-3 text-success"><i class="bi bi-balloon-heart-fill me-2"></i>나의 행복 10계명</h5>
+              <ol class="list-group list-group-numbered list-group-flush text-start mx-auto" style="max-width: 440px; background: transparent;">
+                ${chosen.data.filter(x => x && x.trim()).map(x => `
+                  <li class="list-group-item border-0 py-1 bg-transparent" style="color: inherit; font-size: 0.9rem; padding-left: 0.5rem;">${x}</li>
+                `).join('')}
+              </ol>
+            </div>
+          `;
+        } else if (chosen.type === 'vision') {
+          html = `
+            <div class="text-center">
+              <h5 class="fw-bold mb-3 text-primary"><i class="bi bi-geo-alt-fill me-2"></i>나의 비전보드</h5>
+              <div class="d-flex justify-content-center align-items-center rounded overflow-hidden shadow-sm" style="max-height: 380px; background: rgba(0,0,0,0.03);">
+                <img src="${chosen.data}" alt="Vision Board" style="max-width: 100%; max-height: 380px; object-fit: contain;">
+              </div>
+            </div>
+          `;
+        } else if (chosen.type === 'goals') {
+          const g = chosen.data;
+          html = `
+            <div class="text-center">
+              <h5 class="fw-bold mb-3 text-warning"><i class="bi bi-trophy-fill me-2"></i>나의 성장 목표</h5>
+              <div class="row g-2 text-start small">
+                ${g.goal_1 ? `<div class="col-6"><div class="p-2 rounded bg-light border-0 h-100" style="color: inherit;"><strong class="text-warning">1년 목표</strong><p class="mb-0 mt-1" style="font-size:0.8rem; line-height:1.3;">${g.goal_1.replace(/\n/g, '<br>')}</p></div></div>` : ''}
+                ${g.goal_3 ? `<div class="col-6"><div class="p-2 rounded bg-light border-0 h-100" style="color: inherit;"><strong class="text-warning">3년 목표</strong><p class="mb-0 mt-1" style="font-size:0.8rem; line-height:1.3;">${g.goal_3.replace(/\n/g, '<br>')}</p></div></div>` : ''}
+                ${g.goal_5 ? `<div class="col-6"><div class="p-2 rounded bg-light border-0 h-100" style="color: inherit;"><strong class="text-warning">5년 목표</strong><p class="mb-0 mt-1" style="font-size:0.8rem; line-height:1.3;">${g.goal_5.replace(/\n/g, '<br>')}</p></div></div>` : ''}
+                ${g.goal_10 ? `<div class="col-6"><div class="p-2 rounded bg-light border-0 h-100" style="color: inherit;"><strong class="text-warning">10년 목표</strong><p class="mb-0 mt-1" style="font-size:0.8rem; line-height:1.3;">${g.goal_10.replace(/\n/g, '<br>')}</p></div></div>` : ''}
+              </div>
+            </div>
+          `;
+        }
+        
+        contentEl.innerHTML = html;
+        popupEl.classList.add('show');
+        sessionStorage.setItem('welcome_popup_shown', 'true');
+        
+        setTimeout(() => {
+          popupEl.classList.remove('show');
+        }, 2000);
+      }
+    } catch (e) {
+      console.error('Failed to trigger welcome popup:', e);
+    }
+  }
 });
 </script>
 {% block scripts %}{% endblock %}

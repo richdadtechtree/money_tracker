@@ -1,0 +1,832 @@
+{% extends "base.html" %}
+{% block title %}설정{% endblock %}
+
+{% block content %}
+<h2 class="mb-4 fw-bold"><i class="bi bi-gear-fill me-2 text-secondary"></i>설정 및 동기화</h2>
+
+<ul class="nav nav-tabs mb-4" id="settingsTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <a class="nav-link active" id="happiness-tab" data-bs-toggle="tab" href="#tab-happiness" role="tab">
+      <i class="bi bi-balloon-heart me-1"></i>행복 10계명
+    </a>
+  </li>
+  <li class="nav-item" role="presentation">
+    <a class="nav-link" id="vision-tab" data-bs-toggle="tab" href="#tab-vision" role="tab">
+      <i class="bi bi-geo-alt me-1"></i>비전보드
+    </a>
+  </li>
+  <li class="nav-item" role="presentation">
+    <a class="nav-link" id="goals-tab" data-bs-toggle="tab" href="#tab-goals" role="tab">
+      <i class="bi bi-trophy me-1"></i>성장 목표
+    </a>
+  </li>
+  <li class="nav-item" role="presentation">
+    <a class="nav-link" id="sync-tab" data-bs-toggle="tab" href="#tab-sync" role="tab">
+      <i class="bi bi-arrow-left-right me-1"></i>데이터 동기화
+    </a>
+  </li>
+</ul>
+
+<div class="tab-content" id="settingsTabsContent">
+  <!-- ── 1. 나의 행복 10계명 ── -->
+  <div class="tab-pane fade show active" id="tab-happiness" role="tabpanel">
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white border-0 pt-3 fw-semibold">
+        <i class="bi bi-balloon-heart-fill me-2 text-success"></i>나의 행복 10계명 설정
+      </div>
+      <div class="card-body">
+        <p class="text-muted small">나를 미소 짓게 하고 힘을 주는 10가지 가치를 적어주세요. 활성화 시 앱 기동 시 랜덤으로 노출됩니다.</p>
+        
+        <div class="form-check form-switch mb-4 p-3 bg-light rounded-3 d-flex align-items-center justify-content-between">
+          <div class="ms-1">
+            <label class="form-check-label fw-semibold cursor-pointer" for="happinessEnabledSwitch">행복 10계명 팝업 노출 활성화</label>
+            <div class="text-muted small mt-1">활성화하면 로그인/기동 시 무작위로 선택되어 2초 동안 팝업창에 나타납니다.</div>
+          </div>
+          <input class="form-check-input ms-0" type="checkbox" role="switch" id="happinessEnabledSwitch" checked style="width: 2.8rem; height: 1.4rem;">
+        </div>
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div class="input-group mb-2">
+              <span class="input-group-text bg-success-subtle text-success border-0 fw-bold">01</span>
+              <input type="text" class="form-control happiness-input" placeholder="행복을 주는 첫 번째 행동 또는 가치">
+            </div>
+            <div class="input-group mb-2">
+              <span class="input-group-text bg-success-subtle text-success border-0 fw-bold">02</span>
+              <input type="text" class="form-control happiness-input" placeholder="행복을 주는 두 번째 가치">
+            </div>
+            <div class="input-group mb-2">
+              <span class="input-group-text bg-success-subtle text-success border-0 fw-bold">03</span>
+              <input type="text" class="form-control happiness-input" placeholder="행복을 주는 세 번째 가치">
+            </div>
+            <div class="input-group mb-2">
+              <span class="input-group-text bg-success-subtle text-success border-0 fw-bold">04</span>
+              <input type="text" class="form-control happiness-input" placeholder="행복을 주는 네 번째 가치">
+            </div>
+            <div class="input-group mb-2">
+              <span class="input-group-text bg-success-subtle text-success border-0 fw-bold">05</span>
+              <input type="text" class="form-control happiness-input" placeholder="행복을 주는 다섯 번째 가치">
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="input-group mb-2">
+              <span class="input-group-text bg-success-subtle text-success border-0 fw-bold">06</span>
+              <input type="text" class="form-control happiness-input" placeholder="행복을 주는 여섯 번째 가치">
+            </div>
+            <div class="input-group mb-2">
+              <span class="input-group-text bg-success-subtle text-success border-0 fw-bold">07</span>
+              <input type="text" class="form-control happiness-input" placeholder="행복을 주는 일곱 번째 가치">
+            </div>
+            <div class="input-group mb-2">
+              <span class="input-group-text bg-success-subtle text-success border-0 fw-bold">08</span>
+              <input type="text" class="form-control happiness-input" placeholder="행복을 주는 여덟 번째 가치">
+            </div>
+            <div class="input-group mb-2">
+              <span class="input-group-text bg-success-subtle text-success border-0 fw-bold">09</span>
+              <input type="text" class="form-control happiness-input" placeholder="행복을 주는 아홉 번째 가치">
+            </div>
+            <div class="input-group mb-2">
+              <span class="input-group-text bg-success-subtle text-success border-0 fw-bold">10</span>
+              <input type="text" class="form-control happiness-input" placeholder="행복을 주는 열 번째 가치">
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4 text-end">
+          <button class="btn btn-success px-4" onclick="saveHappinessSettings()">
+            <i class="bi bi-save2 me-1"></i>행복 10계명 저장
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 2. 비전보드 ── -->
+  <div class="tab-pane fade" id="tab-vision" role="tabpanel">
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white border-0 pt-3 fw-semibold">
+        <i class="bi bi-geo-alt-fill me-2 text-primary"></i>비전보드 (이미지) 설정
+      </div>
+      <div class="card-body">
+        <p class="text-muted small">이루고 싶은 미래의 청사진이나 목표 이미지를 비전보드로 등록해 보세요. (업로드 시 이미지 크기는 자동 최적화 저장됩니다.)</p>
+
+        <div class="form-check form-switch mb-4 p-3 bg-light rounded-3 d-flex align-items-center justify-content-between">
+          <div class="ms-1">
+            <label class="form-check-label fw-semibold cursor-pointer" for="visionEnabledSwitch">비전보드 팝업 노출 활성화</label>
+            <div class="text-muted small mt-1">활성화하면 로그인/기동 시 비전보드 이미지가 2초 동안 팝업창에 나타납니다.</div>
+          </div>
+          <input class="form-check-input ms-0" type="checkbox" role="switch" id="visionEnabledSwitch" checked style="width: 2.8rem; height: 1.4rem;">
+        </div>
+
+        <div class="row g-4">
+          <div class="col-md-5">
+            <div class="border rounded-3 p-4 bg-light text-center h-100 d-flex flex-column justify-content-center align-items-center" style="border-style: dashed !important; border-width: 2px !important;">
+              <i class="bi bi-cloud-arrow-up display-5 text-primary mb-3"></i>
+              <h6 class="fw-bold">비전보드 이미지 업로드</h6>
+              <p class="text-muted small mb-3">JPG, PNG, GIF 파일 가능 (자동 해상도 최적화)</p>
+              <input type="file" id="visionFileInput" accept="image/*" class="form-control form-control-sm mb-3" onchange="handleVisionImageUpload(this)">
+              <button class="btn btn-outline-danger btn-sm w-100" onclick="clearVisionImage()">
+                <i class="bi bi-trash3 me-1"></i>이미지 삭제
+              </button>
+            </div>
+          </div>
+          <div class="col-md-7">
+            <div class="border rounded-3 p-3 bg-light d-flex justify-content-center align-items-center" style="min-height: 250px;">
+              <div id="visionBoardPreviewArea" class="text-center w-100">
+                <p class="text-muted small mb-0"><i class="bi bi-image me-1"></i>등록된 이미지가 없습니다.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4 text-end">
+          <button class="btn btn-primary px-4" onclick="saveVisionSettings()">
+            <i class="bi bi-save2 me-1"></i>비전보드 저장
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 3. 성장 목표 ── -->
+  <div class="tab-pane fade" id="tab-goals" role="tabpanel">
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white border-0 pt-3 fw-semibold">
+        <i class="bi bi-trophy-fill me-2 text-warning"></i>인생 시기별 성장 목표 설정
+      </div>
+      <div class="card-body">
+        <p class="text-muted small">각 시기별로 도달하고 싶은 구체적인 목표 자산이나 커리어, 개인적 지표를 입력해 주세요.</p>
+
+        <div class="form-check form-switch mb-4 p-3 bg-light rounded-3 d-flex align-items-center justify-content-between">
+          <div class="ms-1">
+            <label class="form-check-label fw-semibold cursor-pointer" for="goalsEnabledSwitch">성장 목표 팝업 노출 활성화</label>
+            <div class="text-muted small mt-1">활성화하면 로그인/기동 시 작성한 목표들이 2초 동안 팝업창에 나타납니다.</div>
+          </div>
+          <input class="form-check-input ms-0" type="checkbox" role="switch" id="goalsEnabledSwitch" checked style="width: 2.8rem; height: 1.4rem;">
+        </div>
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div class="card border-0 bg-light p-3 h-100">
+              <label class="form-label fw-semibold text-warning"><i class="bi bi-calendar-event me-1"></i>1년 목표</label>
+              <textarea id="goalInput1" class="form-control" rows="4" placeholder="1년 이내에 도달할 단기 목표를 작성해 주세요."></textarea>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card border-0 bg-light p-3 h-100">
+              <label class="form-label fw-semibold text-warning"><i class="bi bi-calendar3 me-1"></i>3년 목표</label>
+              <textarea id="goalInput3" class="form-control" rows="4" placeholder="3년 내외의 중단기 목표를 작성해 주세요."></textarea>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card border-0 bg-light p-3 h-100">
+              <label class="form-label fw-semibold text-warning"><i class="bi bi-calendar-range me-1"></i>5년 목표</label>
+              <textarea id="goalInput5" class="form-control" rows="4" placeholder="5년 내외의 중기 목표를 작성해 주세요."></textarea>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card border-0 bg-light p-3 h-100">
+              <label class="form-label fw-semibold text-warning"><i class="bi bi-star-fill me-1"></i>10년 목표</label>
+              <textarea id="goalInput10" class="form-control" rows="4" placeholder="10년 이내의 장기적인 목표를 작성해 주세요."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4 text-end">
+          <button class="btn btn-warning px-4 text-dark fw-semibold" onclick="saveGoalsSettings()">
+            <i class="bi bi-save2 me-1"></i>목표 저장
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 4. 데이터 동기화 (기존 sync.html 이동) ── -->
+  <div class="tab-pane fade" id="tab-sync" role="tabpanel">
+    <ul class="nav nav-pills mb-3 gap-2" id="syncSubTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active btn-sm" data-bs-toggle="tab" data-bs-target="#sub-backup" type="button"><i class="bi bi-cloud-arrow-down me-1"></i>백업 / 복구</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link btn-sm" data-bs-toggle="tab" data-bs-target="#sub-data" type="button"><i class="bi bi-database me-1"></i>데이터 (텍스트)</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link btn-sm" data-bs-toggle="tab" data-bs-target="#sub-source" type="button"><i class="bi bi-code-slash me-1"></i>소스 코드</button>
+      </li>
+    </ul>
+
+    <div class="tab-content p-3 border rounded-3 bg-white text-dark">
+      <!-- 백업/복구 -->
+      <div class="tab-pane fade show active" id="sub-backup" role="tabpanel">
+        <div class="row g-4">
+          <div class="col-md-6">
+            <div class="card border-0 bg-light h-100 p-2">
+              <div class="card-header bg-transparent border-0 fw-semibold text-success">
+                <i class="bi bi-cloud-arrow-down me-2"></i>백업 — JSON 파일로 저장
+              </div>
+              <div class="card-body d-flex flex-column pt-1">
+                <p class="text-muted small mb-4">
+                  현재 모든 데이터(주식·ETF·코인·지출·수입·대출 등)를 <strong>.json 파일</strong>로 다운로드합니다.
+                </p>
+                <div class="mt-auto">
+                  <button class="btn btn-success fw-semibold w-100" onclick="doBackup()">
+                    <i class="bi bi-download me-1"></i>백업 파일 다운로드
+                  </button>
+                  <p class="text-muted small mt-2 mb-0" id="backupStatus"></p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card border-0 bg-light h-100 p-2">
+              <div class="card-header bg-transparent border-0 fw-semibold text-warning">
+                <i class="bi bi-cloud-arrow-up me-2"></i>복구 — 백업 파일로 덮어쓰기
+              </div>
+              <div class="card-body d-flex flex-column pt-1">
+                <p class="text-muted small mb-3">
+                  이전에 저장한 <strong>.json 백업 파일</strong>을 선택하면 현재 데이터가 <span class="text-danger fw-semibold">전부 교체</span>됩니다.
+                </p>
+                <div class="mb-3">
+                  <input type="file" id="restoreFile" accept=".json" class="form-control">
+                </div>
+                <div class="mt-auto">
+                  <button class="btn btn-warning fw-semibold w-100" onclick="doRestore()">
+                    <i class="bi bi-arrow-clockwise me-1"></i>복구 시작 (데이터 교체)
+                  </button>
+                  <div id="restoreStatus" class="mt-2 small"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card border-danger border-0 mt-4 p-2" style="border-left: 4px solid #dc3545 !important; background: #fff8f8;">
+          <div class="card-header bg-transparent border-0 fw-semibold text-danger">
+            <i class="bi bi-trash3-fill me-2"></i>데이터 초기화 — 모든 데이터 삭제
+          </div>
+          <div class="card-body pt-1">
+            <p class="text-muted small mb-3">모든 거래 내역, 자산 정보, 설정을 <strong class="text-danger">영구적으로 삭제</strong>합니다.</p>
+            <button class="btn btn-outline-danger fw-semibold" onclick="openResetModal()">
+              <i class="bi bi-trash3 me-1"></i>초기화
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 데이터 (텍스트) -->
+      <div class="tab-pane fade" id="sub-data" role="tabpanel">
+        <div class="row g-4">
+          <div class="col-12">
+            <div class="card border-0 bg-light p-2">
+              <div class="card-header bg-transparent border-0 fw-semibold text-success">
+                <i class="bi bi-box-arrow-up me-2"></i>내보내기 — 이 컴퓨터 데이터를 복사
+              </div>
+              <div class="card-body pt-1">
+                <p class="text-muted small mb-3">버튼을 누르면 전체 데이터가 텍스트로 생성됩니다. 전체 복사 후 다른 기기에 전송/가져오기 하세요.</p>
+                <button class="btn btn-success mb-3" onclick="doExport('data')">
+                  <i class="bi bi-download me-1"></i>데이터 불러오기
+                </button>
+                <div id="exportDataArea" style="display:none">
+                  <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-muted small" id="exportDataInfo"></span>
+                    <button class="btn btn-sm btn-outline-success" onclick="copyText('exportDataText', this)">
+                      <i class="bi bi-clipboard me-1"></i>전체 복사
+                    </button>
+                  </div>
+                  <textarea id="exportDataText" class="form-control font-monospace" rows="10" readonly style="font-size:0.75rem; resize:vertical"></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="card border-0 bg-light p-2">
+              <div class="card-header bg-transparent border-0 fw-semibold text-warning">
+                <i class="bi bi-box-arrow-in-down me-2"></i>가져오기 — 복사한 데이터로 교체
+              </div>
+              <div class="card-body pt-1">
+                <p class="text-muted small mb-2">다른 컴퓨터에서 복사한 텍스트를 붙여넣고 가져오기를 누르세요.</p>
+                <textarea id="importDataText" class="form-control font-monospace mb-3" rows="10" placeholder="여기에 붙여넣기 (Ctrl+V)..." style="font-size:0.75rem; resize:vertical"></textarea>
+                <button class="btn btn-warning fw-semibold" onclick="doImport('data')">
+                  <i class="bi bi-arrow-clockwise me-1"></i>가져오기 (데이터 교체)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 소스 코드 -->
+      <div class="tab-pane fade" id="sub-source" role="tabpanel">
+        <div class="alert alert-info border-0 d-flex gap-2 mb-3">
+          <i class="bi bi-info-circle-fill mt-1"></i>
+          <div>소스 코드를 가져온 후 <strong>서버를 재시작</strong>해야 변경사항이 적용됩니다.</div>
+        </div>
+        <div class="row g-4">
+          <div class="col-12">
+            <div class="card border-0 bg-light p-2">
+              <div class="card-header bg-transparent border-0 fw-semibold text-primary">
+                <i class="bi bi-box-arrow-up me-2"></i>내보내기 — 이 컴퓨터 소스 코드를 복사
+              </div>
+              <div class="card-body pt-1">
+                <button class="btn btn-primary mb-3" onclick="doExport('source')">
+                  <i class="bi bi-download me-1"></i>소스 불러오기
+                </button>
+                <div id="exportSourceArea" style="display:none">
+                  <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-muted small" id="exportSourceInfo"></span>
+                    <button class="btn btn-sm btn-outline-primary" onclick="copyText('exportSourceText', this)">
+                      <i class="bi bi-clipboard me-1"></i>전체 복사
+                    </button>
+                  </div>
+                  <textarea id="exportSourceText" class="form-control font-monospace" rows="10" readonly style="font-size:0.75rem; resize:vertical"></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="card border-0 bg-light p-2">
+              <div class="card-header bg-transparent border-0 fw-semibold text-danger">
+                <i class="bi bi-box-arrow-in-down me-2"></i>가져오기 — 복사한 소스로 파일 교체
+              </div>
+              <div class="card-body pt-1">
+                <textarea id="importSourceText" class="form-control font-monospace mb-3" rows="8" placeholder="여기에 붙여넣기 (Ctrl+V)..." style="font-size:0.75rem; resize:vertical"></textarea>
+                <button class="btn btn-outline-primary fw-semibold" onclick="compareSource()">
+                  <i class="bi bi-search me-1"></i>비교하기
+                </button>
+
+                <div id="compareResult" style="display:none" class="mt-4">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-semibold small" id="compareResultTitle"></span>
+                    <div class="d-flex gap-2">
+                      <button class="btn btn-sm btn-outline-secondary" onclick="toggleAllFiles(true)">전체 선택</button>
+                      <button class="btn btn-sm btn-outline-secondary" onclick="toggleAllFiles(false)">전체 해제</button>
+                    </div>
+                  </div>
+                  <div class="table-responsive mb-3">
+                    <table class="table table-sm table-hover mb-0 border rounded">
+                      <thead class="table-light">
+                        <tr>
+                          <th class="text-center" style="width:40px">선택</th>
+                          <th>파일</th>
+                          <th class="text-center" style="width:80px">상태</th>
+                          <th class="text-end" style="width:80px">크기</th>
+                        </tr>
+                      </thead>
+                      <tbody id="compareFileList"></tbody>
+                    </table>
+                  </div>
+                  <button class="btn btn-danger fw-semibold" onclick="importSelected()">
+                    <i class="bi bi-arrow-clockwise me-1"></i>선택한 파일만 가져오기
+                  </button>
+                  <span class="text-muted small ms-2" id="selectedCount"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 초기화 확인 모달 -->
+<div class="modal fade" id="resetModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-danger">
+      <div class="modal-header bg-danger text-white border-0">
+        <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill me-2"></i>데이터 초기화</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-danger fw-semibold">경고: 이 작업은 되돌릴 수 없습니다!</p>
+        <p class="text-muted small mb-3">모든 데이터가 영구 삭제됩니다.</p>
+        <label class="form-label fw-semibold">확인을 위해 <code>초기화</code>를 입력하세요:</label>
+        <input type="text" id="resetConfirmInput" class="form-control" placeholder="초기화" autocomplete="off">
+        <div id="resetModalStatus" class="mt-2 small"></div>
+      </div>
+      <div class="modal-footer border-0">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+        <button type="button" class="btn btn-danger fw-semibold" id="resetConfirmBtn" onclick="doReset()">
+          <i class="bi bi-trash3 me-1"></i>초기화 실행
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 전역 설정 데이터 캐시
+let currentSettings = {
+  settings_happiness: [],
+  settings_goals: {},
+  settings_vision_board: '',
+  settings_popup_config: {happiness_enabled: true, vision_enabled: true, goals_enabled: true}
+};
+
+// 페이지 로드 시 기존 설정 데이터 로드
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadAllSettings();
+  await initSyncPage();
+});
+
+async function loadAllSettings() {
+  try {
+    const data = await fetchJSON('/api/settings');
+    if (!data) return;
+    currentSettings = data;
+    
+    // 1. 행복 10계명 바인딩
+    const hInputs = document.querySelectorAll('.happiness-input');
+    const happinessArr = currentSettings.settings_happiness || [];
+    hInputs.forEach((inp, idx) => {
+      inp.value = happinessArr[idx] || '';
+    });
+    document.getElementById('happinessEnabledSwitch').checked = !!currentSettings.settings_popup_config?.happiness_enabled;
+    
+    // 2. 비전보드 바인딩
+    document.getElementById('visionEnabledSwitch').checked = !!currentSettings.settings_popup_config?.vision_enabled;
+    renderVisionBoardPreview(currentSettings.settings_vision_board);
+    
+    // 3. 목표 관리 바인딩
+    document.getElementById('goalsEnabledSwitch').checked = !!currentSettings.settings_popup_config?.goals_enabled;
+    const g = currentSettings.settings_goals || {};
+    document.getElementById('goalInput1').value = g.goal_1 || '';
+    document.getElementById('goalInput3').value = g.goal_3 || '';
+    document.getElementById('goalInput5').value = g.goal_5 || '';
+    document.getElementById('goalInput10').value = g.goal_10 || '';
+    
+  } catch (e) {
+    console.error('Failed to load settings:', e);
+  }
+}
+
+// ── 행복 10계명 저장 ──
+async function saveHappinessSettings() {
+  const hInputs = document.querySelectorAll('.happiness-input');
+  const happiness = Array.from(hInputs).map(inp => inp.value.trim());
+  const happiness_enabled = document.getElementById('happinessEnabledSwitch').checked;
+  
+  const payload = {
+    settings_happiness: happiness,
+    settings_popup_config: {
+      ...currentSettings.settings_popup_config,
+      happiness_enabled
+    }
+  };
+  
+  const res = await fetchJSON('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  if (res?.ok) {
+    alert('행복 10계명이 저장되었습니다.');
+    await loadAllSettings();
+  } else {
+    alert('저장에 실패하였습니다.');
+  }
+}
+
+// ── 비전보드 처리 ──
+let visionBoardBase64 = '';
+
+function renderVisionBoardPreview(base64) {
+  const preview = document.getElementById('visionBoardPreviewArea');
+  if (base64) {
+    visionBoardBase64 = base64;
+    preview.innerHTML = `<img src="${base64}" alt="Vision Board" class="img-fluid rounded shadow-sm" style="max-height: 250px; object-fit: contain;">`;
+  } else {
+    visionBoardBase64 = '';
+    preview.innerHTML = `<p class="text-muted small mb-0"><i class="bi bi-image me-1"></i>등록된 이미지가 없습니다.</p>`;
+  }
+}
+
+function handleVisionImageUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  
+  // 브라우저에서 이미지 압축 후 Base64 인코딩
+  compressImage(file, 800, 800, (compressedBase64) => {
+    renderVisionBoardPreview(compressedBase64);
+  });
+}
+
+function compressImage(file, maxW, maxH, callback) {
+  const reader = new FileReader();
+  reader.readAsDataURL(file);
+  reader.onload = event => {
+    const img = new Image();
+    img.src = event.target.result;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+      
+      if (width > height) {
+        if (width > maxW) {
+          height = Math.round((height * maxW) / width);
+          width = maxW;
+        }
+      } else {
+        if (height > maxH) {
+          width = Math.round((width * maxH) / height);
+          height = maxH;
+        }
+      }
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+      callback(dataUrl);
+    };
+  };
+}
+
+function clearVisionImage() {
+  document.getElementById('visionFileInput').value = '';
+  renderVisionBoardPreview('');
+}
+
+async function saveVisionSettings() {
+  const vision_enabled = document.getElementById('visionEnabledSwitch').checked;
+  const payload = {
+    settings_vision_board: visionBoardBase64,
+    settings_popup_config: {
+      ...currentSettings.settings_popup_config,
+      vision_enabled
+    }
+  };
+  
+  const res = await fetchJSON('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  if (res?.ok) {
+    alert('비전보드가 저장되었습니다.');
+    await loadAllSettings();
+  } else {
+    alert('저장에 실패하였습니다.');
+  }
+}
+
+// ── 성장 목표 저장 ──
+async function saveGoalsSettings() {
+  const goal_1 = document.getElementById('goalInput1').value.trim();
+  const goal_3 = document.getElementById('goalInput3').value.trim();
+  const goal_5 = document.getElementById('goalInput5').value.trim();
+  const goal_10 = document.getElementById('goalInput10').value.trim();
+  const goals_enabled = document.getElementById('goalsEnabledSwitch').checked;
+  
+  const payload = {
+    settings_goals: { goal_1, goal_3, goal_5, goal_10 },
+    settings_popup_config: {
+      ...currentSettings.settings_popup_config,
+      goals_enabled
+    }
+  };
+  
+  const res = await fetchJSON('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  if (res?.ok) {
+    alert('성장 목표가 저장되었습니다.');
+    await loadAllSettings();
+  } else {
+    alert('저장에 실패하였습니다.');
+  }
+}
+
+
+// ── 기존 동기화 기능 스크립트 ──
+
+async function initSyncPage() {
+  const rate = await fetchJSON('/api/exchange-rate');
+  if (rate?.rate && document.getElementById('usdkrw-badge')) {
+    document.getElementById('usdkrw-badge').textContent = `USD/KRW ${rate.rate.toLocaleString('ko-KR')}`;
+  }
+}
+
+async function doBackup() {
+  const btn = event.target;
+  const status = document.getElementById('backupStatus');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>준비 중...';
+  status.textContent = '';
+  try {
+    const res = await fetch('/api/backup');
+    if (!res.ok) throw new Error('서버 오류 ' + res.status);
+    const blob = await res.blob();
+    const cd   = res.headers.get('Content-Disposition') || '';
+    const name = cd.match(/filename="([^"]+)"/)?.[1] || 'money_backup.json';
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = name; a.click();
+    URL.revokeObjectURL(url);
+    const kb = Math.round(blob.size / 1024);
+    status.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>${name} (${kb} KB) 저장됨</span>`;
+  } catch(e) {
+    status.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-download me-1"></i>백업 파일 다운로드';
+  }
+}
+
+async function doRestore() {
+  const file = document.getElementById('restoreFile').files[0];
+  const status = document.getElementById('restoreStatus');
+  if (!file) { status.innerHTML = '<span class="text-danger">파일을 선택하세요.</span>'; return; }
+  if (!file.name.endsWith('.json')) { status.innerHTML = '<span class="text-danger">JSON 파일만 지원합니다.</span>'; return; }
+  if (!confirm(`⚠️ 현재 모든 데이터가 삭제되고 "${file.name}" 로 교체됩니다.\n\n계속하시겠습니까?`)) return;
+
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>복구 중...';
+  status.innerHTML = '<span class="text-muted">데이터를 복구하고 있습니다...</span>';
+
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res  = await fetch('/api/restore', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.ok) {
+      status.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>복구 완료 (총 ${data.restored_rows.toLocaleString()}행). 대시보드로 이동합니다.</span>`;
+      setTimeout(() => location.href = '/', 2000);
+    } else {
+      status.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.error}</span>`;
+    }
+  } catch(e) {
+    status.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>요청 실패: ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>복구 시작 (데이터 교체)';
+  }
+}
+
+async function doExport(type) {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>불러오는 중...';
+
+  const url   = type === 'data' ? '/api/export-text' : '/api/export-source';
+  const data  = await fetchJSON(url);
+  const text  = type === 'data' ? data.sql : JSON.stringify(data.files);
+  const lines = text.split('\n').length;
+  const kb    = Math.round(text.length / 1024);
+
+  document.getElementById(`export${cap(type)}Info`).textContent = `${lines.toLocaleString()}줄 / 약 ${kb} KB`;
+  document.getElementById(`export${cap(type)}Text`).value = text;
+  document.getElementById(`export${cap(type)}Area`).style.display = 'block';
+  document.getElementById(`export${cap(type)}Text`).select();
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-download me-1"></i>' + (type === 'data' ? '데이터' : '소스') + ' 불러오기';
+}
+
+async function doImport(type) {
+  const text = document.getElementById(`import${cap(type)}Text`).value.trim();
+  if (!text) { alert('텍스트를 붙여넣어 주세요.'); return; }
+
+  if (!confirm(`현재 데이터를 교체합니다. 계속할까요?`)) return;
+
+  const url  = '/api/import-text';
+  const body = JSON.stringify({ sql: text });
+
+  const res = await fetchJSON(url, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body
+  });
+
+  if (res?.ok) {
+    alert('데이터 가져오기 완료! 대시보드로 이동합니다.');
+    location.href = '/';
+  } else {
+    alert('오류: ' + (res?.error || '알 수 없는 오류'));
+  }
+}
+
+let parsedSourceFiles = {};
+
+async function compareSource() {
+  const text = document.getElementById('importSourceText').value.trim();
+  if (!text) { alert('텍스트를 붙여넣어 주세요.'); return; }
+
+  let files;
+  try { files = JSON.parse(text); }
+  catch { alert('텍스트 형식이 올바르지 않습니다.'); return; }
+
+  parsedSourceFiles = files;
+
+  const res = await fetchJSON('/api/compare-source', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ files }),
+  });
+  if (!Array.isArray(res)) { alert('비교 중 오류가 발생했습니다.'); return; }
+
+  const statusLabel = { changed: '변경됨', new: '신규', same: '동일' };
+  const statusClass = { changed: 'text-warning fw-semibold', new: 'text-success fw-semibold', same: 'text-muted' };
+
+  const changed = res.filter(r => r.status !== 'same');
+  document.getElementById('compareResultTitle').textContent =
+    `총 ${res.length}개 파일 중 변경 ${changed.length}개, 신규 ${res.filter(r=>r.status==='new').length}개, 동일 ${res.filter(r=>r.status==='same').length}개`;
+
+  document.getElementById('compareFileList').innerHTML = res.map(r => `
+    <tr class="${r.status === 'same' ? 'text-muted' : ''}">
+      <td class="text-center">
+        <input type="checkbox" class="form-check-input file-cb" data-file="${r.file}"
+          ${r.status !== 'same' ? 'checked' : ''} onchange="updateSelectedCount()">
+      </td>
+      <td class="font-monospace small">${r.file}</td>
+      <td class="text-center small ${statusClass[r.status]}">${statusLabel[r.status]}</td>
+      <td class="text-end small text-muted">${(r.size / 1024).toFixed(1)} KB</td>
+    </tr>`).join('');
+
+  document.getElementById('compareResult').style.display = '';
+  updateSelectedCount();
+}
+
+function toggleAllFiles(checked) {
+  document.querySelectorAll('.file-cb').forEach(cb => cb.checked = checked);
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  const count = document.querySelectorAll('.file-cb:checked').length;
+  document.getElementById('selectedCount').textContent = `${count}개 파일 선택됨`;
+}
+
+async function importSelected() {
+  const selected = [...document.querySelectorAll('.file-cb:checked')].map(cb => cb.dataset.file);
+  if (!selected.length) { alert('가져올 파일을 선택해주세요.'); return; }
+  if (!confirm(`선택한 ${selected.length}개 파일을 교체합니다. 계속할까요?`)) return;
+
+  const filesToImport = Object.fromEntries(
+    selected.map(f => [f, parsedSourceFiles[f]])
+  );
+
+  const res = await fetchJSON('/api/import-source', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ files: filesToImport }),
+  });
+
+  if (res?.ok) {
+    alert(`소스 ${res.count}개 파일 교체 완료!\n\n터미널에서 서버를 재시작하세요.\n(Ctrl+C → python app.py)`);
+  } else {
+    alert('오류: ' + (res?.error || '알 수 없는 오류'));
+  }
+}
+
+async function copyText(id, btn) {
+  const ta = document.getElementById(id);
+  ta.select();
+  try { await navigator.clipboard.writeText(ta.value); }
+  catch { document.execCommand('copy'); }
+  btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>복사됨!';
+  setTimeout(() => btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>전체 복사', 2000);
+}
+
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+function openResetModal() {
+  document.getElementById('resetConfirmInput').value = '';
+  document.getElementById('resetModalStatus').innerHTML = '';
+  document.getElementById('resetConfirmBtn').disabled = false;
+  document.getElementById('resetConfirmBtn').innerHTML = '<i class="bi bi-trash3 me-1"></i>초기화 실행';
+  new bootstrap.Modal(document.getElementById('resetModal')).show();
+}
+
+async function doReset() {
+  const input  = document.getElementById('resetConfirmInput').value.trim();
+  const status = document.getElementById('resetModalStatus');
+  if (input !== '초기화') {
+    status.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle me-1"></i>"초기화"를 정확히 입력해야 합니다.</span>';
+    return;
+  }
+  const btn = document.getElementById('resetConfirmBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>초기화 중...';
+  status.innerHTML = '<span class="text-muted">데이터를 삭제하고 있습니다...</span>';
+  try {
+    const res  = await fetch('/api/reset', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      status.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>초기화 완료. 대시보드로 이동합니다.</span>';
+      setTimeout(() => location.href = '/', 1500);
+    } else {
+      status.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.error}</span>`;
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-trash3 me-1"></i>초기화 실행';
+    }
+  } catch(e) {
+    status.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>요청 실패: ${e.message}</span>`;
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-trash3 me-1"></i>초기화 실행';
+  }
+}
+</script>
+{% endblock %}
