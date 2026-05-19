@@ -10,10 +10,17 @@
 <div id="expiringBanner" style="display:none" class="mb-3"></div>
 
 <!-- 요약 카드 -->
+<div class="d-flex justify-content-end mb-2">
+  <div class="btn-group btn-group-sm" role="group">
+    <button type="button" class="btn btn-outline-success active" data-summary-mode="current" onclick="setSummaryMode('current')">현보유</button>
+    <button type="button" class="btn btn-outline-success" data-summary-mode="sold" onclick="setSummaryMode('sold')">과거 투자</button>
+    <button type="button" class="btn btn-outline-success" data-summary-mode="all" onclick="setSummaryMode('all')">총 합산</button>
+  </div>
+</div>
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm text-center py-3">
-      <div class="text-muted small mb-1">전체 물건</div>
+      <div class="text-muted small mb-1" id="s-label-count">전체 물건</div>
       <div class="fs-4 fw-bold" id="s-count">-</div>
     </div>
   </div>
@@ -25,13 +32,13 @@
   </div>
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm text-center py-3">
-      <div class="text-muted small mb-1">총 순손익</div>
+      <div class="text-muted small mb-1" id="s-label-gain">총 순손익</div>
       <div class="fs-5 fw-bold" id="s-netgain">-</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="card border-0 shadow-sm text-center py-3">
-      <div class="text-muted small mb-1">평균 실수익률</div>
+      <div class="text-muted small mb-1" id="s-label-roi">평균 실수익률</div>
       <div class="fs-4 fw-bold" id="s-roi">-</div>
     </div>
   </div>
@@ -601,22 +608,70 @@ let currentReName = null;
 let soldREList    = [];
 
 // ── 요약 & 배너 ──────────────────────────────────────────
+let _summaryMode = 'current';
+let _summaryData = { current: null, sold: null };
+
 async function loadSummary() {
-  const [summary, expiring] = await Promise.all([
+  const [current, sold, expiring] = await Promise.all([
     fetchJSON('/api/re-summary'),
+    fetchJSON('/api/re-summary-sold'),
     fetchJSON('/api/re-expiring'),
   ]);
-  if (summary) {
-    document.getElementById('s-count').textContent   = summary.count + '개';
-    document.getElementById('s-realinv').textContent = fmt(summary.total_real_inv) + '원';
-    const gainEl = document.getElementById('s-netgain');
-    gainEl.textContent = (summary.total_net_gain >= 0 ? '+' : '') + fmt(summary.total_net_gain) + '원';
-    gainEl.className   = 'fs-5 fw-bold ' + (summary.total_net_gain >= 0 ? 'text-danger' : 'text-primary');
-    const roiEl = document.getElementById('s-roi');
-    roiEl.textContent = summary.avg_roi != null ? (summary.avg_roi >= 0 ? '+' : '') + summary.avg_roi + '%' : '-';
-    roiEl.className   = 'fs-4 fw-bold ' + ((summary.avg_roi ?? 0) >= 0 ? 'text-danger' : 'text-primary');
-  }
+  _summaryData.current = current;
+  _summaryData.sold    = sold;
+  renderSummaryCards();
   renderExpiringBanner(expiring || []);
+}
+
+function setSummaryMode(mode) {
+  _summaryMode = mode;
+  document.querySelectorAll('[data-summary-mode]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.summaryMode === mode);
+  });
+  renderSummaryCards();
+}
+
+function renderSummaryCards() {
+  const c = _summaryData.current || {};
+  const s = _summaryData.sold    || {};
+
+  let count, realinv, gain, roi, labelCount, labelGain, labelRoi;
+
+  if (_summaryMode === 'current') {
+    count = c.count; realinv = c.total_real_inv; gain = c.total_net_gain; roi = c.avg_roi;
+    labelCount = '전체 물건 (보유)'; labelGain = '총 순손익 (평가)'; labelRoi = '평균 실수익률';
+  } else if (_summaryMode === 'sold') {
+    count = s.count; realinv = s.total_real_inv; gain = s.total_profit; roi = s.avg_roi;
+    labelCount = '매도 물건 (과거)'; labelGain = '총 실현 차익'; labelRoi = '평균 수익률';
+  } else {
+    count   = (c.count || 0) + (s.count || 0);
+    realinv = (c.total_real_inv || 0) + (s.total_real_inv || 0);
+    gain    = (c.total_net_gain || 0) + (s.total_profit   || 0);
+    roi     = realinv > 0 ? Math.round(gain / realinv * 1000) / 10 : null;
+    labelCount = '전체 물건 (보유+매도)'; labelGain = '총 손익 (평가+실현)'; labelRoi = '평균 수익률';
+  }
+
+  document.getElementById('s-label-count').textContent = labelCount;
+  document.getElementById('s-label-gain').textContent  = labelGain;
+  document.getElementById('s-label-roi').textContent   = labelRoi;
+  document.getElementById('s-count').textContent       = count != null ? count + '개' : '-';
+  document.getElementById('s-realinv').textContent     = realinv != null ? fmt(realinv) + '원' : '-';
+
+  const gainEl = document.getElementById('s-netgain');
+  if (gain != null) {
+    gainEl.textContent = (gain >= 0 ? '+' : '') + fmt(gain) + '원';
+    gainEl.className   = 'fs-5 fw-bold ' + (gain >= 0 ? 'text-danger' : 'text-primary');
+  } else {
+    gainEl.textContent = '-'; gainEl.className = 'fs-5 fw-bold';
+  }
+
+  const roiEl = document.getElementById('s-roi');
+  if (roi != null) {
+    roiEl.textContent = (roi >= 0 ? '+' : '') + roi + '%';
+    roiEl.className   = 'fs-4 fw-bold ' + (roi >= 0 ? 'text-danger' : 'text-primary');
+  } else {
+    roiEl.textContent = '-'; roiEl.className = 'fs-4 fw-bold';
+  }
 }
 
 function renderExpiringBanner(list) {

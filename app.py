@@ -2130,6 +2130,27 @@ def api_re_summary():
     })
 
 
+@app.route('/api/re-summary-sold')
+def api_re_summary_sold():
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT real_inv, profit FROM sold_real_estate")
+    rows = cur.fetchall()
+    cur.execute("SELECT COUNT(*) AS cnt FROM sold_real_estate")
+    cnt = cur.fetchone()['cnt']
+    cur.close(); db.close()
+    data = rows_to_list(rows)
+    total_real_inv = sum(r.get('real_inv') or 0 for r in data)
+    total_profit   = sum(r.get('profit')   or 0 for r in data)
+    avg_roi = round(total_profit / total_real_inv * 100, 1) if total_real_inv > 0 else None
+    return jsonify({
+        'count':         cnt,
+        'total_real_inv': total_real_inv,
+        'total_profit':   total_profit,
+        'avg_roi':        avg_roi,
+    })
+
+
 @app.route('/api/re-expiring')
 def api_re_expiring():
     """3개월 이내 만료 계약 목록"""
