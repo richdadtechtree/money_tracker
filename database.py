@@ -381,6 +381,31 @@ def init_db():
         "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo) "
         "SELECT id, COALESCE(NULLIF(buy_date,''), TO_CHAR(NOW(),'YYYY-MM-DD')), 'buy', buy_price, quantity, 0, '기존데이터' "
         "FROM etf WHERE quantity > 0 AND id NOT IN (SELECT DISTINCT etf_id FROM etf_tx)",
+        # 기존 stocks 행을 stock_tx 매수 거래로 이전
+        "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo) "
+        "SELECT id, buy_date, 'buy', buy_price, quantity, 0, '기존데이터' "
+        "FROM stocks WHERE (buy_date IS NOT NULL AND buy_date != '') AND quantity > 0 "
+        "AND id NOT IN (SELECT DISTINCT stock_id FROM stock_tx)",
+        # 가계부 기본 카테고리
+        "INSERT INTO budget_categories (name, sort_order) VALUES "
+        "('식비',0),('카페/간식',1),('술/유흥',2),('교통비',3),('주유/주차',4),"
+        "('주거/관리비',5),('공과금/세금',6),('통신비',7),('보험',8),"
+        "('의료/건강',9),('약국',10),('쇼핑/의류',11),('미용/뷰티',12),"
+        "('교육/학원',13),('육아/아이',14),('문화/여가',15),('여행/숙박',16),"
+        "('경조사/선물',17),('반려동물',18),('구독/멤버십',19),('저축/투자',20),('기타',21) "
+        "ON CONFLICT (name) DO NOTHING",
+        # 카드 거래 기본 카테고리
+        "INSERT INTO categories (name, sort_order) VALUES "
+        "('식비',0),('카페/간식',1),('술/유흥',2),('교통비',3),('주유/주차',4),"
+        "('주거/관리비',5),('공과금/세금',6),('통신비',7),('보험',8),"
+        "('의료/건강',9),('약국',10),('쇼핑/의류',11),('미용/뷰티',12),"
+        "('교육/학원',13),('육아/아이',14),('문화/여가',15),('여행/숙박',16),"
+        "('경조사/선물',17),('반려동물',18),('구독/멤버십',19),('저축/투자',20),('기타',21) "
+        "ON CONFLICT (name) DO NOTHING",
+        # 주식 구분 기본값
+        "INSERT INTO stock_categories (name, sort_order) VALUES "
+        "('스윙',0),('올웨더',1),('지수투자',2),('TQQQ',3),('공모주',4),('사이클',5),('해외스윙',6) "
+        "ON CONFLICT (name) DO NOTHING",
     ]
     for sql in migrations:
         try:
@@ -389,57 +414,5 @@ def init_db():
                     cur.execute(sql)
         except psycopg2.Error:
             pass  # 이미 존재하면 무시
-
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                # 가계부 기본 카테고리 삽입
-                _budget_cats = [
-                    '식비', '카페/간식', '술/유흥',
-                    '교통비', '주유/주차',
-                    '주거/관리비', '공과금/세금',
-                    '통신비', '보험',
-                    '의료/건강', '약국',
-                    '쇼핑/의류', '미용/뷰티',
-                    '교육/학원', '육아/아이',
-                    '문화/여가', '여행/숙박',
-                    '경조사/선물', '반려동물',
-                    '구독/멤버십', '저축/투자',
-                    '기타',
-                ]
-                for i, n in enumerate(_budget_cats):
-                    cur.execute("INSERT INTO budget_categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING", (n, i))
-                # 주식 구분 기본값 삽입
-                _stock_cats = ['스윙','올웨더','지수투자','TQQQ','공모주','사이클','해외스윙']
-                for i, n in enumerate(_stock_cats):
-                    cur.execute("INSERT INTO stock_categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING", (n, i))
-                # 카드 거래 기본 카테고리 삽입 (budget_categories와 동일하게 맞춤)
-                _card_cats = [
-                    '식비', '카페/간식', '술/유흥',
-                    '교통비', '주유/주차',
-                    '주거/관리비', '공과금/세금',
-                    '통신비', '보험',
-                    '의료/건강', '약국',
-                    '쇼핑/의류', '미용/뷰티',
-                    '교육/학원', '육아/아이',
-                    '문화/여가', '여행/숙박',
-                    '경조사/선물', '반려동물',
-                    '구독/멤버십', '저축/투자',
-                    '기타',
-                ]
-                for i, n in enumerate(_card_cats):
-                    cur.execute("INSERT INTO categories (name, sort_order) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING", (n, i))
-                
-                # 기존 stocks 행을 stock_tx 매수 거래로 이전 (stock_tx가 비어있는 종목만)
-                cur.execute("""
-                    INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo)
-                    SELECT id, buy_date, 'buy', buy_price, quantity, 0, '기존데이터'
-                    FROM stocks
-                    WHERE (buy_date IS NOT NULL AND buy_date != '')
-                      AND quantity > 0
-                      AND id NOT IN (SELECT DISTINCT stock_id FROM stock_tx)
-                """)
-    except psycopg2.Error:
-        pass
 
     conn.close()
