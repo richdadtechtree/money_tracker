@@ -139,10 +139,6 @@
     <a href="/tech-tree" class="nav-link {% if request.path == '/tech-tree' %}active{% endif %}">
       <i class="bi bi-diagram-3"></i>자본주의 테크트리
     </a>
-    <div class="sidebar-section-label">기타</div>
-    <a href="/settings" class="nav-link {% if request.path == '/settings' %}active{% endif %}">
-      <i class="bi bi-gear"></i>설정
-    </a>
   </div>
 
   <div class="sidebar-footer">
@@ -150,6 +146,9 @@
       <i id="darkModeIcon" class="bi bi-moon-stars me-1"></i>
       <span id="darkModeLabel">다크 모드</span>
     </button>
+    <a href="/settings" class="btn btn-sm btn-outline-secondary w-100 mb-2 {% if request.path == '/settings' %}active{% endif %}" style="font-size: 0.8rem;">
+      <i class="bi bi-gear me-1"></i>설정
+    </a>
     
     {% if session.get('user') %}
     <div class="pt-2 border-top border-secondary border-opacity-25 mt-2">
