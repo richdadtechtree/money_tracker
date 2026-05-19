@@ -566,12 +566,45 @@ const cryptoGrid = new GridTable({
 const ipoGrid = new GridTable({
   tableId: 'ipoTable',
   columns: [
-    { key: 'name',         type: 'text' },
+    { key: 'name',         type: 'text',
+      render: (v, r) => {
+        const nameText = v || '-';
+        const lockup = parseFloat(r.lockup_ratio) || 0;
+        const floating = parseFloat(r.floating_ratio) || 0;
+        const isSafe = (lockup >= 7) && (floating > 0 && floating < 30);
+        if (isSafe) {
+          return `<span class="fw-semibold text-success">${nameText}</span> <span class="badge bg-success text-white ms-1" style="font-size: 0.7rem;" title="의무보유확약 7% 이상, 유통가능물량 30% 미만"><i class="bi bi-shield-check me-1"></i>안전권</span>`;
+        }
+        return nameText;
+      }
+    },
     { key: 'listing_date', type: 'date' },
     { key: 'ipo_price',    type: 'number', align: 'end', render: v => fmt(v) + '원' },
     { key: 'quantity',     type: 'number', align: 'end', step: 0.001 },
-    { key: 'lockup_ratio',   type: 'number', align: 'end', step: 0.01, render: v => v != null && v !== '' ? v + '%' : '-' },
-    { key: 'floating_ratio', type: 'number', align: 'end', step: 0.01, render: v => v != null && v !== '' ? v + '%' : '-' },
+    { key: 'lockup_ratio',   type: 'number', align: 'end', step: 0.01,
+      render: (v, r) => {
+        const val = v != null && v !== '' ? v + '%' : '-';
+        const lockup = parseFloat(r.lockup_ratio) || 0;
+        const floating = parseFloat(r.floating_ratio) || 0;
+        const isSafe = (lockup >= 7) && (floating > 0 && floating < 30);
+        if (isSafe && v != null && v !== '') {
+          return `<span class="text-success fw-bold">${val}</span>`;
+        }
+        return val;
+      }
+    },
+    { key: 'floating_ratio', type: 'number', align: 'end', step: 0.01,
+      render: (v, r) => {
+        const val = v != null && v !== '' ? v + '%' : '-';
+        const lockup = parseFloat(r.lockup_ratio) || 0;
+        const floating = parseFloat(r.floating_ratio) || 0;
+        const isSafe = (lockup >= 7) && (floating > 0 && floating < 30);
+        if (isSafe && v != null && v !== '') {
+          return `<span class="text-success fw-bold">${val}</span>`;
+        }
+        return val;
+      }
+    },
     { key: 'realized_pnl', type: 'number', align: 'end', render: v => pnlHtml(v) },
     { key: 'fee',          type: 'number', align: 'end', render: v => v ? fmt(v) + '원' : '-' },
     { key: '_net',         type: 'computed', align: 'end', compute: r => pnlHtml((r.realized_pnl || 0) - (r.fee || 0)) },
