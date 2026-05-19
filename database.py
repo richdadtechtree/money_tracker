@@ -411,7 +411,6 @@ def init_db():
         "('스윙',0),('올웨더',1),('지수투자',2),('TQQQ',3),('공모주',4),('사이클',5),('해외스윙',6) "
         "ON CONFLICT (name) DO NOTHING",
         # 외국 주식/ETF 거래 소수점 입력용 REAL 타입 마이그레이션
-        "ALTER TABLE stocks ALTER COLUMN buy_price TYPE REAL",
         "ALTER TABLE stocks ALTER COLUMN current_price TYPE REAL",
         "ALTER TABLE stock_tx ALTER COLUMN price TYPE REAL",
         "ALTER TABLE stock_tx ALTER COLUMN fee TYPE REAL",
