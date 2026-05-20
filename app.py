@@ -1068,39 +1068,59 @@ def api_card_tx_auto_categorize():
     return jsonify({'ok': True, 'updated': updated})
 
 
+# ── 포지션 계산 헬퍼 ─────────────────────────────────────────
+def calc_position(transactions):
+    """
+    거래내역을 시간순으로 처리해 현재 수량·평균단가·실현손익을 계산.
+    보유수량이 0이 되면 평균단가를 리셋하여 이후 매수부터 새로 시작.
+    """
+    qty = 0.0
+    avg_cost = 0.0
+    realized = 0.0
+    for tx in transactions:
+        tq = float(tx['quantity'])
+        tp = float(tx['price'])
+        if tx['tx_type'] == 'buy':
+            new_qty = qty + tq
+            avg_cost = (qty * avg_cost + tq * tp) / new_qty
+            qty = new_qty
+        else:  # sell
+            realized += (tp - avg_cost) * tq
+            qty = max(0.0, qty - tq)
+            if qty == 0.0:
+                avg_cost = 0.0
+    return qty, avg_cost, realized
+
+
 # ── API: 주식 ────────────────────────────────────────────────
 @app.route('/api/stocks', methods=['GET', 'POST'])
 def api_stocks():
     db = get_db()
     if request.method == 'GET':
         cur = db.cursor()
-        cur.execute("""
-        SELECT s.id, s.name, s.ticker, s.current_price, s.dividend, s.memo, s.category,
-        COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
-        COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
-        COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amount,
-        COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.price * t.quantity ELSE 0 END), 0) AS total_sell_amount
-        FROM stocks s
-        LEFT JOIN stock_tx t ON t.stock_id = s.id
-        GROUP BY s.id
-        ORDER BY s.name
-        """)
-        rows = cur.fetchall()
+        cur.execute("SELECT id, name, ticker, current_price, dividend, memo, category FROM stocks ORDER BY name")
+        stocks = [dict(r) for r in cur.fetchall()]
+        cur.execute("SELECT stock_id, tx_type, price, quantity FROM stock_tx ORDER BY stock_id, tx_date, id")
+        all_tx = cur.fetchall()
         cur.close()
+
+        from collections import defaultdict
+        tx_by_stock = defaultdict(list)
+        for tx in all_tx:
+            tx_by_stock[tx['stock_id']].append(tx)
+
         result = []
-        for row in rows:
-            r = dict(row)
-            qty      = float(r['buy_qty'] - r['sell_qty'])
-            avg      = float(r['total_buy_amount'] or 0) / float(r['buy_qty']) if r['buy_qty'] else 0.0
-            eval_amt = round(qty * float(r['current_price'] or 0))
+        for s in stocks:
+            qty, avg, realized = calc_position(tx_by_stock[s['id']])
+            eval_amt = round(qty * float(s['current_price'] or 0))
             cost_amt = round(qty * avg)
-            r['quantity']       = qty
-            r['avg_price']      = avg if qty > 0 else None
-            r['eval_amount']    = eval_amt
-            r['unrealized_pnl'] = eval_amt - cost_amt
-            r['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
-            r['realized_pnl']   = round(float(r['total_sell_amount'] or 0) - float(r['sell_qty'] or 0) * avg) if r['sell_qty'] else 0
-            result.append(r)
+            s['quantity']       = qty
+            s['avg_price']      = avg if qty > 0 else None
+            s['eval_amount']    = eval_amt
+            s['unrealized_pnl'] = eval_amt - cost_amt
+            s['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
+            s['realized_pnl']   = round(realized)
+            result.append(s)
         db.close()
         return jsonify(result)
 
@@ -1233,33 +1253,31 @@ def api_etf():
     db = get_db()
     if request.method == 'GET':
         cur = db.cursor()
-        cur.execute("""
-        SELECT e.id, e.name, e.ticker, e.current_price, e.etf_type, e.category, e.memo,
-          COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
-          COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
-          COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amount,
-          COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.price * t.quantity ELSE 0 END), 0) AS total_sell_amount
-        FROM etf e
-        LEFT JOIN etf_tx t ON t.etf_id = e.id
-        GROUP BY e.id
-        ORDER BY e.name
-        """)
-        rows = cur.fetchall()
+        cur.execute("SELECT id, name, ticker, current_price, etf_type, category, memo FROM etf ORDER BY name")
+        etfs = [dict(r) for r in cur.fetchall()]
+        cur.execute("SELECT etf_id, tx_type, price, quantity FROM etf_tx ORDER BY etf_id, tx_date, id")
+        all_tx = cur.fetchall()
         cur.close()
+
+        from collections import defaultdict
+        tx_by_etf = defaultdict(list)
+        for tx in all_tx:
+            tx_by_etf[tx['etf_id']].append(tx)
+
         result = []
-        for row in rows:
-            r = dict(row)
-            qty      = float(r['buy_qty'] - r['sell_qty'])
-            avg      = float(r['total_buy_amount'] or 0) / float(r['buy_qty']) if r['buy_qty'] else 0.0
-            eval_amt = round(qty * float(r['current_price'] or 0))
+        for e in etfs:
+            qty, avg, realized = calc_position(tx_by_etf[e['id']])
+            eval_amt = round(qty * float(e['current_price'] or 0))
             cost_amt = round(qty * avg)
-            r['quantity']       = qty
-            r['avg_price']      = avg if qty > 0 else None
-            r['eval_amount']    = eval_amt
-            r['unrealized_pnl'] = eval_amt - cost_amt
-            r['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
-            r['realized_pnl']   = round(float(r['total_sell_amount'] or 0) - float(r['sell_qty'] or 0) * avg) if r['sell_qty'] else 0
-            result.append(r)
+            e['quantity']       = qty
+            e['avg_price']      = avg if qty > 0 else None
+            e['eval_amount']    = eval_amt
+            e['unrealized_pnl'] = eval_amt - cost_amt
+            e['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
+            e['realized_pnl']   = round(realized)
+            e['buy_qty']        = sum(float(t['quantity']) for t in tx_by_etf[e['id']] if t['tx_type'] == 'buy')
+            e['sell_qty']       = sum(float(t['quantity']) for t in tx_by_etf[e['id']] if t['tx_type'] == 'sell')
+            result.append(e)
         db.close()
         return jsonify(result)
 
