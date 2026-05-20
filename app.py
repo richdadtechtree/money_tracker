@@ -1090,16 +1090,16 @@ def api_stocks():
         result = []
         for row in rows:
             r = dict(row)
-            qty      = r['buy_qty'] - r['sell_qty']
-            avg      = round(r['total_buy_amount'] / r['buy_qty']) if r['buy_qty'] else 0
-            eval_amt = round(qty * r['current_price'])
+            qty      = float(r['buy_qty'] - r['sell_qty'])
+            avg      = float(r['total_buy_amount'] / r['buy_qty']) if r['buy_qty'] else 0.0
+            eval_amt = round(qty * float(r['current_price'] or 0))
             cost_amt = round(qty * avg)
             r['quantity']       = qty
             r['avg_price']      = avg if qty > 0 else None
             r['eval_amount']    = eval_amt
             r['unrealized_pnl'] = eval_amt - cost_amt
             r['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
-            r['realized_pnl']   = round(r['total_sell_amount'] - r['sell_qty'] * avg) if r['sell_qty'] else 0
+            r['realized_pnl']   = round(float(r['total_sell_amount'] or 0) - float(r['sell_qty'] or 0) * avg) if r['sell_qty'] else 0
             result.append(r)
         db.close()
         return jsonify(result)
@@ -1249,16 +1249,16 @@ def api_etf():
         result = []
         for row in rows:
             r = dict(row)
-            qty      = r['buy_qty'] - r['sell_qty']
-            avg      = round(r['total_buy_amount'] / r['buy_qty']) if r['buy_qty'] else 0
-            eval_amt = round(qty * r['current_price'])
+            qty      = float(r['buy_qty'] - r['sell_qty'])
+            avg      = float(r['total_buy_amount'] / r['buy_qty']) if r['buy_qty'] else 0.0
+            eval_amt = round(qty * float(r['current_price'] or 0))
             cost_amt = round(qty * avg)
             r['quantity']       = qty
             r['avg_price']      = avg if qty > 0 else None
             r['eval_amount']    = eval_amt
             r['unrealized_pnl'] = eval_amt - cost_amt
             r['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
-            r['realized_pnl']   = round(r['total_sell_amount'] - r['sell_qty'] * avg) if r['sell_qty'] else 0
+            r['realized_pnl']   = round(float(r['total_sell_amount'] or 0) - float(r['sell_qty'] or 0) * avg) if r['sell_qty'] else 0
             result.append(r)
         db.close()
         return jsonify(result)
@@ -1870,8 +1870,8 @@ def get_stocks_total_value(db, ex_rate):
     cur.close()
     total = 0.0
     for r in rows:
-        qty = r['buy_qty'] - r['sell_qty']
-        eval_amt = round(qty * r['current_price'])
+        qty = float(r['buy_qty'] - r['sell_qty'])
+        eval_amt = round(qty * float(r['current_price'] or 0))
         if is_foreign_ticker(r['ticker']):
             total += eval_amt * ex_rate
         else:
@@ -1892,8 +1892,8 @@ def get_etf_total_value(db, ex_rate):
     cur.close()
     total = 0.0
     for r in rows:
-        qty = r['buy_qty'] - r['sell_qty']
-        eval_amt = round(qty * r['current_price'])
+        qty = float(r['buy_qty'] - r['sell_qty'])
+        eval_amt = round(qty * float(r['current_price'] or 0))
         if is_foreign_ticker(r['ticker']):
             total += eval_amt * ex_rate
         else:
@@ -1916,9 +1916,9 @@ def get_stocks_total_and_cost(db, ex_rate):
     val = 0.0
     cost = 0.0
     for r in rows:
-        qty = r['buy_qty'] - r['sell_qty']
-        avg = (r['total_buy_amt'] / r['buy_qty']) if r['buy_qty'] > 0 else 0
-        eval_amt = round(qty * r['current_price'])
+        qty = float(r['buy_qty'] - r['sell_qty'])
+        avg = float(r['total_buy_amt'] / r['buy_qty']) if r['buy_qty'] > 0 else 0.0
+        eval_amt = round(qty * float(r['current_price'] or 0))
         cost_amt = round(qty * avg)
         if is_foreign_ticker(r['ticker']):
             val += eval_amt * ex_rate
@@ -1944,9 +1944,9 @@ def get_etf_total_and_cost(db, ex_rate):
     val = 0.0
     cost = 0.0
     for r in rows:
-        qty = r['buy_qty'] - r['sell_qty']
-        avg = (r['total_buy_amt'] / r['buy_qty']) if r['buy_qty'] > 0 else 0
-        eval_amt = round(qty * r['current_price'])
+        qty = float(r['buy_qty'] - r['sell_qty'])
+        avg = float(r['total_buy_amt'] / r['buy_qty']) if r['buy_qty'] > 0 else 0.0
+        eval_amt = round(qty * float(r['current_price'] or 0))
         cost_amt = round(qty * avg)
         if is_foreign_ticker(r['ticker']):
             val += eval_amt * ex_rate
@@ -3894,9 +3894,9 @@ def api_tech_tree_detail():
         s_rows = cur.fetchall()
         cur.close()
         for r in s_rows:
-            qty = r['buy_qty'] - r['sell_qty']
+            qty = float(r['buy_qty'] - r['sell_qty'])
             if qty > 0:
-                eval_amt = round(qty * r['current_price'])
+                eval_amt = round(qty * float(r['current_price'] or 0))
                 mul = ex_rate if is_foreign_ticker(r['ticker']) else 1
                 res.append({'date': '주식', 'name': r['name'], 'amount': float(eval_amt * mul), 'memo': r['ticker']})
 
@@ -3912,9 +3912,9 @@ def api_tech_tree_detail():
         e_rows = cur.fetchall()
         cur.close()
         for r in e_rows:
-            qty = r['buy_qty'] - r['sell_qty']
+            qty = float(r['buy_qty'] - r['sell_qty'])
             if qty > 0:
-                eval_amt = round(qty * r['current_price'])
+                eval_amt = round(qty * float(r['current_price'] or 0))
                 mul = ex_rate if is_foreign_ticker(r['ticker']) else 1
                 res.append({'date': 'ETF', 'name': r['name'], 'amount': float(eval_amt * mul), 'memo': r['ticker']})
     elif ttype == 'real_estate':
