@@ -2751,54 +2751,66 @@ def api_stock_category_pnl():
     category = request.args.get('category', '전체')
     period   = request.args.get('period', 'monthly')
 
-    date_fmt = 'YYYY' if period == 'yearly' else 'YYYY-MM'
-
-    if category and category != '전체':
-        inner_where = "WHERE s.category = %s"
-        outer_where = "AND s.category = %s"
-        params = [category, date_fmt, category]
-    else:
-        inner_where = ""
-        outer_where = ""
-        params = [date_fmt]
-
     db  = get_db()
     ex_rate = get_current_exchange_rate()
     cur = db.cursor()
-    cur.execute(f"""
-        WITH combined_tx AS (
-            SELECT 'stock' as source, t.stock_id as asset_id, t.tx_date::text, t.tx_type, t.price, t.quantity, t.fee, s.category, s.ticker
-            FROM stock_tx t JOIN stocks s ON s.id = t.stock_id
-            UNION ALL
-            SELECT 'etf' as source, t.etf_id as asset_id, t.tx_date::text, t.tx_type, t.price, t.quantity, t.fee, e.category, e.ticker
-            FROM etf_tx t JOIN etf e ON e.id = t.etf_id
-        ),
-        avg_costs AS (
-            SELECT source, asset_id,
-                SUM(CASE WHEN tx_type='buy' THEN price*quantity+fee ELSE 0 END) /
-                NULLIF(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE 0 END), 0) AS avg_cost
-            FROM combined_tx s
-            {inner_where}
-            GROUP BY source, asset_id
-        )
-        SELECT
-            to_char(t.tx_date::date, %s) AS period_key,
-            COALESCE(SUM(((t.price - ac.avg_cost) * t.quantity - t.fee) * 
-                (CASE WHEN t.ticker IS NOT NULL AND t.ticker != '' AND t.ticker !~ '^[0-9]{{6}}$' THEN {ex_rate} ELSE 1 END)), 0) AS realized_pnl,
-            COALESCE(SUM(ac.avg_cost * t.quantity * 
-                (CASE WHEN t.ticker IS NOT NULL AND t.ticker != '' AND t.ticker !~ '^[0-9]{{6}}$' THEN {ex_rate} ELSE 1 END)), 0) AS cost_basis
-        FROM combined_tx t
-        JOIN avg_costs ac ON ac.source = t.source AND ac.asset_id = t.asset_id
-        WHERE t.tx_type = 'sell'
-        {outer_where.replace('s.category', 't.category')}
-        GROUP BY period_key
-        ORDER BY period_key
-    """, params)
-    rows = cur.fetchall()
+
+    cur.execute("""
+        SELECT 'stock' as source, t.stock_id as asset_id, t.tx_date::text as tx_date, t.tx_type, t.price, t.quantity, t.fee, s.category, s.ticker, s.name
+        FROM stock_tx t JOIN stocks s ON s.id = t.stock_id
+        ORDER BY t.stock_id, t.tx_date, t.id
+    """)
+    stock_txs = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("""
+        SELECT 'etf' as source, t.etf_id as asset_id, t.tx_date::text as tx_date, t.tx_type, t.price, t.quantity, t.fee, e.category, e.ticker, e.name
+        FROM etf_tx t JOIN etf e ON e.id = t.etf_id
+        ORDER BY t.etf_id, t.tx_date, t.id
+    """)
+    etf_txs = [dict(r) for r in cur.fetchall()]
     cur.close()
     db.close()
 
-    data_map = {r['period_key']: {'pnl': float(r['realized_pnl']), 'cost': float(r['cost_basis'])} for r in rows}
+    from collections import defaultdict
+    tx_by_asset = defaultdict(list)
+    for tx in stock_txs + etf_txs:
+        tx_by_asset[(tx['source'], tx['asset_id'])].append(tx)
+
+    realized_records = []
+    for (source, asset_id), txs in tx_by_asset.items():
+        qty = 0.0
+        avg_cost = 0.0
+        for tx in txs:
+            tq = float(tx['quantity'])
+            tp = float(tx['price'])
+            if tx['tx_type'] == 'buy':
+                new_qty = qty + tq
+                avg_cost = (qty * avg_cost + tq * tp) / new_qty
+                qty = new_qty
+            else: # sell
+                pnl = (tp - avg_cost) * tq
+                cost = avg_cost * tq
+                mul = ex_rate if is_foreign_ticker(tx['ticker']) else 1.0
+                realized_records.append({
+                    'date': tx['tx_date'],
+                    'category': tx['category'],
+                    'pnl': pnl * mul,
+                    'cost': cost * mul
+                })
+                qty = max(0.0, qty - tq)
+                if qty == 0.0:
+                    avg_cost = 0.0
+
+    period_map = defaultdict(lambda: {'pnl': 0.0, 'cost': 0.0})
+    for r in realized_records:
+        if category and category != '전체' and r['category'] != category:
+            continue
+        date_str = r['date']
+        pkey = date_str[:4] if period == 'yearly' else date_str[:7]
+        period_map[pkey]['pnl'] += r['pnl']
+        period_map[pkey]['cost'] += r['cost']
+
+    data_map = {k: v for k, v in period_map.items()}
 
     if period == 'monthly':
         today = date.today()
