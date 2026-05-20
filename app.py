@@ -1091,7 +1091,7 @@ def api_stocks():
         for row in rows:
             r = dict(row)
             qty      = float(r['buy_qty'] - r['sell_qty'])
-            avg      = float(r['total_buy_amount'] / r['buy_qty']) if r['buy_qty'] else 0.0
+            avg      = float(r['total_buy_amount'] or 0) / float(r['buy_qty']) if r['buy_qty'] else 0.0
             eval_amt = round(qty * float(r['current_price'] or 0))
             cost_amt = round(qty * avg)
             r['quantity']       = qty
@@ -1250,7 +1250,7 @@ def api_etf():
         for row in rows:
             r = dict(row)
             qty      = float(r['buy_qty'] - r['sell_qty'])
-            avg      = float(r['total_buy_amount'] / r['buy_qty']) if r['buy_qty'] else 0.0
+            avg      = float(r['total_buy_amount'] or 0) / float(r['buy_qty']) if r['buy_qty'] else 0.0
             eval_amt = round(qty * float(r['current_price'] or 0))
             cost_amt = round(qty * avg)
             r['quantity']       = qty
@@ -1917,7 +1917,7 @@ def get_stocks_total_and_cost(db, ex_rate):
     cost = 0.0
     for r in rows:
         qty = float(r['buy_qty'] - r['sell_qty'])
-        avg = float(r['total_buy_amt'] / r['buy_qty']) if r['buy_qty'] > 0 else 0.0
+        avg = float(r['total_buy_amt'] or 0) / float(r['buy_qty']) if r['buy_qty'] > 0 else 0.0
         eval_amt = round(qty * float(r['current_price'] or 0))
         cost_amt = round(qty * avg)
         if is_foreign_ticker(r['ticker']):
@@ -1945,7 +1945,7 @@ def get_etf_total_and_cost(db, ex_rate):
     cost = 0.0
     for r in rows:
         qty = float(r['buy_qty'] - r['sell_qty'])
-        avg = float(r['total_buy_amt'] / r['buy_qty']) if r['buy_qty'] > 0 else 0.0
+        avg = float(r['total_buy_amt'] or 0) / float(r['buy_qty']) if r['buy_qty'] > 0 else 0.0
         eval_amt = round(qty * float(r['current_price'] or 0))
         cost_amt = round(qty * avg)
         if is_foreign_ticker(r['ticker']):
