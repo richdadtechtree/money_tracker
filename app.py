@@ -2877,7 +2877,7 @@ def api_ipo_pnl():
     db = get_db()
     cur = db.cursor()
     cur.execute(f"""
-        SELECT 
+        SELECT
             to_char(listing_date::date, '{date_fmt}') AS period_key,
             COALESCE(SUM(realized_pnl - fee), 0) AS net_pnl,
             COALESCE(SUM(realized_pnl), 0) AS realized_pnl,
@@ -2889,6 +2889,33 @@ def api_ipo_pnl():
         ORDER BY period_key
     """)
     rows = cur.fetchall()
+
+    # 개별 IPO 건수 기반 승/패 집계 (기간 필터 적용)
+    if period == 'monthly':
+        today = date.today()
+        win_loss_keys = []
+        for i in range(11, -1, -1):
+            mo = today.month - i; yr = today.year
+            while mo <= 0: mo += 12; yr -= 1
+            win_loss_keys.append(f"{yr}-{mo:02d}")
+        cur.execute(f"""
+            SELECT COUNT(*) FILTER (WHERE (realized_pnl - fee) > 0) AS win_count,
+                   COUNT(*) FILTER (WHERE (realized_pnl - fee) < 0) AS loss_count
+            FROM ipo
+            WHERE listing_date IS NOT NULL AND listing_date != ''
+              AND to_char(listing_date::date, 'YYYY-MM') = ANY(%s)
+        """, (win_loss_keys,))
+    else:
+        cur.execute("""
+            SELECT COUNT(*) FILTER (WHERE (realized_pnl - fee) > 0) AS win_count,
+                   COUNT(*) FILTER (WHERE (realized_pnl - fee) < 0) AS loss_count
+            FROM ipo
+            WHERE listing_date IS NOT NULL AND listing_date != ''
+        """)
+    wl = cur.fetchone()
+    win_count  = int(wl['win_count']  or 0)
+    loss_count = int(wl['loss_count'] or 0)
+
     cur.close()
     db.close()
 
@@ -2926,7 +2953,11 @@ def api_ipo_pnl():
             'cumulative_pnl': round(cumulative),
         })
 
-    return jsonify(result)
+    return jsonify({
+        'data': result,
+        'win_count':  win_count,
+        'loss_count': loss_count,
+    })
 
 
 # ── API: 월별 실현손익 ───────────────────────────────────────

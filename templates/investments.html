@@ -744,15 +744,21 @@ async function loadCatPnl() {
   const category = document.getElementById('catPnlCategory').value;
 
   let data;
+  let wins, losses;
   if (category === '공모주') {
     const ipoRaw = await fetchJSON(`/api/ipo-pnl?period=${_catPnlPeriod}`);
     if (!ipoRaw) return;
-    data = _getIpoCatPnlData(ipoRaw);
+    data   = _getIpoCatPnlData(ipoRaw.data);
+    // 개별 IPO 건수 기반 승/패 (기간별 합산이 아님)
+    wins   = ipoRaw.win_count  ?? data.filter(d => d.realized_pnl > 0).length;
+    losses = ipoRaw.loss_count ?? data.filter(d => d.realized_pnl < 0).length;
   } else {
     data = await fetchJSON(
       `/api/stock-category-pnl?category=${encodeURIComponent(category)}&period=${_catPnlPeriod}`
     );
     if (!data) return;
+    wins   = data.filter(d => d.realized_pnl > 0).length;
+    losses = data.filter(d => d.realized_pnl < 0).length;
   }
 
   // 요약 통계
@@ -760,8 +766,6 @@ async function loadCatPnl() {
   const totalCost = data.reduce((s, d) => s + d.cost_basis, 0);
   const overallRate = totalCost ? totalPnl / totalCost * 100 : 0;
   const best = data.reduce((b, d) => d.realized_pnl > (b ? b.realized_pnl : -Infinity) ? d : b, null);
-  const wins   = data.filter(d => d.realized_pnl > 0).length;
-  const losses = data.filter(d => d.realized_pnl < 0).length;
 
   const pnlSpan = v => {
     const cls = v > 0 ? 'text-danger' : v < 0 ? 'text-primary' : 'text-muted';
