@@ -153,12 +153,16 @@ loadExpiringBanner();
 // ── 차트 렌더러 ──────────────────────────────────────────────
 function renderAssetPie(breakdown) {
   destroyChart('chartAssets');
-  const labels = ['주식', 'ETF', '코인', '부동산', '연금', '현금/예금'];
+  // 주식+ETF를 하나의 슬라이스로 합산 → 테크트리·투자관리와 동일 기준
+  const stocksAndEtf = (breakdown.stocks_and_etf != null)
+    ? breakdown.stocks_and_etf
+    : (breakdown.stocks || 0) + (breakdown.etf || 0);
+  const labels = ['주식+ETF', '코인', '부동산', '연금', '현금/예금'];
   const values = [
-    breakdown.stocks, breakdown.etf, breakdown.crypto,
+    stocksAndEtf, breakdown.crypto,
     breakdown.realestate, breakdown.pension, breakdown.cash,
   ];
-  const colors = Object.values(COLORS);
+  const colors = [COLORS.stocks, COLORS.crypto, COLORS.realestate, COLORS.pension, COLORS.cash];
 
   _charts['chartAssets'] = new Chart(document.getElementById('chartAssets'), {
     type: 'doughnut',
@@ -229,10 +233,14 @@ function renderIncomeExpenseBar(incomeCats, expenseCats) {
 
 function renderReturnsChart(returns) {
   destroyChart('chartReturns');
-  const labels = ['주식', 'ETF', '코인'];
+  // 주식+ETF 합산 수익률 (테크트리와 동일 기준)
+  const stocksEtfCombined = {
+    cost:  (returns.stocks?.cost  || 0) + (returns.etf?.cost  || 0),
+    value: (returns.stocks?.value || 0) + (returns.etf?.value || 0),
+  };
+  const labels = ['주식+ETF', '코인'];
   const pcts = [
-    calcReturn(returns.stocks),
-    calcReturn(returns.etf),
+    calcReturn(stocksEtfCombined),
     calcReturn(returns.crypto),
   ];
 
@@ -429,11 +437,12 @@ let _kpiData = null;       // 마지막 dashboard API 응답
 let _assetsDetailed = null; // assets-detailed 캐시
 
 const _catColors = {
-  '주식':    '#dc2626',
-  'ETF':     '#f43f5e',
-  '코인':    '#f59e0b',
-  '부동산':  '#10b981',
-  '연금':    '#8b5cf6',
+  '주식':      '#dc2626',
+  'ETF':       '#f43f5e',
+  '주식+ETF':  '#dc2626',
+  '코인':      '#f59e0b',
+  '부동산':    '#10b981',
+  '연금':      '#8b5cf6',
   '현금/예금': '#14b8a6',
 };
 

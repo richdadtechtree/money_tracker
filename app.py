@@ -1124,7 +1124,17 @@ def api_stocks():
         cur = db.cursor()
         cur.execute("SELECT id, name, ticker, current_price, dividend, memo, category FROM stocks ORDER BY name")
         stocks = [dict(r) for r in cur.fetchall()]
-        cur.execute("SELECT stock_id, tx_type, price, quantity FROM stock_tx ORDER BY stock_id, tx_date, id")
+        # SQL 기반 qty (대시보드·테크트리와 동일 기준, 음수 0 처리)
+        cur.execute("""
+            SELECT s.id,
+                GREATEST(0, COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0)
+                          - COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0)) AS qty
+            FROM stocks s LEFT JOIN stock_tx t ON t.stock_id = s.id
+            GROUP BY s.id
+        """)
+        sql_qty = {r['id']: float(r['qty'] or 0) for r in cur.fetchall()}
+        # avg_price / realized_pnl 은 calc_position(FIFO) 사용
+        cur.execute("SELECT stock_id, tx_type, price, quantity, COALESCE(fee,0) as fee FROM stock_tx ORDER BY stock_id, tx_date, id")
         all_tx = cur.fetchall()
         cur.close()
 
@@ -1135,7 +1145,8 @@ def api_stocks():
 
         result = []
         for s in stocks:
-            qty, avg, realized = calc_position(tx_by_stock[s['id']])
+            qty      = sql_qty.get(s['id'], 0.0)       # SQL SUM 기반 (대시보드 일치)
+            _, avg, realized = calc_position(tx_by_stock[s['id']])  # FIFO avg/realized
             eval_amt = round(qty * float(s['current_price'] or 0))
             cost_amt = round(qty * avg)
             s['quantity']       = qty
@@ -1279,7 +1290,19 @@ def api_etf():
         cur = db.cursor()
         cur.execute("SELECT id, name, ticker, current_price, etf_type, category, memo FROM etf ORDER BY name")
         etfs = [dict(r) for r in cur.fetchall()]
-        cur.execute("SELECT etf_id, tx_type, price, quantity FROM etf_tx ORDER BY etf_id, tx_date, id")
+        # SQL 기반 qty (대시보드·테크트리와 동일 기준, 음수 0 처리)
+        cur.execute("""
+            SELECT e.id,
+                GREATEST(0, COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0)
+                          - COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0)) AS qty,
+                COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+                COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty
+            FROM etf e LEFT JOIN etf_tx t ON t.etf_id = e.id
+            GROUP BY e.id
+        """)
+        sql_etf = {r['id']: {'qty': float(r['qty'] or 0), 'buy_qty': float(r['buy_qty'] or 0), 'sell_qty': float(r['sell_qty'] or 0)}
+                   for r in cur.fetchall()}
+        cur.execute("SELECT etf_id, tx_type, price, quantity, COALESCE(fee,0) as fee FROM etf_tx ORDER BY etf_id, tx_date, id")
         all_tx = cur.fetchall()
         cur.close()
 
@@ -1290,7 +1313,9 @@ def api_etf():
 
         result = []
         for e in etfs:
-            qty, avg, realized = calc_position(tx_by_etf[e['id']])
+            info     = sql_etf.get(e['id'], {'qty': 0.0, 'buy_qty': 0.0, 'sell_qty': 0.0})
+            qty      = info['qty']                         # SQL SUM 기반 (대시보드 일치)
+            _, avg, realized = calc_position(tx_by_etf[e['id']])  # FIFO avg/realized
             eval_amt = round(qty * float(e['current_price'] or 0))
             cost_amt = round(qty * avg)
             e['quantity']       = qty
@@ -1299,8 +1324,8 @@ def api_etf():
             e['unrealized_pnl'] = eval_amt - cost_amt
             e['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
             e['realized_pnl']   = round(realized)
-            e['buy_qty']        = sum(float(t['quantity']) for t in tx_by_etf[e['id']] if t['tx_type'] == 'buy')
-            e['sell_qty']       = sum(float(t['quantity']) for t in tx_by_etf[e['id']] if t['tx_type'] == 'sell')
+            e['buy_qty']        = info['buy_qty']
+            e['sell_qty']       = info['sell_qty']
             result.append(e)
         db.close()
         return jsonify(result)
@@ -1898,110 +1923,86 @@ def get_current_exchange_rate():
 def is_foreign_ticker(ticker):
     return bool(ticker) and not bool(re.match(r'^\d{6}$', str(ticker)))
 
-def get_stocks_total_value(db, ex_rate):
+def _calc_asset_totals(rows, ex_rate):
+    """(val, cost) 계산 공통 로직 — qty 음수 방지(GREATEST 0) 포함."""
+    val = 0.0; cost = 0.0
+    for r in rows:
+        qty = max(0.0, float(r['buy_qty'] or 0) - float(r['sell_qty'] or 0))
+        buy_qty_f = float(r['buy_qty'] or 0)
+        avg = float(r['total_buy_amt'] or 0) / buy_qty_f if buy_qty_f > 0 else 0.0
+        eval_amt = round(qty * float(r['current_price'] or 0))
+        cost_amt = round(qty * avg)
+        mul = ex_rate if is_foreign_ticker(r['ticker']) else 1.0
+        val  += eval_amt * mul
+        cost += cost_amt * mul
+    return float(val), float(cost)
+
+def _fetch_stock_rows(db):
     cur = db.cursor()
     cur.execute("""
-    SELECT s.ticker, s.current_price,
-    COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
-    COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty
-    FROM stocks s
-    LEFT JOIN stock_tx t ON t.stock_id = s.id
-    GROUP BY s.id
+        SELECT s.ticker, s.current_price,
+            COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+            COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
+            COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
+        FROM stocks s LEFT JOIN stock_tx t ON t.stock_id = s.id
+        GROUP BY s.id
     """)
-    rows = cur.fetchall()
-    cur.close()
-    total = 0.0
-    for r in rows:
-        qty = float(r['buy_qty'] - r['sell_qty'])
-        eval_amt = round(qty * float(r['current_price'] or 0))
-        if is_foreign_ticker(r['ticker']):
-            total += eval_amt * ex_rate
-        else:
-            total += eval_amt
-    return float(total)
+    rows = cur.fetchall(); cur.close()
+    return rows
+
+def _fetch_etf_rows(db):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT e.ticker, e.current_price,
+            COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+            COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
+            COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
+        FROM etf e LEFT JOIN etf_tx t ON t.etf_id = e.id
+        GROUP BY e.id
+    """)
+    rows = cur.fetchall(); cur.close()
+    return rows
+
+def get_stocks_etf_totals(db, ex_rate):
+    """(stocks_val, stocks_cost, etf_val, etf_cost) — 세 페이지 공통 계산 함수."""
+    s_val, s_cost = _calc_asset_totals(_fetch_stock_rows(db), ex_rate)
+    e_val, e_cost = _calc_asset_totals(_fetch_etf_rows(db), ex_rate)
+    return s_val, s_cost, e_val, e_cost
+
+# 하위 호환 래퍼 (기존 호출부 유지)
+def get_stocks_total_value(db, ex_rate):
+    return get_stocks_etf_totals(db, ex_rate)[0]
 
 def get_etf_total_value(db, ex_rate):
-    cur = db.cursor()
-    cur.execute("""
-    SELECT e.ticker, e.current_price,
-    COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
-    COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty
-    FROM etf e
-    LEFT JOIN etf_tx t ON t.etf_id = e.id
-    GROUP BY e.id
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    total = 0.0
-    for r in rows:
-        qty = float(r['buy_qty'] - r['sell_qty'])
-        eval_amt = round(qty * float(r['current_price'] or 0))
-        if is_foreign_ticker(r['ticker']):
-            total += eval_amt * ex_rate
-        else:
-            total += eval_amt
-    return float(total)
+    return get_stocks_etf_totals(db, ex_rate)[2]
 
 def get_stocks_total_and_cost(db, ex_rate):
-    cur = db.cursor()
-    cur.execute("""
-    SELECT s.ticker, s.current_price,
-    COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
-    COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
-    COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
-    FROM stocks s
-    LEFT JOIN stock_tx t ON t.stock_id = s.id
-    GROUP BY s.id
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    val = 0.0
-    cost = 0.0
-    for r in rows:
-        qty = float(r['buy_qty'] - r['sell_qty'])
-        avg = float(r['total_buy_amt'] or 0) / float(r['buy_qty']) if r['buy_qty'] > 0 else 0.0
-        eval_amt = round(qty * float(r['current_price'] or 0))
-        cost_amt = round(qty * avg)
-        if is_foreign_ticker(r['ticker']):
-            val += eval_amt * ex_rate
-            cost += cost_amt * ex_rate
-        else:
-            val += eval_amt
-            cost += cost_amt
-    return (float(val), float(cost))
+    s_val, s_cost, _, _ = get_stocks_etf_totals(db, ex_rate)
+    return s_val, s_cost
 
 def get_etf_total_and_cost(db, ex_rate):
-    cur = db.cursor()
-    cur.execute("""
-    SELECT e.ticker, e.current_price,
-    COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
-    COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
-    COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
-    FROM etf e
-    LEFT JOIN etf_tx t ON t.etf_id = e.id
-    GROUP BY e.id
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    val = 0.0
-    cost = 0.0
-    for r in rows:
-        qty = float(r['buy_qty'] - r['sell_qty'])
-        avg = float(r['total_buy_amt'] or 0) / float(r['buy_qty']) if r['buy_qty'] > 0 else 0.0
-        eval_amt = round(qty * float(r['current_price'] or 0))
-        cost_amt = round(qty * avg)
-        if is_foreign_ticker(r['ticker']):
-            val += eval_amt * ex_rate
-            cost += cost_amt * ex_rate
-        else:
-            val += eval_amt
-            cost += cost_amt
-    return (float(val), float(cost))
+    _, _, e_val, e_cost = get_stocks_etf_totals(db, ex_rate)
+    return e_val, e_cost
 
 @app.route('/api/exchange-rate')
 def api_exchange_rate():
     """Yahoo Finance에서 USD/KRW 환율 조회. 실패 시 1380 반환"""
     return jsonify({'rate': get_current_exchange_rate()})
+
+
+@app.route('/api/stocks-etf-total')
+def api_stocks_etf_total():
+    """주식+ETF 합산 평가액 — 대시보드·테크트리와 완전히 동일한 계산 기준."""
+    db = get_db()
+    ex_rate = get_current_exchange_rate()
+    s_val, s_cost, e_val, e_cost = get_stocks_etf_totals(db, ex_rate)
+    db.close()
+    return jsonify({
+        'stocks_val':  int(s_val),
+        'etf_val':     int(e_val),
+        'combined':    int(s_val + e_val),
+        'ex_rate':     ex_rate,
+    })
 
 
 # ── API: 거주지 ──────────────────────────────────────────────
@@ -3063,8 +3064,7 @@ def _api_dashboard_inner():
     cur.close()
 
     ex_rate = get_current_exchange_rate()
-    stocks_val, stocks_cost = get_stocks_total_and_cost(db, ex_rate)
-    etf_val, etf_cost = get_etf_total_and_cost(db, ex_rate)
+    stocks_val, stocks_cost, etf_val, etf_cost = get_stocks_etf_totals(db, ex_rate)
 
     # 코인 평가액
     cur = db.cursor()
@@ -3204,6 +3204,7 @@ def _api_dashboard_inner():
         'total_assets':    gross_assets,
         'loan_total':      loan_total,
         'asset_breakdown': {
+            'stocks_and_etf': stocks_val + etf_val,  # 주식+ETF 합산 (테크트리·투자관리와 동일 기준)
             'stocks':  stocks_val,
             'etf':     etf_val,
             'crypto':  crypto_val,
@@ -3239,8 +3240,7 @@ def api_tech_tree_data():
 def _api_tech_tree_data_inner():
     db = get_db()
     ex_rate = get_current_exchange_rate()
-    stocks_val = get_stocks_total_value(db, ex_rate)
-    etf_val = get_etf_total_value(db, ex_rate)
+    stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate)
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
     crypto_val = float(cur.fetchone()[0] or 0)
@@ -3600,8 +3600,7 @@ def _api_tech_tree_yearly_stats_inner():
     
     # 2. 실시간 현재 자산 가져오기
     ex_rate = get_current_exchange_rate()
-    stocks_val = get_stocks_total_value(db, ex_rate)
-    etf_val = get_etf_total_value(db, ex_rate)
+    stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate)
 
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
@@ -3826,7 +3825,8 @@ def api_asset_history():
     p_monthly = float(cur.fetchone()[0] or 0)
     cur.close()
     ex_rate = get_current_exchange_rate()
-    curr_stocks = get_stocks_total_value(db, ex_rate) + get_etf_total_value(db, ex_rate)
+    _sv, _, _ev, _ = get_stocks_etf_totals(db, ex_rate)
+    curr_stocks = _sv + _ev
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
     curr_crypto = float(cur.fetchone()[0] or 0)
@@ -5127,8 +5127,7 @@ def api_assets_detailed():
         db.close()
 
         return jsonify({
-            '주식': stocks,
-            'ETF': etfs,
+            '주식+ETF': stocks + etfs,  # 테크트리·대시보드 파이차트와 동일 기준
             '코인': crypto,
             '현금/예금': cash + residence,
             '부동산': re_list,

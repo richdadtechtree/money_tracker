@@ -23,6 +23,7 @@
         미실현손익: <strong id="stocks-profit">-</strong> &nbsp;|&nbsp;
         실현손익: <strong id="stocks-realized">-</strong>
         &nbsp;<span id="usdkrw-badge" class="badge bg-secondary-subtle text-secondary" style="font-size:0.7rem"></span>
+        <br><span class="text-secondary">주식+ETF 합산: <strong id="stocks-etf-combined" class="text-dark">-</strong></span>
       </div>
       <div class="d-flex gap-2 flex-wrap">
         <button class="btn btn-outline-info btn-sm" onclick="openCatPnlModal()">
@@ -406,6 +407,23 @@
 let allStocks = [];
 let allStockCategories = [];
 let usdKrw = 1380;  // 환율 기본값, 페이지 로드 시 갱신
+let _stocksEvalKrw = 0;  // 주식 탭 평가총액 원화 (raw, 프론트 계산)
+let _etfEvalKrw    = 0;  // ETF 탭 평가총액 원화 (raw, 프론트 계산)
+
+let _combinedTotalLoaded = false;
+async function _updateCombinedTotal() {
+  // 백엔드와 완전히 동일한 기준의 합산값 표시 (/api/stocks-etf-total 사용, 1회만 호출)
+  if (_combinedTotalLoaded) return;
+  _combinedTotalLoaded = true;
+  const el = document.getElementById('stocks-etf-combined');
+  if (!el) return;
+  const res = await fetchJSON('/api/stocks-etf-total');
+  if (res && res.combined != null) {
+    el.textContent = fmt(res.combined) + '원';
+  } else {
+    el.textContent = fmt(Math.round(_stocksEvalKrw + _etfEvalKrw)) + '원';
+  }
+}
 
 function isForeign(ticker) {
   return !!ticker && !/^\d{6}$/.test(ticker);
@@ -470,9 +488,11 @@ const stockGrid = new GridTable({
       tp += r.unrealized_pnl * mul;
       tr += (r.realized_pnl || 0) * mul;
     });
+    _stocksEvalKrw = tv;
     document.getElementById('stocks-total').textContent = fmt(Math.round(tv)) + '원';
     document.getElementById('stocks-profit').innerHTML   = pnlHtml(tp);
     document.getElementById('stocks-realized').innerHTML = pnlHtml(tr);
+    _updateCombinedTotal();
     stockTxGrid.load();
   },
 });
@@ -557,9 +577,11 @@ const etfGrid = new GridTable({
       tp += r.unrealized_pnl * mul;
       tr += (r.realized_pnl || 0) * mul;
     });
+    _etfEvalKrw = tv;
     document.getElementById('etf-total').textContent   = fmt(Math.round(tv)) + '원';
     document.getElementById('etf-profit').innerHTML    = pnlHtml(tp);
     document.getElementById('etf-realized').innerHTML  = pnlHtml(tr);
+    _updateCombinedTotal();
     etfTxGrid.load();
   },
 });
@@ -1003,6 +1025,7 @@ async function initPage() {
     if (badge) badge.textContent = `USD/KRW ${usdKrw.toLocaleString('ko-KR')}`;
   }
   stockGrid.load();   // onLoad → allStocks 세팅 → stockTxGrid.load() 자동 호출
+  etfGrid.load();     // 주식+ETF 합산 표시를 위해 페이지 로드 시 함께 로드
   cryptoGrid.load();
 }
 
@@ -1031,6 +1054,7 @@ async function updateAllPrices() {
     if (!res) throw new Error('응답 없음');
 
     // 화면 새로고침
+    _combinedTotalLoaded = false;  // 가격 갱신 후 합산도 재계산
     await stockGrid.load();
     await etfGrid.load();
     await cryptoGrid.load();
