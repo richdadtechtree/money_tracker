@@ -695,7 +695,8 @@ function openCatPnlModal() {
   const sel = document.getElementById('catPnlCategory');
   const prev = sel.value;
   sel.innerHTML = '<option value="전체">전체</option>' +
-    allStockCategories.map(c => `<option value="${c.name}"${c.name === prev ? ' selected' : ''}>${c.name}</option>`).join('');
+    allStockCategories.map(c => `<option value="${c.name}"${c.name === prev ? ' selected' : ''}>${c.name}</option>`).join('') +
+    `<option value="공모주"${'공모주' === prev ? ' selected' : ''}>공모주</option>`;
   bootstrap.Modal.getOrCreateInstance(document.getElementById('catPnlModal')).show();
   loadCatPnl();
 }
@@ -707,12 +708,30 @@ function setCatPnlPeriod(btn) {
   loadCatPnl();
 }
 
+function _getIpoCatPnlData(ipoData) {
+  return ipoData.map(d => ({
+    label:          d.label,
+    realized_pnl:   d.net_pnl,
+    cost_basis:     d.cost_basis,
+    return_rate:    d.cost_basis ? d.net_pnl / d.cost_basis * 100 : 0,
+    cumulative_pnl: d.cumulative_pnl,
+  }));
+}
+
 async function loadCatPnl() {
   const category = document.getElementById('catPnlCategory').value;
-  const data = await fetchJSON(
-    `/api/stock-category-pnl?category=${encodeURIComponent(category)}&period=${_catPnlPeriod}`
-  );
-  if (!data) return;
+
+  let data;
+  if (category === '공모주') {
+    const ipoRaw = await fetchJSON(`/api/ipo-pnl?period=${_catPnlPeriod}`);
+    if (!ipoRaw) return;
+    data = _getIpoCatPnlData(ipoRaw);
+  } else {
+    data = await fetchJSON(
+      `/api/stock-category-pnl?category=${encodeURIComponent(category)}&period=${_catPnlPeriod}`
+    );
+    if (!data) return;
+  }
 
   // 요약 통계
   const totalPnl  = data.reduce((s, d) => s + d.realized_pnl, 0);

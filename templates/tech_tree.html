@@ -99,8 +99,12 @@
           <div class="node passive-node shadow clickable-node" style="top: 70%; left: 3%;" onclick="openDetailModal('passive', '자생소득 상세')">
             <div class="node-header bg-success text-white">자생소득 (Passive) <i class="bi bi-search float-end small"></i></div>
             <div class="node-body">
-              <div class="small text-muted mb-1">부동산 / 주식 / 이자 / 배당 / 임대</div>
+              <div class="small text-muted mb-1">배당 / 이자 / 임대 / 주식 실현손익</div>
               <div class="fw-bold fs-5 text-success" id="passiveIncomeVal">0원</div>
+              <div class="small mt-1" id="stockPnlLine" style="display:none">
+                <span class="text-muted">주식 실현손익</span>
+                <span class="fw-semibold ms-1" id="stockPnlVal">-</span>
+              </div>
             </div>
           </div>
           <!-- [4] 저축/탱크 진입 노드 -->
@@ -279,14 +283,28 @@
 
 <!-- 빨대(고정비) 관리 모달 -->
 <div class="modal fade" id="strawModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content border-0 shadow">
       <div class="modal-header bg-danger text-white">
-        <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-triangle me-2"></i>돈을 빨아가는 빨대(고정비) 목록</h5>
+        <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-triangle me-2"></i>고정비(빨대) 경고</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body p-0">
+        <!-- 수입 대비 비율 요약 -->
+        <div id="strawSummary" class="px-3 pt-3 pb-2 border-bottom bg-light d-none">
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="small text-muted">월 고정비 합계</span>
+            <span class="fw-bold" id="strawTotalDisplay">0원</span>
+          </div>
+          <div class="d-flex justify-content-between align-items-center mt-1">
+            <span class="small text-muted">수입 대비 고정비 비율</span>
+            <span class="fw-bold" id="strawRatioDisplay">0%</span>
+          </div>
+        </div>
         <div id="strawList" class="list-group list-group-flush"></div>
+        <div class="px-3 py-2 text-center d-none" id="strawEmpty">
+          <i class="bi bi-check-circle text-success me-1"></i><span class="small text-muted">감지된 고정비 빨대가 없습니다.</span>
+        </div>
       </div>
     </div>
   </div>
@@ -519,6 +537,17 @@ async function loadTechTree() {
   document.getElementById('passiveIncomeVal').textContent = fmt(income.passive) + '원';
   document.getElementById('expenseTotalVal').textContent = fmt(expense) + '원';
   document.getElementById('strawTotalVal').textContent = fmt(straw_total) + '원';
+
+  // 주식 실현손익 표시
+  const stockPnl = income.stock_pnl || 0;
+  if (stockPnl !== 0) {
+    const pnlEl = document.getElementById('stockPnlVal');
+    const cls = stockPnl > 0 ? 'text-danger' : 'text-primary';
+    pnlEl.innerHTML = `<span class="${cls}">${stockPnl >= 0 ? '+' : ''}${fmt(stockPnl)}원</span>`;
+    document.getElementById('stockPnlLine').style.display = '';
+  } else {
+    document.getElementById('stockPnlLine').style.display = 'none';
+  }
   const netSavings = (income.labor - expense) + income.passive;
   const elNet = document.getElementById('netSavingsVal');
   elNet.textContent = (netSavings >= 0 ? '+' : '') + fmt(netSavings) + '원';
@@ -567,6 +596,7 @@ async function loadHistoryChart() {
 
 function redrawChart() {
   if (!rawHistoryData) { loadHistoryChart(); return; }
+  if (!Array.isArray(rawHistoryData)) { setChartState('error'); return; }
 
   const snapOnly  = document.getElementById('srcSnap').checked;
   const isPercent = document.getElementById('modePercent').checked;
@@ -574,7 +604,6 @@ function redrawChart() {
   // 스냅샷만 모드: 스냅샷 없는 달은 직전 스냅샷 값으로 채움
   const view = rawHistoryData.map((h, i) => {
     if (!snapOnly || h.is_snapshot) return h;
-    // 직전 유효 스냅샷 탐색
     for (let j = i - 1; j >= 0; j--) {
       if (rawHistoryData[j].is_snapshot) return { ...rawHistoryData[j], month: h.month, is_snapshot: false };
     }
@@ -582,28 +611,30 @@ function redrawChart() {
   });
   const labels = rawHistoryData.map(h => h.month);
 
-  // 전달 대비 증감률 계산 (null인 달은 null 유지)
+  // 전달 대비 증감률 계산 (null/NaN인 달은 null 유지)
   const getVal = (idx, key) => {
     const h = view[idx];
-    if (h === null) return null;
-    if (!isPercent) return h[key];
+    if (h === null || h === undefined) return null;
+    const val = h[key];
+    if (val == null || (typeof val === 'number' && isNaN(val))) return null;
+    if (!isPercent) return val;
     // 이전 유효 데이터 탐색
     let prevIdx = idx - 1;
-    while (prevIdx >= 0 && view[prevIdx] === null) prevIdx--;
+    while (prevIdx >= 0 && (view[prevIdx] === null || view[prevIdx] === undefined)) prevIdx--;
     if (prevIdx < 0) return 0;
     const prevVal = view[prevIdx][key];
-    if (prevVal === 0) return h[key] > 0 ? 100 : 0;
-    if (h[key] === prevVal) return 0;
-    return Math.round(((h[key] - prevVal) / prevVal) * 10000) / 100;
+    if (prevVal == null || isNaN(prevVal) || prevVal === 0) return val > 0 ? 100 : 0;
+    if (val === prevVal) return 0;
+    return Math.round(((val - prevVal) / Math.abs(prevVal)) * 10000) / 100;
   };
 
   const keys = ['cash', 'stocks', 'real_estate', 'crypto', 'pension'];
   const meta = [
-    { label: '현금',    color: '#339af0' },
+    { label: '현금',     color: '#339af0' },
     { label: '주식/ETF', color: '#51cf66' },
-    { label: '부동산',  color: '#ff922b' },
-    { label: '코인',    color: '#cc5de8' },
-    { label: '연금',    color: '#6741d9' },
+    { label: '부동산',   color: '#ff922b' },
+    { label: '코인',     color: '#cc5de8' },
+    { label: '연금',     color: '#6741d9' },
   ];
 
   const datasets = keys.map((key, ki) => ({
@@ -612,41 +643,52 @@ function redrawChart() {
     borderColor: meta[ki].color,
     backgroundColor: meta[ki].color + '11',
     fill: true, tension: 0.3, pointRadius: 2,
-    spanGaps: false   // null 구간은 선 끊김으로 표시
+    spanGaps: false
   }));
 
-  setChartState('ready');
-  const ctx = document.getElementById('assetHistoryChart').getContext('2d');
-  if (historyChart) historyChart.destroy();
-
-  historyChart = new Chart(ctx, {
-    type: 'line',
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 6 } },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => ` ${ctx.dataset.label}: ${isPercent ? ctx.parsed.y.toFixed(2) + '%' : fmt(ctx.parsed.y) + '원'}`
+  try {
+    setChartState('ready');
+    requestAnimationFrame(() => {
+      try {
+        const ctx = document.getElementById('assetHistoryChart').getContext('2d');
+        if (historyChart) historyChart.destroy();
+        historyChart = new Chart(ctx, {
+          type: 'line',
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 6 } },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => ` ${ctx.dataset.label}: ${isPercent ? ctx.parsed.y.toFixed(2) + '%' : fmt(ctx.parsed.y) + '원'}`
+                }
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: isPercent,
+                ticks: {
+                  callback: (v) => isPercent ? v + '%' : (v >= 10000 ? fmt(v / 10000) + '만' : fmt(v)),
+                  font: { size: 10 }
+                },
+                grid: { color: '#f0f0f0' }
+              },
+              x: { ticks: { font: { size: 10 } }, grid: { display: false } }
+            }
           }
-        }
-      },
-      scales: {
-        y: {
-          beginAtZero: isPercent,
-          ticks: { 
-            callback: (v) => isPercent ? v + '%' : (v >= 10000 ? fmt(v / 10000) + '만' : fmt(v)),
-            font: { size: 10 }
-          },
-          grid: { color: '#f0f0f0' }
-        },
-        x: { ticks: { font: { size: 10 } }, grid: { display: false } }
+        });
+      } catch (e) {
+        console.error('Chart.js 렌더링 오류:', e);
+        setChartState('error');
       }
-    }
-  });
+    });
+  } catch (e) {
+    console.error('차트 상태 전환 오류:', e);
+    setChartState('error');
+  }
 }
 
 async function openDetailModal(type, title) {
@@ -664,16 +706,108 @@ async function openDetailModal(type, title) {
   `).join('');
 }
 
+function _getReviewedStraws() {
+  try {
+    const raw  = localStorage.getItem('strawReviewed');
+    const data = raw ? JSON.parse(raw) : {};
+    const curM = new Date().toISOString().slice(0, 7);
+    // 이전 달 데이터 제거
+    Object.keys(data).forEach(k => { if (data[k] !== curM) delete data[k]; });
+    return data;
+  } catch { return {}; }
+}
+
+function _markStrawReviewed(name) {
+  try {
+    const data = _getReviewedStraws();
+    data[name] = new Date().toISOString().slice(0, 7);
+    localStorage.setItem('strawReviewed', JSON.stringify(data));
+  } catch {}
+}
+
 async function openStrawModal() {
-  const straws = await fetchJSON('/api/straws');
-  const list = document.getElementById('strawList');
-  list.innerHTML = straws.length ? straws.map(s => `
-    <div class="list-group-item d-flex justify-content-between align-items-center py-3">
-      <div><div class="fw-bold text-dark">${s.name}</div><div class="small text-muted">${s.cnt}회 반복됨</div></div>
-      <div class="text-end"><div class="fw-bold text-danger">${fmt(s.amount)}원</div></div>
-    </div>
-  `).join('') : '<div class="p-4 text-center text-muted">감지된 빨대가 없습니다.</div>';
+  const res   = await fetchJSON('/api/straws');
+  const list  = document.getElementById('strawList');
+  const empty = document.getElementById('strawEmpty');
+  const summary = document.getElementById('strawSummary');
+
+  if (!res) {
+    list.innerHTML = '<div class="p-4 text-center text-danger small">데이터를 불러오지 못했습니다.</div>';
+    new bootstrap.Modal(document.getElementById('strawModal')).show();
+    return;
+  }
+
+  const reviewed = _getReviewedStraws();
+  const straws   = (res.straws || []).filter(s => !reviewed[s.name]);
+
+  // 요약 패널 업데이트
+  const ratio = res.income_ratio || 0;
+  if (res.total_amount > 0) {
+    const ratioEl = document.getElementById('strawRatioDisplay');
+    ratioEl.textContent = ratio + '%';
+    ratioEl.className   = 'fw-bold ' + (ratio > 50 ? 'text-danger' : 'text-dark');
+    document.getElementById('strawTotalDisplay').textContent = fmt(res.total_amount) + '원';
+    summary.classList.remove('d-none');
+    if (ratio > 50) {
+      summary.classList.add('bg-danger-subtle');
+      summary.classList.remove('bg-light');
+    } else {
+      summary.classList.remove('bg-danger-subtle');
+      summary.classList.add('bg-light');
+    }
+  } else {
+    summary.classList.add('d-none');
+  }
+
+  if (straws.length === 0) {
+    list.innerHTML = '';
+    empty.classList.remove('d-none');
+  } else {
+    empty.classList.add('d-none');
+    list.innerHTML = straws.map(s => `
+      <div class="list-group-item py-3" id="straw-item-${encodeURIComponent(s.name)}">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="fw-bold text-dark">${s.name}</div>
+            <div class="small text-muted">${s.category || '미분류'} · 최근 ${s.cnt}개월 연속 발생</div>
+          </div>
+          <div class="text-end">
+            <div class="fw-bold text-danger mb-1">${fmt(s.amount)}원/월</div>
+            <div class="d-flex gap-1 justify-content-end">
+              <button class="btn btn-outline-secondary btn-sm py-0 px-2"
+                      style="font-size:0.72rem"
+                      onclick="strawKeep('${s.name.replace(/'/g, "\\'")}')">유지</button>
+              <button class="btn btn-outline-success btn-sm py-0 px-2"
+                      style="font-size:0.72rem"
+                      onclick="strawReview('${s.name.replace(/'/g, "\\'")}')">해지 검토 완료</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+
   new bootstrap.Modal(document.getElementById('strawModal')).show();
+}
+
+function strawKeep(name) {
+  const el = document.getElementById('straw-item-' + encodeURIComponent(name));
+  if (el) { el.style.opacity = '0.4'; el.style.pointerEvents = 'none'; }
+}
+
+function strawReview(name) {
+  _markStrawReviewed(name);
+  const el = document.getElementById('straw-item-' + encodeURIComponent(name));
+  if (el) {
+    el.style.transition = 'opacity 0.3s';
+    el.style.opacity = '0';
+    setTimeout(() => {
+      el.remove();
+      if (!document.querySelector('#strawList .list-group-item')) {
+        document.getElementById('strawEmpty').classList.remove('d-none');
+      }
+    }, 300);
+  }
 }
 
 async function saveTarget() {
@@ -938,13 +1072,19 @@ window.addEventListener('resize', () => {
 document.addEventListener('DOMContentLoaded', () => {
   detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
   requestAnimationFrame(() => { scaleFlowContainer(); redrawFlowSVG(); });
-  // 세 가지 자산 데이터 API를 동시에 비동기 병렬 호출하여 로딩 성능 극대화
   Promise.all([
     loadTechTree(),
     loadHistoryChart(),
     loadYearlyStats()
-  ]).then(() => { scaleFlowContainer(); redrawFlowSVG(); })
-    .catch(err => console.error("테크트리 데이터 로딩 에러:", err));
+  ]).then(() => {
+    scaleFlowContainer();
+    redrawFlowSVG();
+    // 세션당 1회 고정비 경고 팝업 (자동 표시)
+    if (!sessionStorage.getItem('strawAlertShown')) {
+      sessionStorage.setItem('strawAlertShown', '1');
+      setTimeout(openStrawModal, 1200);
+    }
+  }).catch(err => console.error("테크트리 데이터 로딩 에러:", err));
 });
 </script>
 {% endblock %}

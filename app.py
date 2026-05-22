@@ -317,33 +317,57 @@ def api_budget():
         year  = request.args.get('year')
         month = request.args.get('month')
 
-        # 고정/변동지출 자동 생성 (해당 월에 아직 없는 경우)
+        # 고정/변동지출 자동 생성 (해당 월 + 누락된 이전 월 보충)
         if year and month:
             try:
-                ym = f"{year}-{month.zfill(2)}"
+                req_ym = f"{year}-{month.zfill(2)}"
+                today_d = date.today()
+                cur_ym  = today_d.strftime('%Y-%m')
                 cur = db.cursor()
                 cur.execute("SELECT * FROM budget_recurring WHERE active = TRUE")
                 recurrings = rows_to_list(cur.fetchall())
                 cur.close()
+
                 for rec in recurrings:
+                    # 이 반복항목의 가장 오래된 budget 날짜 → 시작 월 산정
                     cur = db.cursor()
                     cur.execute(
-                        "SELECT id FROM budget WHERE recurring_id=%s AND to_char(date::date,'YYYY-MM')=%s",
-                        (rec['id'], ym)
+                        "SELECT MIN(date) FROM budget WHERE recurring_id=%s", (rec['id'],)
                     )
-                    exists = cur.fetchone()
+                    min_row = cur.fetchone()
                     cur.close()
-                    if not exists:
-                        date_str = f"{year}-{month.zfill(2)}-01"
+                    if min_row and min_row[0]:
+                        start_ym = str(min_row[0])[:7]
+                    else:
+                        start_ym = req_ym
+
+                    # 시작 월부터 요청 월까지 (최대 24개월) 누락 월 보충
+                    sy, sm = int(start_ym[:4]), int(start_ym[5:])
+                    ey, em = int(req_ym[:4]), int(req_ym[5:])
+                    limit  = 24
+                    while (sy < ey or (sy == ey and sm <= em)) and limit > 0:
+                        check_ym  = f"{sy}-{sm:02d}"
+                        date_str  = f"{check_ym}-01"
                         cur = db.cursor()
                         cur.execute(
-                            "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id,recurring_id) "
-                            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                            (date_str, rec['category'], rec['name'], rec['type'],
-                             rec['payment_method'], rec['amount'], rec['memo'],
-                             rec['card_id'], rec['id'])
+                            "SELECT id FROM budget WHERE recurring_id=%s AND to_char(date::date,'YYYY-MM')=%s",
+                            (rec['id'], check_ym)
                         )
+                        exists = cur.fetchone()
                         cur.close()
+                        if not exists:
+                            cur = db.cursor()
+                            cur.execute(
+                                "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id,recurring_id) "
+                                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                                (date_str, rec['category'], rec['name'], rec['type'],
+                                 rec['payment_method'], rec['amount'], rec['memo'],
+                                 rec['card_id'], rec['id'])
+                            )
+                            cur.close()
+                        sm += 1
+                        if sm > 12: sm = 1; sy += 1
+                        limit -= 1
                 db.commit()
             except Exception:
                 db.rollback()
@@ -3301,6 +3325,50 @@ def _api_tech_tree_data_inner():
     
     passive_inc += (rental_inc + leverage_inc)
 
+    # 당월 주식/ETF 실현손익 (FIFO 기준, 미실현 평가손익 제외)
+    from collections import defaultdict as _defaultdict
+    cur = db.cursor()
+    cur.execute("""
+        SELECT 'stock' as source, t.stock_id as asset_id, t.tx_date::text as tx_date,
+               t.tx_type, t.price, t.quantity, COALESCE(t.fee,0) as fee, s.ticker
+        FROM stock_tx t JOIN stocks s ON s.id = t.stock_id
+        ORDER BY t.stock_id, t.tx_date, t.id
+    """)
+    all_stock_tx = cur.fetchall()
+    cur.execute("""
+        SELECT 'etf' as source, t.etf_id as asset_id, t.tx_date::text as tx_date,
+               t.tx_type, t.price, t.quantity, COALESCE(t.fee,0) as fee, e.ticker
+        FROM etf_tx t JOIN etf e ON e.id = t.etf_id
+        ORDER BY t.etf_id, t.tx_date, t.id
+    """)
+    all_etf_tx = cur.fetchall()
+    cur.close()
+
+    tx_by_asset_tt = _defaultdict(list)
+    for tx in list(all_stock_tx) + list(all_etf_tx):
+        tx_by_asset_tt[(tx['source'], tx['asset_id'])].append(tx)
+
+    stock_realized_pnl = 0.0
+    for (source, asset_id), txs in tx_by_asset_tt.items():
+        qty = 0.0; avg_cost = 0.0
+        for tx in txs:
+            tq = float(tx['quantity']); tp = float(tx['price'])
+            if tx['tx_type'] == 'buy':
+                new_qty = qty + tq
+                avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
+                qty = new_qty
+            else:
+                tx_ym = (tx['tx_date'] or '')[:7]
+                if tx_ym == ym:
+                    pnl = (tp - avg_cost) * tq - float(tx['fee'] or 0)
+                    mul = ex_rate if is_foreign_ticker(tx['ticker']) else 1.0
+                    stock_realized_pnl += pnl * mul
+                qty = max(0.0, qty - tq)
+                if qty == 0.0:
+                    avg_cost = 0.0
+
+    passive_inc += stock_realized_pnl
+
     # 고정비(빨대) 합계 계산 (최근 3개월 내 2회 이상 발생한 동일 이름/금액 지출)
     cur = db.cursor()
     cur.execute("""
@@ -3396,7 +3464,8 @@ def _api_tech_tree_data_inner():
         },
         'income': {
             'labor': int(labor_inc or 0),
-            'passive': int(passive_inc or 0)
+            'passive': int(passive_inc or 0),
+            'stock_pnl': int(stock_realized_pnl or 0)
         },
         'expense': int(total_exp or 0),
         'straw_total': int(straw_total or 0),
@@ -3411,20 +3480,86 @@ def _api_tech_tree_data_inner():
 
 @app.route('/api/straws')
 def api_straws():
-    """지출 중 매달 반복되는 '빨대'(고정비) 목록을 찾아 반환"""
+    """최근 3개월 이상 연속 발생 + 금액 편차 ±10% 이내인 고정비(빨대) 목록 반환"""
     db = get_db()
+    today_d = date.today()
+    ym_now  = today_d.strftime('%Y-%m')
     cur = db.cursor()
+
+    # 최근 4개월치 데이터 (3개월 연속 여부 확인을 위해 1개 여유)
     cur.execute("""
-    SELECT name, amount, category, COUNT(*) as cnt, MAX(date) as last_date
-    FROM budget 
-    GROUP BY name, amount
-    HAVING cnt >= 2
-    ORDER BY amount DESC
+        SELECT name, category,
+               to_char(date::date, 'YYYY-MM') AS month,
+               AVG(amount) AS avg_amount
+        FROM budget
+        WHERE date >= (CURRENT_DATE - INTERVAL '4 months')
+          AND amount > 0
+          AND name IS NOT NULL AND name != ''
+        GROUP BY name, category, to_char(date::date, 'YYYY-MM')
     """)
     rows = cur.fetchall()
+
+    # 이번달 수입 (수입 대비 비율 계산용)
+    cur.execute(
+        "SELECT COALESCE(SUM(amount),0) FROM income "
+        "WHERE to_char(date::date,'YYYY-MM')=%s AND date<=CURRENT_DATE", (ym_now,)
+    )
+    monthly_income = float(cur.fetchone()[0] or 0)
     cur.close()
     db.close()
-    return jsonify(rows_to_list(rows))
+
+    from collections import defaultdict
+    import math
+    name_months = defaultdict(list)
+    name_cat    = {}
+    for r in rows:
+        name_months[r['name']].append({'month': r['month'], 'avg': float(r['avg_amount'] or 0)})
+        if r['category']:
+            name_cat[r['name']] = r['category']
+
+    # 최근 3개월 목록 구성
+    recent_3 = set()
+    y, m = today_d.year, today_d.month
+    for _ in range(3):
+        recent_3.add(f"{y}-{m:02d}")
+        m -= 1
+        if m == 0: m = 12; y -= 1
+
+    straws = []
+    for name, entries in name_months.items():
+        months_present = {e['month'] for e in entries}
+        # 3개월 모두 발생했는지 확인
+        if not recent_3.issubset(months_present):
+            continue
+        amounts = [e['avg'] for e in entries if e['month'] in recent_3]
+        if not amounts:
+            continue
+        mean_amt = sum(amounts) / len(amounts)
+        if mean_amt <= 0:
+            continue
+        # 표준편차 / 평균 ≤ 10% (변동계수)
+        variance = sum((a - mean_amt) ** 2 for a in amounts) / len(amounts)
+        std_dev  = math.sqrt(variance)
+        if mean_amt > 0 and (std_dev / mean_amt) > 0.10:
+            continue
+        straws.append({
+            'name':     name,
+            'category': name_cat.get(name, ''),
+            'amount':   round(mean_amt),
+            'cnt':      len(amounts),
+            'months':   sorted(months_present)
+        })
+
+    straws.sort(key=lambda x: -x['amount'])
+    total_straw = sum(s['amount'] for s in straws)
+    income_ratio = round(total_straw / monthly_income * 100, 1) if monthly_income > 0 else 0
+
+    return jsonify({
+        'straws': straws,
+        'total_amount': total_straw,
+        'monthly_income': round(monthly_income),
+        'income_ratio': income_ratio
+    })
 
 @app.route('/api/tech-tree-goal', methods=['POST'])
 def api_tech_tree_goal():
@@ -3792,40 +3927,47 @@ def api_asset_history():
         # 스냅샷이 있으면 스냅샷 데이터 사용, 없으면 역산 데이터 사용
         if ym in snapshots:
             s = snapshots[ym]
+            snap_cash    = float(s['cash']        or 0)
+            snap_stocks  = float(s['stocks']      or 0)
+            snap_re      = float(s['real_estate'] or 0)
+            snap_crypto  = float(s['crypto']      or 0)
+            snap_pension = float(s['pension']     or 0)
             history.append({
                 'month': ym,
-                'cash': s['cash'],
-                'stocks': s['stocks'],
-                'real_estate': s['real_estate'],
-                'crypto': s['crypto'],
-                'pension': s['pension'],
+                'cash': snap_cash,
+                'stocks': snap_stocks,
+                'real_estate': snap_re,
+                'crypto': snap_crypto,
+                'pension': snap_pension,
                 'is_snapshot': True
             })
-            curr_cash, curr_stocks, curr_re, curr_crypto, curr_pension = s['cash'], s['stocks'], s['real_estate'], s['crypto'], s['pension']
+            curr_cash, curr_stocks, curr_re, curr_crypto, curr_pension = snap_cash, snap_stocks, snap_re, snap_crypto, snap_pension
         else:
             cum_crypto_buy = sum(v for k, v in crypto_monthly_buy.items() if k <= ym)
             est_crypto = float(cum_crypto_buy * crypto_ratio)
             history.append({
                 'month': ym,
-                'cash': curr_cash,
-                'stocks': curr_stocks,
-                'real_estate': curr_re,
+                'cash': float(curr_cash or 0),
+                'stocks': float(curr_stocks or 0),
+                'real_estate': float(curr_re or 0),
                 'crypto': est_crypto,
-                'pension': curr_pension,
+                'pension': float(curr_pension or 0),
                 'is_snapshot': False
             })
             curr_crypto = est_crypto
-        
+
         # 미리 수집된 메모리 해시맵에서 값 읽기 (속도 혁명!)
-        inc = inc_map.get(ym, 0)
-        exp = exp_map.get(ym, 0)
-        card = card_map.get(ym, 0)
-        s_buy, s_sell = stock_tx_map.get(ym, (0, 0))
-        c_buy = crypto_map.get(ym, 0)
-        
-        curr_cash -= (inc - (exp + card) - (s_buy + c_buy) + s_sell)
-        curr_stocks -= (s_buy - s_sell)
-        curr_pension -= p_monthly
+        inc   = float(inc_map.get(ym, 0)  or 0)
+        exp   = float(exp_map.get(ym, 0)  or 0)
+        card  = float(card_map.get(ym, 0) or 0)
+        s_buy_raw, s_sell_raw = stock_tx_map.get(ym, (0, 0))
+        s_buy  = float(s_buy_raw  or 0)
+        s_sell = float(s_sell_raw or 0)
+        c_buy  = float(crypto_map.get(ym, 0) or 0)
+
+        curr_cash    = float(curr_cash or 0)    - (inc - (exp + card) - (s_buy + c_buy) + s_sell)
+        curr_stocks  = float(curr_stocks or 0)  - (s_buy - s_sell)
+        curr_pension = float(curr_pension or 0) - p_monthly
         
         m -= 1
         if m == 0: m = 12; y -= 1
