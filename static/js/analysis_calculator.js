@@ -72,18 +72,25 @@ function renderAssetTree() {
 
     const total = items.reduce((s, i) => s + getVal(i), 0);
     const catId = `cat-${index++}`;
+    const escapedCat = cat.replace(/'/g, "\\'");
 
     html += `
     <div class="accordion-item border-0 mb-2 shadow-sm rounded overflow-hidden">
       <h2 class="accordion-header">
-        <div class="d-flex align-items-center bg-white pe-3">
+        <div class="d-flex align-items-center bg-white pe-2">
           <button class="accordion-button collapsed flex-grow-1 py-3" type="button" data-bs-toggle="collapse" data-bs-target="#${catId}">
             <span class="fw-bold">${cat}</span>
             <span class="ms-auto me-2 text-muted small">${fmt(total)}원</span>
           </button>
-          <div class="calc-item border-0 p-2 m-0 bg-transparent" draggable="true"
-               data-type="category" data-label="${cat}" data-val="${total}" title="전체 드래그">
-            <i class="bi bi-grip-vertical fs-5 text-muted"></i>
+          <div class="d-flex align-items-center gap-1">
+            <button class="btn btn-sm text-primary p-1 border-0 bg-transparent" title="계산기에 추가"
+                    onclick="event.stopPropagation(); addCalcItem({label: '${escapedCat}', val: ${total}, type: 'category'})">
+              <i class="bi bi-plus-circle fs-5"></i>
+            </button>
+            <div class="calc-item border-0 p-2 m-0 bg-transparent" draggable="true"
+                 data-type="category" data-label="${cat}" data-val="${total}" title="전체 드래그">
+              <i class="bi bi-grip-vertical fs-5 text-muted"></i>
+            </div>
           </div>
         </div>
       </h2>
@@ -94,11 +101,16 @@ function renderAssetTree() {
               const dispVal = getVal(item);
               const depositNote = isRE && item.deposit > 0
                 ? ` <span class="text-warning" style="font-size:10px">(보증금 ${fmt(item.deposit)}원 제외)</span>` : '';
+              const escapedName = item.name.replace(/'/g, "\\'");
               return `
-              <div class="list-group-item bg-transparent d-flex justify-content-between align-items-center py-2 ps-4 calc-item"
-                   draggable="true" data-type="item" data-label="${item.name}" data-val="${dispVal}">
-                <span class="small">${item.name}${depositNote}</span>
-                <span class="small fw-semibold text-muted">${fmt(dispVal)}원</span>
+              <div class="list-group-item bg-transparent d-flex justify-content-between align-items-center py-2 ps-4 pe-3 calc-item cursor-pointer"
+                   draggable="true" data-type="item" data-label="${escapedName}" data-val="${dispVal}"
+                   onclick="if(this.classList.contains('dragging')) return; addCalcItem({label: '${escapedName}', val: ${dispVal}, type: 'item'})">
+                <div class="flex-grow-1 d-flex justify-content-between align-items-center me-3">
+                  <span class="small">${item.name}${depositNote}</span>
+                  <span class="small fw-semibold text-muted">${fmt(dispVal)}원</span>
+                </div>
+                <i class="bi bi-plus-circle text-primary fs-5"></i>
               </div>`;
             }).join('')}
           </div>

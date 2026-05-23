@@ -4059,6 +4059,64 @@ def api_tech_tree_detail():
         for lev in leverages:
             if lev[1] > 0:
                 res.append({'date': '레버리지', 'name': f"{lev[0]} (사적레버리지)", 'amount': int(lev[1]), 'memo': '전세금 기회비용(4%)'})
+
+        # 주식/ETF 실현손익 내역 추가
+        from collections import defaultdict as _defaultdict
+        cur = db.cursor()
+        cur.execute("""
+            SELECT 'stock' as source, t.stock_id as asset_id, t.tx_date::text as tx_date,
+                   t.tx_type, t.price, t.quantity, COALESCE(t.fee,0) as fee, s.ticker, s.name
+            FROM stock_tx t JOIN stocks s ON s.id = t.stock_id
+            ORDER BY t.stock_id, t.tx_date, t.id
+        """)
+        all_stock_tx = cur.fetchall()
+        cur.execute("""
+            SELECT 'etf' as source, t.etf_id as asset_id, t.tx_date::text as tx_date,
+                   t.tx_type, t.price, t.quantity, COALESCE(t.fee,0) as fee, e.ticker, e.name
+            FROM etf_tx t JOIN etf e ON e.id = t.etf_id
+            ORDER BY t.etf_id, t.tx_date, t.id
+        """)
+        all_etf_tx = cur.fetchall()
+        cur.close()
+
+        ex_rate = get_current_exchange_rate()
+        tx_by_asset_tt = _defaultdict(list)
+        for tx in list(all_stock_tx) + list(all_etf_tx):
+            tx_by_asset_tt[(tx['source'], tx['asset_id'])].append(tx)
+
+        for (source, asset_id), txs in tx_by_asset_tt.items():
+            qty = 0.0; avg_cost = 0.0
+            for tx in txs:
+                tq = float(tx['quantity']); tp = float(tx['price'])
+                if tx['tx_type'] == 'buy':
+                    new_qty = qty + tq
+                    avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
+                    qty = new_qty
+                else:
+                    tx_ym = (tx['tx_date'] or '')[:7]
+                    if tx_ym == ym:
+                        pnl = (tp - avg_cost) * tq - float(tx['fee'] or 0)
+                        mul = ex_rate if is_foreign_ticker(tx['ticker']) else 1.0
+                        realized_pnl_krw = pnl * mul
+                        
+                        currency_symbol = '$' if is_foreign_ticker(tx['ticker']) else '₩'
+                        res.append({
+                            'date': tx['tx_date'],
+                            'name': f"{tx['name']} ({'주식' if source == 'stock' else 'ETF'} 실현손익)",
+                            'amount': round(realized_pnl_krw),
+                            'memo': f"매도 {tq}주 @ {currency_symbol}{tp} / 평단: {currency_symbol}{round(avg_cost, 2)}"
+                        })
+                    qty = max(0.0, qty - tq)
+                    if qty == 0.0:
+                        avg_cost = 0.0
+
+        # 날짜 정렬 (날짜 형식은 최신순 정렬, 임대료/레버리지 등 텍스트는 맨 아래로)
+        def sort_key(x):
+            d = x['date'] or ''
+            if len(d) == 10 and d[4] == '-' and d[7] == '-':
+                return (1, d)
+            return (0, d)
+        res.sort(key=sort_key, reverse=True)
     elif ttype == 'expense':
         cur = db.cursor()
         cur.execute("SELECT date, name, amount, category FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))

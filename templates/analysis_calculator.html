@@ -14,7 +14,7 @@
         <i class="bi bi-list-ul me-2 text-primary"></i>자산 목록
       </div>
       <div class="card-body">
-        <p class="text-muted small mb-3">전체 카테고리 또는 세부 항목을 드래그하여 계산기에 추가하세요.</p>
+        <p class="text-muted small mb-3">항목을 클릭(터치)하거나 드래그하여 계산기에 추가하세요.</p>
         
         <div id="asset-tree" class="accordion accordion-flush">
           <!-- JS로 채워짐 -->
@@ -25,12 +25,13 @@
 
         <div class="mt-3 pt-3 border-top">
           <p class="text-muted small mb-2"><i class="bi bi-pencil-square me-1"></i>수기 입력 자산</p>
-          <div class="calc-item d-flex align-items-center gap-2 p-3 shadow-sm rounded border"
-               draggable="true" data-type="custom" data-label="추가 자산" data-val="0" id="custom-asset-drag-item">
+          <div class="calc-item d-flex align-items-center gap-2 p-3 shadow-sm rounded border cursor-pointer"
+               draggable="true" data-type="custom" data-label="추가 자산" data-val="0" id="custom-asset-drag-item"
+               onclick="if(this.classList.contains('dragging')) return; addCalcItem({label: '추가 자산', val: 0, type: 'custom'})">
             <i class="bi bi-plus-circle-fill text-success fs-5"></i>
             <div>
               <div class="fw-semibold">추가 자산</div>
-              <div class="text-muted" style="font-size:11px">드래그하여 금액 직접 입력</div>
+              <div class="text-muted" style="font-size:11px">클릭 또는 드래그하여 금액 직접 입력</div>
             </div>
             <i class="bi bi-grip-vertical fs-5 text-muted ms-auto"></i>
           </div>
