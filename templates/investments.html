@@ -716,7 +716,8 @@ let _catPnlPeriod = 'monthly';
 function openCatPnlModal() {
   const sel = document.getElementById('catPnlCategory');
   const prev = sel.value;
-  const categories = allStockCategories.filter(c => c.name !== '공모주');
+  console.log('allStockCategories:', allStockCategories);
+  const categories = allStockCategories.filter(c => c.name && c.name.trim() !== '공모주');
   sel.innerHTML = '<option value="전체">전체</option>' +
     categories.map(c => `<option value="${c.name}"${c.name === prev ? ' selected' : ''}>${c.name}</option>`).join('') +
     `<option value="공모주"${'공모주' === prev ? ' selected' : ''}>공모주</option>`;
