@@ -2793,6 +2793,13 @@ def api_stock_category_pnl():
         ORDER BY t.etf_id, t.tx_date, t.id
     """)
     etf_txs = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("""
+        SELECT id, name, listing_date::text as listing_date, ipo_price, quantity, realized_pnl, fee
+        FROM ipo
+        WHERE listing_date IS NOT NULL AND listing_date != ''
+    """)
+    ipo_txs = [dict(r) for r in cur.fetchall()]
     cur.close()
     db.close()
 
@@ -2806,14 +2813,18 @@ def api_stock_category_pnl():
         qty = 0.0
         avg_cost = 0.0
         for tx in txs:
-            tq = float(tx['quantity'])
-            tp = float(tx['price'])
+            tq = float(tx['quantity'] or 0.0)
+            tp = float(tx['price'] or 0.0)
             if tx['tx_type'] == 'buy':
                 new_qty = qty + tq
-                avg_cost = (qty * avg_cost + tq * tp) / new_qty
+                if new_qty > 0:
+                    avg_cost = (qty * avg_cost + tq * tp) / new_qty
+                else:
+                    avg_cost = 0.0
                 qty = new_qty
             else: # sell
-                pnl = (tp - avg_cost) * tq
+                fee_val = float(tx['fee'] or 0.0)
+                pnl = (tp - avg_cost) * tq - fee_val
                 cost = avg_cost * tq
                 mul = ex_rate if is_foreign_ticker(tx['ticker']) else 1.0
                 realized_records.append({
@@ -2825,6 +2836,43 @@ def api_stock_category_pnl():
                 qty = max(0.0, qty - tq)
                 if qty == 0.0:
                     avg_cost = 0.0
+
+    for r in ipo_txs:
+        pnl = float(r['realized_pnl'] or 0.0) - float(r['fee'] or 0.0)
+        cost = float(r['ipo_price'] or 0.0) * float(r['quantity'] or 0.0)
+        realized_records.append({
+            'date': r['listing_date'],
+            'category': '공모주',
+            'pnl': pnl,
+            'cost': cost
+        })
+
+    # Determine monthly period keys if needed for win/loss filtering
+    if period == 'monthly':
+        today = date.today()
+        keys = []
+        for i in range(11, -1, -1):
+            mo = today.month - i
+            yr = today.year
+            while mo <= 0:
+                mo += 12; yr -= 1
+            keys.append(f"{yr}-{mo:02d}")
+    else:
+        keys = []
+
+    win_count = 0
+    loss_count = 0
+    for r in realized_records:
+        if category and category != '전체' and r['category'] != category:
+            continue
+        if period == 'monthly':
+            ym = r['date'][:7]
+            if ym not in keys:
+                continue
+        if r['pnl'] > 0:
+            win_count += 1
+        elif r['pnl'] < 0:
+            loss_count += 1
 
     period_map = defaultdict(lambda: {'pnl': 0.0, 'cost': 0.0})
     for r in realized_records:
@@ -2838,14 +2886,6 @@ def api_stock_category_pnl():
     data_map = {k: v for k, v in period_map.items()}
 
     if period == 'monthly':
-        today = date.today()
-        keys = []
-        for i in range(11, -1, -1):
-            mo = today.month - i
-            yr = today.year
-            while mo <= 0:
-                mo += 12; yr -= 1
-            keys.append(f"{yr}-{mo:02d}")
         # cumulative includes all history before our 12-month window
         cumulative = sum(v['pnl'] for k, v in data_map.items() if k < keys[0])
     else:
@@ -2864,7 +2904,11 @@ def api_stock_category_pnl():
             'cumulative_pnl': round(cumulative),
         })
 
-    return jsonify(result)
+    return jsonify({
+        'data': result,
+        'win_count': win_count,
+        'loss_count': loss_count
+    })
 
 
 # ── API: 공모주 실현손익 차트 ──────────────────────────────────

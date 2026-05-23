@@ -745,23 +745,13 @@ function _getIpoCatPnlData(ipoData) {
 async function loadCatPnl() {
   const category = document.getElementById('catPnlCategory').value;
 
-  let data;
-  let wins, losses;
-  if (category === '공모주') {
-    const ipoRaw = await fetchJSON(`/api/ipo-pnl?period=${_catPnlPeriod}`);
-    if (!ipoRaw) return;
-    data   = _getIpoCatPnlData(ipoRaw.data);
-    // 개별 IPO 건수 기반 승/패 (기간별 합산이 아님)
-    wins   = ipoRaw.win_count  ?? data.filter(d => d.realized_pnl > 0).length;
-    losses = ipoRaw.loss_count ?? data.filter(d => d.realized_pnl < 0).length;
-  } else {
-    data = await fetchJSON(
-      `/api/stock-category-pnl?category=${encodeURIComponent(category)}&period=${_catPnlPeriod}`
-    );
-    if (!data) return;
-    wins   = data.filter(d => d.realized_pnl > 0).length;
-    losses = data.filter(d => d.realized_pnl < 0).length;
-  }
+  const res = await fetchJSON(
+    `/api/stock-category-pnl?category=${encodeURIComponent(category)}&period=${_catPnlPeriod}`
+  );
+  if (!res) return;
+  const data   = res.data;
+  const wins   = res.win_count;
+  const losses = res.loss_count;
 
   // 요약 통계
   const totalPnl  = data.reduce((s, d) => s + d.realized_pnl, 0);
