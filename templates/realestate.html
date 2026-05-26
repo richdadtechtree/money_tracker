@@ -638,15 +638,21 @@ function renderSummaryCards() {
   let count, realinv, gain, roi, labelCount, labelGain, labelRoi;
 
   if (_summaryMode === 'current') {
-    count = c.count; realinv = c.total_real_inv; gain = c.total_net_gain; roi = c.avg_roi;
+    count = Number(c.count || 0);
+    realinv = Number(c.total_real_inv || 0);
+    gain = Number(c.total_net_gain || 0);
+    roi = c.avg_roi != null ? Number(c.avg_roi) : null;
     labelCount = '전체 물건 (보유)'; labelGain = '총 순손익 (평가)'; labelRoi = '평균 실수익률';
   } else if (_summaryMode === 'sold') {
-    count = s.count; realinv = s.total_real_inv; gain = s.total_profit; roi = s.avg_roi;
+    count = Number(s.count || 0);
+    realinv = Number(s.total_real_inv || 0);
+    gain = Number(s.total_profit || 0);
+    roi = s.avg_roi != null ? Number(s.avg_roi) : null;
     labelCount = '매도 물건 (과거)'; labelGain = '총 실현 차익'; labelRoi = '평균 수익률';
   } else {
-    count   = (c.count || 0) + (s.count || 0);
-    realinv = (c.total_real_inv || 0) + (s.total_real_inv || 0);
-    gain    = (c.total_net_gain || 0) + (s.total_profit   || 0);
+    count   = Number(c.count || 0) + Number(s.count || 0);
+    realinv = Number(c.total_real_inv || 0) + Number(s.total_real_inv || 0);
+    gain    = Number(c.total_net_gain || 0) + Number(s.total_profit || 0);
     roi     = realinv > 0 ? Math.round(gain / realinv * 1000) / 10 : null;
     labelCount = '전체 물건 (보유+매도)'; labelGain = '총 손익 (평가+실현)'; labelRoi = '평균 수익률';
   }

@@ -568,7 +568,8 @@ async function loadTechTree() {
   document.getElementById('valRE').textContent = fmt(assets.real_estate);
   document.getElementById('valCrypto').textContent = fmt(assets.crypto);
   document.getElementById('valPension').textContent = fmt(assets.pension);
-  const percent = Math.min(Math.round((total / target_amount) * 100), 100);
+  const percentVal = Math.min((total / target_amount) * 100, 100);
+  const percent = percentVal.toFixed(1);
   document.getElementById('tankWater').style.height = percent + '%';
   document.getElementById('tankPercentLabel').textContent = percent + '%';
   if (total > 0) {
@@ -855,8 +856,8 @@ async function loadYearlyStats() {
     // 올해는 수위 점선 표시에서 제외
     if (h.year === new Date().getFullYear().toString()) return;
     
-    const percent = h.percent;
-    const bottomPos = Math.min(Math.max(percent, 0), 100);
+    const percent = Number(h.percent).toFixed(1);
+    const bottomPos = Math.min(Math.max(Number(h.percent), 0), 100);
     
     // 수위선 생성
     const line = document.createElement('div');
@@ -906,7 +907,7 @@ async function loadYearlyStats() {
         <div class="mini-tank-water" style="height: ${h.percent}%">
           ${layersHtml}
         </div>
-        <div class="mini-tank-percentage">${h.percent}%</div>
+        <div class="mini-tank-percentage">${Number(h.percent).toFixed(1)}%</div>
       </div>
       <div class="mini-tank-year text-center text-truncate w-100">${displayName}</div>
     `;
@@ -960,7 +961,7 @@ function showMiniTankDetails(data) {
   
   let infoContent = `
     <div class="p-1">
-      <h6 class="fw-bold mb-3 text-primary"><i class="bi bi-wallet2 me-2"></i>총 자산: ${fmt(data.total)}원 (${data.percent}%)</h6>
+      <h6 class="fw-bold mb-3 text-primary"><i class="bi bi-wallet2 me-2"></i>총 자산: ${fmt(data.total)}원 (${Number(data.percent).toFixed(1)}%)</h6>
       <div class="d-flex flex-column gap-2">
         <div class="d-flex justify-content-between border-bottom pb-1"><span>현금</span><span class="fw-bold text-primary">${fmt(b.cash)}원</span></div>
         <div class="d-flex justify-content-between border-bottom pb-1"><span>주식/ETF</span><span class="fw-bold text-success">${fmt(b.stocks)}원</span></div>

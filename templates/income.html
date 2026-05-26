@@ -77,8 +77,31 @@
               <option>사업소득</option>
               <option>투자수익</option>
               <option>임대소득</option>
+              <option>배당금</option>
               <option>기타</option>
             </select>
+          </div>
+          <!-- 통화 선택 -->
+          <div class="col-12">
+            <label class="form-label fw-semibold">통화</label>
+            <div class="d-flex gap-3">
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="mi_currency" id="mi_currency_krw" value="KRW" checked onchange="onCurrencyChange()">
+                <label class="form-check-label" for="mi_currency_krw">원화 (KRW)</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="mi_currency" id="mi_currency_usd" value="USD" onchange="onCurrencyChange()">
+                <label class="form-check-label" for="mi_currency_usd">달러 (USD)</label>
+              </div>
+            </div>
+          </div>
+          <!-- 적용 환율 (달러 선택 시 노출) -->
+          <div class="col-12 d-none" id="mi_exchange_rate_div">
+            <label class="form-label fw-semibold">적용 환율 <span class="text-danger">*</span></label>
+            <div class="input-group">
+              <input type="text" id="mi_exchange_rate" class="form-control" placeholder="1,380" inputmode="decimal" oninput="fmtExchangeRate(this); updateConvertedKrw()">
+              <span class="input-group-text">원/달러</span>
+            </div>
           </div>
           <!-- 항목명 -->
           <div class="col-12">
@@ -87,11 +110,12 @@
           </div>
           <!-- 금액 -->
           <div class="col-12">
-            <label class="form-label fw-semibold">금액 <span class="text-danger">*</span></label>
+            <label class="form-label fw-semibold" id="mi_amount_label">금액 <span class="text-danger">*</span></label>
             <div class="input-group">
-              <input type="text" id="mi_amount" class="form-control" placeholder="0" inputmode="decimal">
-              <span class="input-group-text">원</span>
+              <input type="text" id="mi_amount" class="form-control" placeholder="0" inputmode="decimal" oninput="updateConvertedKrw()">
+              <span class="input-group-text" id="mi_amount_addon">원</span>
             </div>
+            <div id="mi_krw_converted_help" class="form-text text-success fw-semibold mt-1 d-none"></div>
           </div>
           <!-- 메모 -->
           <div class="col-12">
@@ -145,11 +169,17 @@ const grid = new GridTable({
   columns: [
     { key: 'date',     type: 'date' },
     { key: 'category', type: 'select',
-      options: ['급여','부수입','사업소득','투자수익','임대소득','기타'],
+      options: ['급여','부수입','사업소득','투자수익','임대소득','배당금','기타'],
       render: v => v ? `<span class="badge bg-success-subtle text-success">${v}</span>` : '-' },
     { key: 'name',   type: 'text' },
     { key: 'amount', type: 'number', align: 'end',
-      render: v => `<span class="fw-semibold text-success">${fmt(v)}원</span>` },
+      render: (v, r) => {
+        if (r && r.currency === 'USD') {
+          return `<span class="fw-semibold text-success" title="환율: ${fmt(r.exchange_rate)}원">$${Number(r.original_amount).toFixed(2)}<br><small class="text-muted" style="font-size: 0.75rem;">(${fmt(v)}원)</small></span>`;
+        }
+        return `<span class="fw-semibold text-success">${fmt(v)}원</span>`;
+      }
+    },
     { key: 'memo',   type: 'text' },
   ],
   apiUrl: '/api/income',
@@ -177,10 +207,13 @@ function openAddModal() {
   document.getElementById('mi_name').value     = '';
   document.getElementById('mi_amount').value   = '';
   document.getElementById('mi_memo').value     = '';
+  document.getElementById('mi_currency_krw').checked = true;
+  document.getElementById('mi_exchange_rate').value   = '';
   document.getElementById('mi_recurring').checked = false;
   document.getElementById('mi_repeat_months').value = 12;
   document.getElementById('recurringOptions').classList.add('d-none');
   document.getElementById('recurringPreview').classList.add('d-none');
+  onCurrencyChange();
 
   addModal.show();
   setTimeout(() => document.getElementById('mi_date').focus(), 300);
@@ -242,6 +275,15 @@ async function saveIncome() {
   if (!dateVal)    { alert('날짜를 입력해주세요.'); return; }
   if (amount <= 0) { alert('금액을 입력해주세요.'); return; }
 
+  const currency  = document.getElementById('mi_currency_usd').checked ? 'USD' : 'KRW';
+  const exRateRaw = document.getElementById('mi_exchange_rate').value.replace(/,/g, '');
+  const exchangeRate = parseFloat(exRateRaw) || 1.0;
+
+  if (currency === 'USD' && exchangeRate <= 0) {
+    alert('환율을 입력해주세요.');
+    return;
+  }
+
   const isRecurring   = document.getElementById('mi_recurring').checked;
   const repeatMonths  = parseInt(document.getElementById('mi_repeat_months').value) || 1;
 
@@ -250,7 +292,10 @@ async function saveIncome() {
     category:       document.getElementById('mi_category').value,
     name:           document.getElementById('mi_name').value,
     memo:           document.getElementById('mi_memo').value,
-    amount:         amount,
+    amount:         currency === 'USD' ? Math.round(amount * exchangeRate) : amount,
+    currency:       currency,
+    exchange_rate:  exchangeRate,
+    original_amount: amount,
     is_recurring:   isRecurring,
     repeat_months:  isRecurring ? repeatMonths : 1,
   };
@@ -276,6 +321,63 @@ async function saveIncome() {
       showToast(`${repeatMonths}개월치 수입이 등록되었습니다.`, 'success');
     }
   }
+}
+
+/* ── 통화 변경 및 계산 ── */
+async function onCurrencyChange() {
+  const isUsd = document.getElementById('mi_currency_usd').checked;
+  const exRateDiv = document.getElementById('mi_exchange_rate_div');
+  const amountAddon = document.getElementById('mi_amount_addon');
+  const amountLabel = document.getElementById('mi_amount_label');
+  
+  if (isUsd) {
+    exRateDiv.classList.remove('d-none');
+    amountAddon.textContent = '달러 ($)';
+    amountLabel.innerHTML = '달러 금액 <span class="text-danger">*</span>';
+    
+    const rateInput = document.getElementById('mi_exchange_rate');
+    if (!rateInput.value) {
+      const res = await fetchJSON('/api/exchange-rate');
+      if (res && res.rate) {
+        rateInput.value = fmt(res.rate);
+      }
+    }
+  } else {
+    exRateDiv.classList.add('d-none');
+    amountAddon.textContent = '원';
+    amountLabel.innerHTML = '금액 <span class="text-danger">*</span>';
+    document.getElementById('mi_krw_converted_help').classList.add('d-none');
+  }
+  updateConvertedKrw();
+}
+
+function updateConvertedKrw() {
+  const isUsd = document.getElementById('mi_currency_usd').checked;
+  const help = document.getElementById('mi_krw_converted_help');
+  if (!isUsd) {
+    help.classList.add('d-none');
+    return;
+  }
+  
+  const amountRaw = document.getElementById('mi_amount').value.replace(/,/g, '');
+  const amount = parseFloat(amountRaw) || 0;
+  const rateRaw = document.getElementById('mi_exchange_rate').value.replace(/,/g, '');
+  const rate = parseFloat(rateRaw) || 0;
+  
+  if (amount > 0 && rate > 0) {
+    const krw = Math.round(amount * rate);
+    help.textContent = `예상 원화 환산액: ${fmt(krw)}원`;
+    help.classList.remove('d-none');
+  } else {
+    help.classList.add('d-none');
+  }
+}
+
+function fmtExchangeRate(el) {
+  const clean = el.value.replace(/[^\d.]/g, '');
+  const parts = clean.split('.');
+  const intFmt = (parts[0] || '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  el.value = parts.length > 1 ? intFmt + '.' + parts[1] : intFmt;
 }
 
 /* 모달에서 Enter 키 저장 */

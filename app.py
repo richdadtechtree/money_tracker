@@ -225,6 +225,17 @@ def api_income():
     is_recurring  = data.get('is_recurring', False)
     repeat_months = int(data.get('repeat_months') or 1)
 
+    currency = data.get('currency', 'KRW')
+    exchange_rate = float(data.get('exchange_rate') or 1.0)
+    original_amount = float(data.get('original_amount') or 0.0)
+
+    if currency == 'USD':
+        amount = int(original_amount * exchange_rate)
+    else:
+        amount = int(data.get('amount') or 0)
+        original_amount = float(amount)
+        exchange_rate = 1.0
+
     if is_recurring and repeat_months > 1:
         # base_date 에서 repeat_months 개월치를 순서대로 INSERT
         from datetime import date as _date
@@ -239,15 +250,15 @@ def api_income():
             tx_date = _date(y, m, d).isoformat()
             cur = db.cursor()
             cur.execute(
-            "INSERT INTO income (date, category, name, memo, amount) VALUES (%s,%s,%s,%s,%s)",
-            (tx_date, data.get('category'), data.get('name'), data.get('memo'), data['amount'])
+            "INSERT INTO income (date, category, name, memo, amount, currency, exchange_rate, original_amount) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (tx_date, data.get('category'), data.get('name'), data.get('memo'), amount, currency, exchange_rate, original_amount)
             )
             cur.close()
     else:
         cur = db.cursor()
         cur.execute(
-        "INSERT INTO income (date, category, name, memo, amount) VALUES (%s,%s,%s,%s,%s)",
-        (base_date_str, data.get('category'), data.get('name'), data.get('memo'), data['amount'])
+        "INSERT INTO income (date, category, name, memo, amount, currency, exchange_rate, original_amount) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+        (base_date_str, data.get('category'), data.get('name'), data.get('memo'), amount, currency, exchange_rate, original_amount)
         )
         cur.close()
 
@@ -261,11 +272,22 @@ def api_income_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
+        currency = data.get('currency', 'KRW')
+        exchange_rate = float(data.get('exchange_rate') or 1.0)
+        original_amount = float(data.get('original_amount') or 0.0)
+
+        if currency == 'USD':
+            amount = int(original_amount * exchange_rate)
+        else:
+            amount = int(data.get('amount') or 0)
+            original_amount = float(amount)
+            exchange_rate = 1.0
+
         cur = db.cursor()
         cur.execute(
-        "UPDATE income SET date=%s, category=%s, name=%s, memo=%s, amount=%s WHERE id=%s",
+        "UPDATE income SET date=%s, category=%s, name=%s, memo=%s, amount=%s, currency=%s, exchange_rate=%s, original_amount=%s WHERE id=%s",
         (data.get('date'), data.get('category'), data.get('name'),
-        data.get('memo'), data.get('amount', 0), rid)
+        data.get('memo'), amount, currency, exchange_rate, original_amount, rid)
         )
         cur.close()
         db.commit()
@@ -2086,9 +2108,9 @@ def _re_enrich(db, rows):
         deposit = contract['deposit'] if contract else 0
         purchase = r['purchase_price']
         current  = r['current_price']
-        real_inv = purchase - deposit + acq_cost   # 실투자금
-        net_gain = (current - purchase) + net_extra  # 순손익
-        real_roi = round(net_gain / real_inv * 100, 1) if real_inv > 0 else None
+        real_inv = int(purchase - deposit + acq_cost)   # 실투자금
+        net_gain = int((current - purchase) + net_extra)  # 순손익
+        real_roi = round(float(net_gain) / real_inv * 100, 1) if real_inv > 0 else None
 
         row = dict(r)
         row['contract_type']  = contract['contract_type'] if contract else None
@@ -2160,11 +2182,11 @@ def api_re_summary():
     cur.close()
     enriched = _re_enrich(db, rows)
     db.close()
-    total_purchase = sum(r['purchase_price'] for r in enriched)
-    total_deposit  = sum(r['deposit'] for r in enriched)
-    total_real_inv = sum(r['real_inv'] for r in enriched)
-    total_net_gain = sum(r['net_gain'] for r in enriched)
-    avg_roi = round(total_net_gain / total_real_inv * 100, 1) if total_real_inv > 0 else None
+    total_purchase = int(sum(r['purchase_price'] for r in enriched))
+    total_deposit  = int(sum(r['deposit'] for r in enriched))
+    total_real_inv = int(sum(r['real_inv'] for r in enriched))
+    total_net_gain = int(sum(r['net_gain'] for r in enriched))
+    avg_roi = round(float(total_net_gain) / total_real_inv * 100, 1) if total_real_inv > 0 else None
     return jsonify({
         'count': len(enriched),
         'total_purchase': total_purchase,
@@ -2185,9 +2207,9 @@ def api_re_summary_sold():
     cnt = cur.fetchone()['cnt']
     cur.close(); db.close()
     data = rows_to_list(rows)
-    total_real_inv = sum(r.get('real_inv') or 0 for r in data)
-    total_profit   = sum(r.get('profit')   or 0 for r in data)
-    avg_roi = round(total_profit / total_real_inv * 100, 1) if total_real_inv > 0 else None
+    total_real_inv = int(sum(r.get('real_inv') or 0 for r in data))
+    total_profit   = int(sum(r.get('profit')   or 0 for r in data))
+    avg_roi = round(float(total_profit) / total_real_inv * 100, 1) if total_real_inv > 0 else None
     return jsonify({
         'count':         cnt,
         'total_real_inv': total_real_inv,
@@ -3133,7 +3155,7 @@ def _api_dashboard_inner():
     # 이번달 카드 지출
     cur = db.cursor()
     cur.execute(
-    "SELECT COALESCE(SUM(amount),0) as total FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= CURRENT_DATE", (ym,)
+    "SELECT COALESCE(SUM(amount),0) as total FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s AND date <= CURRENT_DATE AND budget_id IS NULL", (ym,)
     )
     card_total = cur.fetchone()['total']
     cur.close()
@@ -3464,7 +3486,7 @@ def _api_tech_tree_data_inner():
     expense_total = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(amount),0) FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
+    cur.execute("SELECT COALESCE(SUM(amount),0) FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s AND budget_id IS NULL", (ym,))
     card_total = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
@@ -3815,7 +3837,7 @@ def _api_tech_tree_yearly_stats_inner():
         cur.close()
         
         cur = db.cursor()
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
+        cur.execute("SELECT COALESCE(SUM(amount),0) FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s AND budget_id IS NULL", (ym,))
         card_total = cur.fetchone()[0] or 0
         cur.close()
         
@@ -3953,7 +3975,7 @@ def api_asset_history():
     cur.execute("""
         SELECT to_char(date::date, 'YYYY-MM') as ym, COALESCE(SUM(amount), 0)
         FROM card_tx
-        WHERE to_char(date::date, 'YYYY-MM') IN %s
+        WHERE to_char(date::date, 'YYYY-MM') IN %s AND budget_id IS NULL
         GROUP BY ym
     """, (tuple(months_list),))
     card_map = {r[0]: r[1] for r in cur.fetchall()}
@@ -4156,7 +4178,7 @@ def api_tech_tree_detail():
 
         # 날짜 정렬 (날짜 형식은 최신순 정렬, 임대료/레버리지 등 텍스트는 맨 아래로)
         def sort_key(x):
-            d = x['date'] or ''
+            d = str(x['date'] or '')
             if len(d) == 10 and d[4] == '-' and d[7] == '-':
                 return (1, d)
             return (0, d)
@@ -4283,7 +4305,7 @@ def api_monthly_summary():
         cur.close()
         cur = db.cursor()
         cur.execute(
-        "SELECT COALESCE(SUM(amount),0) as t FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,)
+        "SELECT COALESCE(SUM(amount),0) as t FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s AND budget_id IS NULL", (ym,)
         )
         card = cur.fetchone()['t']
         cur.close()

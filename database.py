@@ -38,7 +38,10 @@ def init_db():
             category        TEXT,
             name            TEXT,
             memo            TEXT,
-            amount          INTEGER NOT NULL DEFAULT 0
+            amount          INTEGER NOT NULL DEFAULT 0,
+            currency        TEXT NOT NULL DEFAULT 'KRW',
+            exchange_rate   REAL NOT NULL DEFAULT 1.0,
+            original_amount REAL NOT NULL DEFAULT 0.0
         );
 
         CREATE TABLE IF NOT EXISTS budget_recurring (
@@ -408,7 +411,7 @@ def init_db():
         "ON CONFLICT (name) DO NOTHING",
         # 주식 구분 기본값
         "INSERT INTO stock_categories (name, sort_order) VALUES "
-        "('스윙',0),('올웨더',1),('지수투자',2),('TQQQ',3),('공모주',4),('사이클',5),('해외스윙',6) "
+        "('스윙',0),('올웨더',1),('지수투자',2),('TQQQ',3),('공모주',4),('사이클',5),('해외 스윙',6) "
         "ON CONFLICT (name) DO NOTHING",
         # 외국 주식/ETF 거래 소수점 입력용 REAL 타입 마이그레이션
         "ALTER TABLE stocks ALTER COLUMN current_price TYPE REAL",
@@ -418,6 +421,9 @@ def init_db():
         "ALTER TABLE etf ALTER COLUMN current_price TYPE REAL",
         "ALTER TABLE etf_tx ALTER COLUMN price TYPE REAL",
         "ALTER TABLE etf_tx ALTER COLUMN fee TYPE REAL",
+        "ALTER TABLE income ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'KRW'",
+        "ALTER TABLE income ADD COLUMN IF NOT EXISTS exchange_rate REAL NOT NULL DEFAULT 1.0",
+        "ALTER TABLE income ADD COLUMN IF NOT EXISTS original_amount REAL NOT NULL DEFAULT 0.0",
     ]
     for sql in migrations:
         try:
