@@ -4189,7 +4189,7 @@ def api_tech_tree_detail():
         b = cur.fetchall()
         cur.close()
         cur = db.cursor()
-        cur.execute("SELECT date, name, amount, category FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
+        cur.execute("SELECT date, name, amount, category FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s AND budget_id IS NULL", (ym,))
         c = cur.fetchall()
         cur.close()
         cur = db.cursor()
