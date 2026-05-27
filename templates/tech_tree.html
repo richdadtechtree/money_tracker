@@ -24,9 +24,9 @@
       <div class="card-body p-3">
         <div class="d-flex align-items-center mb-1">
           <span class="badge bg-primary me-2">Active</span>
-          <span class="small text-muted">근로소득</span>
+          <span class="small text-muted">근로소득 & 기타</span>
         </div>
-        <div class="fw-bold text-primary" id="mLaborIncome" onclick="openDetailModal('labor','근로소득 상세')" style="cursor:pointer">0원</div>
+        <div class="fw-bold text-primary" id="mLaborIncome" onclick="openDetailModal('labor','근로소득 & 기타 상세')" style="cursor:pointer">0원</div>
       </div>
     </div>
   </div>
@@ -73,11 +73,11 @@
       <div class="card-body p-4" style="overflow: hidden;">
         <div class="flow-wrapper">
         <div class="flow-container position-relative" style="width: 810px; height: 550px; background: #fafbfc; border-radius: 20px; border: 1px solid #edf2f7;">
-          <!-- [1] 근로소득 노드 -->
-          <div class="node labor-node shadow clickable-node" style="top: 20%; left: 3%;" onclick="openDetailModal('labor', '근로소득 상세')">
-            <div class="node-header bg-primary text-white">근로소득 (Active) <i class="bi bi-search float-end small"></i></div>
+          <!-- [1] 근로소득 & 기타 노드 -->
+          <div class="node labor-node shadow clickable-node" style="top: 20%; left: 3%;" onclick="openDetailModal('labor', '근로소득 & 기타 상세')">
+            <div class="node-header bg-primary text-white">근로소득 & 기타 (Active) <i class="bi bi-search float-end small"></i></div>
             <div class="node-body">
-              <div class="small text-muted mb-1">급여 / 사업소득</div>
+              <div class="small text-muted mb-1">급여 / 사업소득 / 기타</div>
               <div class="fw-bold fs-5 text-primary" id="laborIncomeVal">0원</div>
             </div>
           </div>

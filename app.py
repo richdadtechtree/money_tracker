@@ -3382,7 +3382,7 @@ def _api_tech_tree_data_inner():
     cur = db.cursor()
     cur.execute(
     "SELECT COALESCE(SUM(amount),0) FROM income "
-    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= CURRENT_DATE", 
+    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득', '기타') AND date <= CURRENT_DATE",
     (ym,)
     )
     labor_inc = float(cur.fetchone()[0] or 0)
@@ -3392,7 +3392,7 @@ def _api_tech_tree_data_inner():
     cur = db.cursor()
     cur.execute(
     "SELECT COALESCE(SUM(amount),0) FROM income "
-    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= CURRENT_DATE",
+    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득', '기타') AND date <= CURRENT_DATE",
     (ym,)
     )
     passive_inc = float(cur.fetchone()[0] or 0)
@@ -4086,13 +4086,13 @@ def api_tech_tree_detail():
     res = []
     if ttype == 'labor':
         cur = db.cursor()
-        cur.execute("SELECT date, name, amount, category FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= CURRENT_DATE", (ym,))
+        cur.execute("SELECT date, name, amount, category FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득', '기타') AND date <= CURRENT_DATE", (ym,))
         rows = cur.fetchall()
         cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in rows]
     elif ttype == 'passive':
         cur = db.cursor()
-        cur.execute("SELECT date, name, amount, category FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= CURRENT_DATE", (ym,))
+        cur.execute("SELECT date, name, amount, category FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득', '기타') AND date <= CURRENT_DATE", (ym,))
         rows = cur.fetchall()
         cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in rows]
@@ -4197,6 +4197,13 @@ def api_tech_tree_detail():
         l = cur.fetchall()
         cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in b + c + l]
+        # 날짜 정렬 (최신순, '매월' 등 텍스트 날짜는 맨 아래로)
+        def sort_key_exp(x):
+            d = str(x['date'] or '')
+            if len(d) == 10 and d[4] == '-' and d[7] == '-':
+                return (1, d)
+            return (0, d)
+        res.sort(key=sort_key_exp, reverse=True)
     elif ttype == 'cash':
         cur = db.cursor()
         cur.execute("SELECT '현금' as date, name, amount, memo FROM cash_deposits")
