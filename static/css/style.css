@@ -764,6 +764,7 @@ body.sidebar-hidden #main-content {
   cursor: pointer;
   user-select: none;
   border-top: 1px solid rgba(255,255,255,0.06);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 #sidebar-title-fixed .app-title-text {
@@ -773,6 +774,7 @@ body.sidebar-hidden #main-content {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: opacity 0.25s ease;
 }
 
 #sidebar-title-fixed .expand-hint {
@@ -782,11 +784,50 @@ body.sidebar-hidden #main-content {
   color: rgba(255,255,255,0.7);
   font-size: 0.75rem;
 }
-body.sidebar-hidden #sidebar-title-fixed .expand-hint {
-  opacity: 1;
+
+#sidebar-title-fixed .sidebar-toggle-icon-compact {
+  display: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
 }
-body.sidebar-hidden #sidebar-title-fixed:hover .expand-hint {
+
+/* 사이드바가 감춰졌을 때: 슬림하고 가독성 좋은 플로팅 원형 버튼으로 변형 */
+body.sidebar-hidden #sidebar-title-fixed {
+  width: 46px;
+  height: 46px;
+  bottom: 24px;
+  left: 24px;
+  border-radius: 50%;
+  padding: 0;
+  justify-content: center;
+  background: var(--primary);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(37, 99, 235, 0.2);
+}
+
+body.sidebar-hidden #sidebar-title-fixed:hover {
+  transform: translateY(-2px) scale(1.06);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(37, 99, 235, 0.4);
+  background: #1D4ED8; /* hover state */
+}
+
+body.dark-mode.sidebar-hidden #sidebar-title-fixed:hover {
+  background: #2563EB;
+}
+
+body.sidebar-hidden #sidebar-title-fixed .app-title-text,
+body.sidebar-hidden #sidebar-title-fixed .expand-hint {
+  display: none;
+  opacity: 0;
+}
+
+body.sidebar-hidden #sidebar-title-fixed .sidebar-toggle-icon-compact {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #fff;
+  font-size: 1.35rem;
+  opacity: 1;
 }
 
 /* ── 사이드바 내 기존 타이틀은 숨김 ── */
