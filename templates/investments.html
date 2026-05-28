@@ -74,14 +74,60 @@
       <div class="card-header bg-white border-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
         <span class="fw-semibold"><i class="bi bi-journal-text me-2 text-secondary"></i>매매 거래내역</span>
         <div class="d-flex gap-2 align-items-center">
-          <select id="txStockFilter" class="form-select form-select-sm" style="width:auto" onchange="stockTxGrid.load()">
-            <option value="">전체 종목</option>
-          </select>
           <button class="btn btn-primary btn-sm" onclick="stockTxGrid.addRow()">
             <i class="bi bi-plus-lg me-1"></i>거래 입력
           </button>
         </div>
       </div>
+      
+      <!-- 거래내역 검색 바 -->
+      <div class="card-body border-bottom py-2 bg-light-subtle" id="tx-search-bar">
+        <div class="row g-2 align-items-center">
+          <!-- 키워드 검색 -->
+          <div class="col-md-3">
+            <div class="input-group input-group-sm">
+              <span class="input-group-text">🔍</span>
+              <input type="text" class="form-control" id="tx-search-keyword"
+                     placeholder="종목명, 티커, 메모 검색..."
+                     oninput="filterTxTable()">
+            </div>
+          </div>
+          <!-- 거래 유형 필터 -->
+          <div class="col-md-2">
+            <select class="form-select form-select-sm" id="tx-search-type" onchange="filterTxTable()">
+              <option value="">전체 유형</option>
+              <option value="buy">매수</option>
+              <option value="sell">매도</option>
+            </select>
+          </div>
+          <!-- 날짜 범위 -->
+          <div class="col-md-2">
+            <input type="date" class="form-control form-control-sm" id="tx-search-from"
+                   onchange="filterTxTable()" title="시작 날짜">
+          </div>
+          <div class="col-md-2">
+            <input type="date" class="form-control form-control-sm" id="tx-search-to"
+                   onchange="filterTxTable()" title="종료 날짜">
+          </div>
+          <!-- 종목 선택 -->
+          <div class="col-md-2">
+            <select class="form-select form-select-sm" id="tx-search-stock" onchange="filterTxTable()">
+              <option value="">전체 종목</option>
+            </select>
+          </div>
+          <!-- 초기화 버튼 -->
+          <div class="col-md-1">
+            <button class="btn btn-outline-secondary btn-sm w-100" onclick="resetTxSearch()">
+              초기화
+            </button>
+          </div>
+        </div>
+        <!-- 검색 결과 요약 -->
+        <div class="mt-1">
+          <small class="text-muted" id="tx-search-summary">전체 0건</small>
+        </div>
+      </div>
+
       <div class="card-body p-0">
         <div class="table-responsive">
           <table class="table table-hover mb-0" id="stockTxTable">
@@ -96,8 +142,26 @@
                 <th class="text-center">삭제</th>
               </tr>
             </thead>
-            <tbody></tbody>
+            <tbody id="tx-tbody"></tbody>
           </table>
+        </div>
+      </div>
+      
+      <!-- 페이지네이션 컨트롤 -->
+      <div class="card-footer bg-white border-0 py-3">
+        <nav aria-label="거래내역 페이지">
+          <ul class="pagination pagination-sm justify-content-center mb-2" id="tx-pagination"></ul>
+        </nav>
+        <div class="d-flex justify-content-between align-items-center">
+          <small class="text-muted" id="tx-page-info"></small>
+          <div class="d-flex align-items-center gap-2">
+            <label class="text-muted small mb-0">페이지당</label>
+            <select class="form-select form-select-sm w-auto" id="tx-per-page" onchange="renderTxPage(1)">
+              <option value="10" selected>10개</option>
+              <option value="20">20개</option>
+              <option value="50">50개</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
@@ -182,6 +246,69 @@
             </thead>
             <tbody></tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ETF 분할매수 계획 계산기 패널 -->
+    <div class="card mt-4 border-0 shadow-sm" id="invest-plan-panel">
+      <div class="card-header bg-white border-0 pt-3 pb-2 fw-semibold">
+        <h6 class="mb-0">📐 지수/레버리지 분할매수 계획기</h6>
+      </div>
+      <div class="card-body">
+        <div class="row g-2 mb-3">
+          <div class="col-md-3">
+            <label class="form-label small">ETF 선택</label>
+            <select class="form-select form-select-sm" id="plan-etf-id">
+              <option value="">직접 입력</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small">현재가 (원)</label>
+            <input type="number" class="form-control form-control-sm" id="plan-current-price" placeholder="자동 입력">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small">총 예산 (원)</label>
+            <input type="number" class="form-control form-control-sm" id="plan-budget" placeholder="10,000,000">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small">전략</label>
+            <select class="form-select form-select-sm" id="plan-strategy">
+              <option value="dca">정액 DCA (월 분할)</option>
+              <option value="drawdown">하락률 비례 역피라미딩</option>
+            </select>
+          </div>
+          <!-- DCA 옵션 -->
+          <div class="col-md-2" id="plan-opt-dca">
+            <label class="form-label small">기간 (개월)</label>
+            <input type="number" class="form-control form-control-sm" id="plan-periods" value="12" min="1" max="60">
+          </div>
+          <!-- 하락률 옵션 -->
+          <div class="col-md-2 d-none" id="plan-opt-dd">
+            <label class="form-label small">하락 간격 (%)</label>
+            <input type="number" class="form-control form-control-sm" id="plan-dd-step" value="5" min="1" max="20">
+          </div>
+          <div class="col-md-1 d-flex align-items-end">
+            <button class="btn btn-primary btn-sm w-100" onclick="calcInvestPlan()">계산</button>
+          </div>
+        </div>
+
+        <!-- 결과 영역 -->
+        <div id="plan-result" class="d-none">
+          <!-- 요약 배지 -->
+          <div class="d-flex gap-3 mb-3 flex-wrap" id="plan-summary"></div>
+          <!-- 계획 테이블 -->
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered">
+              <thead class="table-dark">
+                <tr>
+                  <th>단계</th><th>트리거 조건</th><th>하락률</th>
+                  <th>비중</th><th>투자금</th><th>매수 주수</th><th>누적 투자금</th>
+                </tr>
+              </thead>
+              <tbody id="plan-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -1010,6 +1137,262 @@ async function deleteStockCat(id) {
   renderStockCatList();
 }
 
+// ── ETF 분할매수 계획 계산기 스크립트 ──
+if (document.getElementById('plan-strategy')) {
+  document.getElementById('plan-strategy').addEventListener('change', function() {
+    const isDCA = this.value === 'dca';
+    document.getElementById('plan-opt-dca').classList.toggle('d-none', !isDCA);
+    document.getElementById('plan-opt-dd').classList.toggle('d-none', isDCA);
+  });
+}
+
+if (document.getElementById('plan-etf-id')) {
+  document.getElementById('plan-etf-id').addEventListener('change', function() {
+    const etfId = this.value;
+    if (!etfId) return;
+    const etf = allEtfs.find(e => e.id == etfId);
+    if (etf) document.getElementById('plan-current-price').value = etf.current_price;
+  });
+}
+
+function formatKRW(val) {
+  return fmt(val) + '원';
+}
+
+async function calcInvestPlan() {
+  const payload = {
+    etf_id:        document.getElementById('plan-etf-id').value || null,
+    strategy:      document.getElementById('plan-strategy').value,
+    total_budget:  parseInt(document.getElementById('plan-budget').value || 0),
+    current_price: parseFloat(document.getElementById('plan-current-price').value || 0),
+    periods:       parseInt(document.getElementById('plan-periods').value || 12),
+    drawdown_step: parseFloat(document.getElementById('plan-dd-step').value || 5),
+    split_count:   5,
+  };
+  
+  if (!payload.total_budget || !payload.current_price) {
+    alert('현재가와 총 예산을 입력하세요.'); return;
+  }
+  
+  const res  = await fetch('/api/etf-invest-plan', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  
+  // 요약
+  document.getElementById('plan-summary').innerHTML = `
+    <span class="badge bg-primary fs-6">총 예산: ${formatKRW(data.total_budget)}</span>
+    <span class="badge bg-success fs-6">예상 매수 주수: ${data.summary.total_shares}주</span>
+    <span class="badge bg-warning text-dark fs-6">평균단가(손익분기): ${formatKRW(data.summary.avg_price)}</span>
+  `;
+  
+  // 계획 테이블
+  const tbody = document.getElementById('plan-tbody');
+  tbody.innerHTML = '';
+  data.plan.forEach(p => {
+    tbody.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td>${p.step}</td>
+        <td>${p.trigger}</td>
+        <td class="${p.drawdown_pct > 0 ? 'text-danger' : ''}">
+          ${p.drawdown_pct > 0 ? '-' + p.drawdown_pct + '%' : '즉시'}
+        </td>
+        <td>${p.weight_pct ?? '-'}%</td>
+        <td class="text-end fw-bold">${formatKRW(p.amount)}</td>
+        <td class="text-end">${p.shares}주</td>
+        <td class="text-end text-muted">${formatKRW(p.cumulative)}</td>
+      </tr>
+    `);
+  });
+  
+  document.getElementById('plan-result').classList.remove('d-none');
+}
+
+// ── 거래내역 검색 + 페이지네이션 스크립트 ──
+let allTxData    = [];   // 전체 로드된 거래내역 원본
+let filteredTxData = []; // 검색 필터 적용 후
+let txCurrentPage  = 1;
+
+// ── 거래내역 로드 (기존 API 그대로 활용) ──
+async function loadStockTx(stockId = null) {
+  const url = stockId
+    ? `/api/stock-tx?stock_id=${stockId}`
+    : '/api/stock-tx';
+  const res  = await fetch(url);
+  allTxData  = await res.json();
+  
+  // 종목 선택 드롭다운 업데이트
+  const stockSelect = document.getElementById('tx-search-stock');
+  const names = [...new Set(allTxData.map(t => t.name).filter(Boolean))];
+  stockSelect.innerHTML = '<option value="">전체 종목</option>';
+  names.forEach(n => {
+    stockSelect.insertAdjacentHTML('beforeend', `<option value="${n}">${n}</option>`);
+  });
+  
+  filterTxTable();  // 초기 필터 적용 및 렌더링
+}
+
+// ── 필터 적용 ──
+function filterTxTable() {
+  const keyword = document.getElementById('tx-search-keyword').value.toLowerCase().trim();
+  const txType  = document.getElementById('tx-search-type').value;
+  const fromDt  = document.getElementById('tx-search-from').value;
+  const toDt    = document.getElementById('tx-search-to').value;
+  const stock   = document.getElementById('tx-search-stock').value;
+  
+  filteredTxData = allTxData.filter(t => {
+    // 키워드: 종목명 or 티커 매칭
+    if (keyword && !(
+      (t.name   || '').toLowerCase().includes(keyword) ||
+      (t.ticker || '').toLowerCase().includes(keyword) ||
+      (t.memo   || '').toLowerCase().includes(keyword)
+    )) return false;
+    
+    // 거래 유형
+    if (txType && t.tx_type !== txType) return false;
+    
+    // 날짜 범위
+    if (fromDt && t.tx_date < fromDt) return false;
+    if (toDt   && t.tx_date > toDt)   return false;
+    
+    // 특정 종목
+    if (stock && t.name !== stock) return false;
+    
+    return true;
+  });
+  
+  // 검색 결과 요약 업데이트
+  const total = allTxData.length;
+  const found = filteredTxData.length;
+  document.getElementById('tx-search-summary').textContent =
+    keyword || txType || fromDt || toDt || stock
+      ? `${total}건 중 ${found}건 검색됨`
+      : `전체 ${total}건`;
+  
+  renderTxPage(1);  // 필터 적용 후 1페이지로 이동
+}
+
+// ── 초기화 ──
+function resetTxSearch() {
+  document.getElementById('tx-search-keyword').value = '';
+  document.getElementById('tx-search-type').value    = '';
+  document.getElementById('tx-search-from').value    = '';
+  document.getElementById('tx-search-to').value      = '';
+  document.getElementById('tx-search-stock').value   = '';
+  filterTxTable();
+}
+
+// ── 페이지 렌더링 ──
+function renderTxPage(page) {
+  const perPage  = parseInt(document.getElementById('tx-per-page').value || 10);
+  const total    = filteredTxData.length;
+  const totalPages = Math.ceil(total / perPage) || 1;
+  
+  txCurrentPage = Math.min(Math.max(1, page), totalPages);
+  
+  const start = (txCurrentPage - 1) * perPage;
+  const end   = Math.min(start + perPage, total);
+  const pageData = filteredTxData.slice(start, end);
+  
+  // ── 테이블 렌더링 ──
+  const tbody = document.getElementById('tx-tbody');
+  tbody.innerHTML = '';
+  
+  if (pageData.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4">
+      검색 결과가 없습니다.</td></tr>`;
+  } else {
+    pageData.forEach(t => {
+      const isBuy = t.tx_type === 'buy';
+      const totalAmt = t.price * t.quantity;
+      tbody.insertAdjacentHTML('beforeend', `
+        <tr>
+          <td>${t.tx_date}</td>
+          <td>${t.name || '-'}</td>
+          <td><span class="badge bg-secondary">${t.ticker || '-'}</span></td>
+          <td>
+            <span class="badge ${isBuy ? 'bg-primary' : 'bg-danger'}">
+              ${isBuy ? '매수' : '매도'}
+            </span>
+          </td>
+          <td class="text-end">${isForeign(t.ticker) ? fmtUsd(t.price) : formatKRW(t.price)}</td>
+          <td class="text-end">${t.quantity}</td>
+          <td class="text-end text-muted">${isForeign(t.ticker) ? fmtUsd(t.fee) : formatKRW(t.fee)}</td>
+          <td class="text-muted small">${t.memo || ''}</td>
+          <td>
+            <button class="btn btn-xs btn-outline-primary" onclick="stockTxGrid.startEdit(this.closest('tr'))">수정</button>
+            <button class="btn btn-xs btn-outline-danger"  onclick="stockTxGrid._delete(${t.id})">삭제</button>
+          </td>
+        </tr>
+      `);
+    });
+  }
+  
+  // ── 페이지 정보 ──
+  document.getElementById('tx-page-info').textContent =
+    total > 0 ? `${start + 1}-${end} / 전체 ${total}건` : '전체 0건';
+  
+  // ── 페이지네이션 버튼 ──
+  renderPagination(txCurrentPage, totalPages);
+}
+
+// ── 페이지네이션 버튼 렌더링 ──
+function renderPagination(current, total) {
+  const ul = document.getElementById('tx-pagination');
+  ul.innerHTML = '';
+  
+  const maxBtns = 7;  // 최대 표시 버튼 수
+  
+  // 이전 버튼
+  ul.insertAdjacentHTML('beforeend', `
+    <li class="page-item ${current <= 1 ? 'disabled' : ''}">
+      <a class="page-link" href="#" onclick="renderTxPage(${current - 1}); return false;">‹</a>
+    </li>
+  `);
+  
+  // 페이지 번호 버튼 (슬라이딩 윈도우)
+  let startPage = Math.max(1, current - Math.floor(maxBtns / 2));
+  let endPage   = Math.min(total, startPage + maxBtns - 1);
+  if (endPage - startPage < maxBtns - 1) {
+    startPage = Math.max(1, endPage - maxBtns + 1);
+  }
+  
+  if (startPage > 1) {
+    ul.insertAdjacentHTML('beforeend', `
+      <li class="page-item">
+        <a class="page-link" href="#" onclick="renderTxPage(1); return false;">1</a>
+      </li>
+      ${startPage > 2 ? '<li class="page-item disabled"><span class="page-link">…</span></li>' : ''}
+    `);
+  }
+  
+  for (let p = startPage; p <= endPage; p++) {
+    ul.insertAdjacentHTML('beforeend', `
+      <li class="page-item ${p === current ? 'active' : ''}">
+        <a class="page-link" href="#" onclick="renderTxPage(${p}); return false;">${p}</a>
+      </li>
+    `);
+  }
+  
+  if (endPage < total) {
+    ul.insertAdjacentHTML('beforeend', `
+      ${endPage < total - 1 ? '<li class="page-item disabled"><span class="page-link">…</span></li>' : ''}
+      <li class="page-item">
+        <a class="page-link" href="#" onclick="renderTxPage(${total}); return false;">${total}</a>
+      </li>
+    `);
+  }
+  
+  // 다음 버튼
+  ul.insertAdjacentHTML('beforeend', `
+    <li class="page-item ${current >= total ? 'disabled' : ''}">
+      <a class="page-link" href="#" onclick="renderTxPage(${current + 1}); return false;">›</a>
+    </li>
+  `);
+}
+
 async function initPage() {
   const [rate] = await Promise.all([
     fetchJSON('/api/exchange-rate'),
@@ -1023,6 +1406,18 @@ async function initPage() {
   stockGrid.load();   // onLoad → allStocks 세팅 → stockTxGrid.load() 자동 호출
   etfGrid.load();     // 주식+ETF 합산 표시를 위해 페이지 로드 시 함께 로드
   cryptoGrid.load();
+
+  // ETF 분할계획기 셀렉트박스 옵션 빌드
+  setTimeout(() => {
+    const planSelect = document.getElementById('plan-etf-id');
+    if (planSelect && allEtfs.length > 0) {
+      planSelect.innerHTML = '<option value="">직접 입력</option>' +
+        allEtfs.map(e => `<option value="${e.id}">${e.name} (${e.ticker})</option>`).join('');
+    }
+  }, 1000);
+
+  // 거래내역 로드 호출
+  loadStockTx();
 }
 
 initPage();

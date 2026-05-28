@@ -121,7 +121,11 @@ def init_db():
             current_price   REAL DEFAULT 0,
             etf_type        TEXT,
             category        TEXT,
-            memo            TEXT
+            memo            TEXT,
+            invest_strategy VARCHAR(20) DEFAULT 'dca',
+            total_budget    BIGINT DEFAULT 0,
+            invest_periods  INTEGER DEFAULT 12,
+            drawdown_step   NUMERIC(4,1) DEFAULT 5.0
         );
 
         CREATE TABLE IF NOT EXISTS crypto (
@@ -511,6 +515,10 @@ def init_db():
         "ALTER TABLE income ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'KRW'",
         "ALTER TABLE income ADD COLUMN IF NOT EXISTS exchange_rate REAL NOT NULL DEFAULT 1.0",
         "ALTER TABLE income ADD COLUMN IF NOT EXISTS original_amount REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE etf ADD COLUMN IF NOT EXISTS invest_strategy VARCHAR(20) DEFAULT 'dca'",
+        "ALTER TABLE etf ADD COLUMN IF NOT EXISTS total_budget BIGINT DEFAULT 0",
+        "ALTER TABLE etf ADD COLUMN IF NOT EXISTS invest_periods INTEGER DEFAULT 12",
+        "ALTER TABLE etf ADD COLUMN IF NOT EXISTS drawdown_step NUMERIC(4,1) DEFAULT 5.0",
     ]
     for sql in migrations:
         try:

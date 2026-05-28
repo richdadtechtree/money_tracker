@@ -3268,6 +3268,97 @@ def api_networth_history():
     return jsonify(rows_to_list(rows))
 
 
+@app.route('/api/etf-invest-plan', methods=['POST'])
+def api_etf_invest_plan():
+    """
+    지수/레버리지 ETF 분할매수 계획 계산.
+    """
+    d = request.json or {}
+    etf_id       = d.get('etf_id')
+    strategy     = d.get('strategy', 'dca')
+    total_budget = float(d.get('total_budget', 0))
+    periods      = int(d.get('periods', 12))
+    step         = float(d.get('drawdown_step', 5))
+    split_count  = int(d.get('split_count', 5))
+    
+    db = get_db()
+    
+    # 현재가 조회
+    if etf_id:
+        cur = db.cursor()
+        cur.execute("SELECT name, ticker, current_price FROM etf WHERE id=%s", (etf_id,))
+        row = cur.fetchone(); cur.close()
+        current_price = float(d.get('current_price') or (row['current_price'] if row else 1) or 1)
+        etf_name = row['name'] if row else ''
+    else:
+        current_price = float(d.get('current_price', 1))
+        etf_name = d.get('etf_name', '')
+    
+    db.close()
+    
+    plan = []
+    
+    if strategy == 'dca':
+        # ── 정액 분할매수 ──
+        monthly_amount = total_budget / periods
+        for i in range(periods):
+            plan.append({
+                'step':        i + 1,
+                'label':       f"{i + 1}개월차",
+                'trigger':     '매월 정기',
+                'amount':      round(monthly_amount),
+                'price':       round(current_price),  # DCA는 가격 무관
+                'shares':      round(monthly_amount / current_price, 4),
+                'cumulative':  round(monthly_amount * (i + 1)),
+                'drawdown_pct': 0,
+            })
+    
+    elif strategy == 'drawdown':
+        # ── 하락률 비례 역피라미딩 ──
+        # 가중치: 1구간=10%, 이후 매 구간마다 균등 배분 증가
+        # 총합이 100%가 되도록 정규화
+        raw_weights = [1]
+        for i in range(1, split_count):
+            raw_weights.append(raw_weights[-1] * 1.5)  # 1.5배씩 증가
+        total_w = sum(raw_weights)
+        weights = [w / total_w for w in raw_weights]
+        
+        cumulative = 0
+        for i in range(split_count):
+            dd_pct = i * step  # 하락률 (0, 5, 10, 15, 20, ...)
+            trigger_price = round(current_price * (1 - dd_pct / 100))
+            amount = round(total_budget * weights[i])
+            cumulative += amount
+            plan.append({
+                'step':         i + 1,
+                'label':        f"{'현재가' if i == 0 else f'-{dd_pct:.0f}% 하락 시'}",
+                'trigger':      f"{'즉시 매수' if i == 0 else f'{trigger_price:,}원 이하'}",
+                'trigger_price': trigger_price,
+                'drawdown_pct': dd_pct,
+                'weight_pct':   round(weights[i] * 100, 1),
+                'amount':       amount,
+                'price':        trigger_price,
+                'shares':       round(amount / trigger_price, 4) if trigger_price > 0 else 0,
+                'cumulative':   cumulative,
+            })
+    
+    # 요약 정보
+    total_shares = sum(p['shares'] for p in plan)
+    avg_price    = round(total_budget / total_shares) if total_shares > 0 else 0
+    
+    return jsonify({
+        'etf_name':     etf_name,
+        'strategy':     strategy,
+        'total_budget': round(total_budget),
+        'plan':         plan,
+        'summary': {
+            'total_shares': round(total_shares, 4),
+            'avg_price':    avg_price,
+            'breakeven':    avg_price,  # 평균단가 = 손익분기점
+        }
+    })
+
+
 # ── [NEW] 생애주기별 자산 시뮬레이터 페이지 및 API ───────────────────
 @app.route('/lifecycle')
 def lifecycle():

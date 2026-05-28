@@ -665,6 +665,7 @@ body.dark-mode .bg-info-subtle { background: #1A3040 !important; }
 body.dark-mode .text-info { color: #67E8F9 !important; }
 body.dark-mode .bg-secondary-subtle { background: #2D3748 !important; }
 body.dark-mode .text-secondary { color: var(--text-secondary) !important; }
+body.dark-mode .text-secondary-emphasis { color: #E5E7EB !important; }
 body.dark-mode .bg-dark-subtle { background: #374151 !important; }
 body.dark-mode .text-muted { color: var(--text-muted) !important; }
 body.dark-mode .bg-light { background: #1A2535 !important; }
