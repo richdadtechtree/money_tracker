@@ -1,8 +1,6 @@
 from app import app
 client = app.test_client()
 
-import json
-
 def test_route(url):
     print(f"Testing {url} ...")
     res = client.get(url)
@@ -19,4 +17,3 @@ test_route('/api/stocks')
 test_route('/api/etf')
 test_route('/api/crypto')
 test_route('/api/ipo')
-test_route('/api/split-buy-plans')
