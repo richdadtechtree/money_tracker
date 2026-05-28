@@ -1,0 +1,592 @@
+{% extends "base.html" %}
+{% block title %}생애주기 자산 시뮬레이터{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <!-- 타이틀 -->
+  <div class="col-12 d-flex align-items-center justify-content-between mb-2">
+    <h2 class="fw-bold mb-0"><i class="bi bi-people me-2 text-primary"></i>생애주기 자산 시뮬레이터</h2>
+    <button class="btn btn-primary btn-sm" onclick="runSimulation()">
+      <i class="bi bi-play-fill me-1"></i>시뮬레이션 실행
+    </button>
+  </div>
+
+  <!-- 왼쪽: 설정 패널 -->
+  <div class="col-12 col-lg-4">
+    <!-- 가족 구성원 관리 -->
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white fw-bold py-3 d-flex justify-content-between align-items-center border-0">
+        <span><i class="bi bi-person-plus me-1 text-primary"></i>가족 구성원 설정</span>
+        <button class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size:0.75rem" onclick="showAddProfileModal()">
+          <i class="bi bi-plus-lg"></i> 구성원 추가
+        </button>
+      </div>
+      <div class="card-body pt-0">
+        <div id="profileList" class="list-group list-group-flush">
+          <!-- 로딩 스피너 -->
+          <div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 시뮬레이션 파라미터 -->
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white fw-bold py-3 border-0">
+        <i class="bi bi-sliders me-1 text-primary"></i>시뮬레이션 파라미터
+      </div>
+      <div class="card-body pt-0">
+        <form id="settingsForm" onsubmit="event.preventDefault();">
+          <div class="mb-3">
+            <label class="form-label small text-muted">시뮬레이션 기간 (년)</label>
+            <input type="number" class="form-control form-control-sm" id="simYears" min="5" max="50" value="30">
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label small text-muted">주식 수익률 (%)</label>
+              <input type="number" step="0.1" class="form-control form-control-sm" id="returnStocks" value="7.0">
+            </div>
+            <div class="col-6">
+              <label class="form-label small text-muted">부동산 상승률 (%)</label>
+              <input type="number" step="0.1" class="form-control form-control-sm" id="returnRE" value="3.0">
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label small text-muted">현금 이자율 (%)</label>
+              <input type="number" step="0.1" class="form-control form-control-sm" id="returnCash" value="2.0">
+            </div>
+            <div class="col-6">
+              <label class="form-label small text-muted">지출 증가율 (%)</label>
+              <input type="number" step="0.1" class="form-control form-control-sm" id="expenseGrowth" value="2.0">
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small text-muted">수동 연간 순유입액 오버라이드</label>
+            <div class="input-group input-group-sm">
+              <span class="input-group-text">
+                <input class="form-check-input mt-0" type="checkbox" id="enableOverride" onchange="toggleOverrideInput()">
+              </span>
+              <input type="text" class="form-control" id="overrideInflow" placeholder="미체크 시 테크트리 계산값 사용" disabled>
+              <span class="input-group-text">원/년</span>
+            </div>
+          </div>
+          <button type="button" class="btn btn-outline-secondary btn-sm w-100 mt-2" onclick="saveSettings()">
+            <i class="bi bi-save me-1"></i>설정 임시 저장
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 오른쪽: 시뮬레이션 결과 차트 & 테이블 -->
+  <div class="col-12 col-lg-8">
+    <!-- 시뮬레이션 차트 -->
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white fw-bold py-3 border-0">
+        <i class="bi bi-graph-up-arrow me-1 text-primary"></i>자산 투영 시나리오
+      </div>
+      <div class="card-body">
+        <div id="simChartContainer" style="position:relative; height:320px;">
+          <canvas id="sim-chart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- 이벤트 추가 및 리스트 -->
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header bg-white fw-bold py-3 d-flex justify-content-between align-items-center border-0">
+        <span><i class="bi bi-calendar-event me-1 text-primary"></i>타임라인 이벤트 관리</span>
+        <button class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size:0.75rem" onclick="showAddEventModal()">
+          <i class="bi bi-plus-lg"></i> 이벤트 추가
+        </button>
+      </div>
+      <div class="card-body pt-0">
+        <div class="table-responsive" style="max-height: 250px;">
+          <table class="table table-hover align-middle" id="eventTable">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th style="width: 80px;">발생연도</th>
+                <th>이벤트 유형</th>
+                <th>대상 자산명</th>
+                <th class="text-end">금액</th>
+                <th>메모</th>
+                <th style="width: 70px;">작업</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="6" class="text-center text-muted small py-4">등록된 시나리오 이벤트가 없습니다.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 전체 연도별 자산 시뮬레이션 요약 테이블 -->
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white fw-bold py-3 border-0">
+        <i class="bi bi-table me-1 text-primary"></i>연도별 자산 시뮬레이션 데이터 시트
+      </div>
+      <div class="card-body pt-0">
+        <div class="table-responsive" style="max-height: 400px;">
+          <table class="table table-hover align-middle text-center" id="sim-table">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th>연도 (나이)</th>
+                <th>순자산</th>
+                <th>현금/예금</th>
+                <th>주식/ETF</th>
+                <th>부동산</th>
+                <th>연금</th>
+                <th>대출</th>
+                <th>이벤트</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="8" class="text-center py-4 text-muted">시뮬레이션을 먼저 실행해주세요.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 가족 프로필 추가 모달 -->
+<div class="modal fade" id="profileModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered" style="max-width: 400px;">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold" id="profileModalTitle">가족 구성원 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="profileForm" onsubmit="event.preventDefault();">
+          <input type="hidden" id="profileId">
+          <div class="mb-3">
+            <label class="form-label small text-muted">가족 역할</label>
+            <select class="form-select form-select-sm" id="profileRole" required>
+              <option value="me">나 (본인)</option>
+              <option value="spouse">배우자</option>
+              <option value="child1">첫째 자녀</option>
+              <option value="child2">둘째 자녀</option>
+              <option value="child3">기타 구성원</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small text-muted">이름 (표시명)</label>
+            <input type="text" class="form-control form-control-sm" id="profileName" placeholder="예: 홍길동, 아내" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small text-muted">출생 연도 (YYYY)</label>
+            <input type="number" class="form-control form-control-sm" id="profileBirthYear" min="1930" max="2030" required>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm w-100" onclick="saveProfile()">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 이벤트 추가 모달 -->
+<div class="modal fade" id="eventModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered" style="max-width: 420px;">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold" id="eventModalTitle">이벤트 추가</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="eventForm" onsubmit="event.preventDefault();">
+          <input type="hidden" id="eventId">
+          <div class="mb-3">
+            <label class="form-label small text-muted">발생 연도 (YYYY)</label>
+            <input type="number" class="form-control form-control-sm" id="eventYear" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small text-muted">이벤트 유형</label>
+            <select class="form-select form-select-sm" id="eventType" required>
+              <option value="sell_realestate">부동산 매도 (re -> cash)</option>
+              <option value="sell_stock">주식/투자 매도 (stocks -> cash)</option>
+              <option value="buy_asset">자산 매수 (cash -> stocks)</option>
+              <option value="extra_income">일시적 특별 수입 (cash 증가)</option>
+              <option value="extra_expense">일시적 특별 지출 (cash 감소)</option>
+              <option value="loan_payoff">대출 완납 (cash & loans 감소)</option>
+              <option value="retire">은퇴 선언 (근로소득 제외)</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small text-muted">대상 자산/이벤트명</label>
+            <input type="text" class="form-control form-control-sm" id="eventAssetName" placeholder="예: 강남 아파트, 삼성전자 매도, 은퇴" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small text-muted">금액 (원)</label>
+            <input type="text" class="form-control form-control-sm text-end" id="eventAmount" placeholder="0">
+          </div>
+          <div class="mb-3">
+            <label class="form-label small text-muted">메모</label>
+            <input type="text" class="form-control form-control-sm" id="eventMemo" placeholder="상세한 설명 추가">
+          </div>
+          <button type="button" class="btn btn-primary btn-sm w-100" onclick="saveEvent()">저장</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<!-- Chart.js와 수직선 어노테이션을 위한 플러그인 로드 -->
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+
+<script>
+let simChart = null;
+let profileModal = null;
+let eventModal = null;
+
+const EVENT_LABELS = {
+  sell_realestate: '부동산 매도',
+  sell_stock: '주식 매도',
+  buy_asset: '자산 매수',
+  extra_income: '특별 수입',
+  extra_expense: '특별 지출',
+  loan_payoff: '대출 상환',
+  retire: '은퇴 선언'
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  profileModal = new bootstrap.Modal(document.getElementById('profileModal'));
+  eventModal = new bootstrap.Modal(document.getElementById('eventModal'));
+  
+  loadProfiles();
+  loadSettings();
+  loadEvents();
+  
+  document.getElementById('eventAmount').addEventListener('input', function() {
+    this.value = this.value.replace(/[^\d]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  });
+});
+
+function toggleOverrideInput() {
+  const enabled = document.getElementById('enableOverride').checked;
+  const input = document.getElementById('overrideInflow');
+  input.disabled = !enabled;
+  if (!enabled) input.value = '';
+}
+
+// ── 1. 설정 관리 ──
+async function loadSettings() {
+  const data = await fetchJSON('/api/lifecycle-settings');
+  if (!data) return;
+  document.getElementById('simYears').value = data.sim_years || 30;
+  document.getElementById('returnStocks').value = data.annual_return_stocks || 7.0;
+  document.getElementById('returnRE').value = data.annual_return_re || 3.0;
+  document.getElementById('returnCash').value = data.annual_return_cash || 2.0;
+  document.getElementById('expenseGrowth').value = data.annual_expense_growth || 2.0;
+  
+  if (data.override_annual_inflow) {
+    document.getElementById('enableOverride').checked = true;
+    document.getElementById('overrideInflow').disabled = false;
+    document.getElementById('overrideInflow').value = fmt(data.override_annual_inflow);
+  }
+}
+
+async function saveSettings() {
+  const isOverride = document.getElementById('enableOverride').checked;
+  const overrideVal = isOverride ? parseInt(document.getElementById('overrideInflow').value.replace(/,/g, '')) || null : null;
+  
+  const payload = {
+    sim_years: parseInt(document.getElementById('simYears').value) || 30,
+    annual_return_stocks: parseFloat(document.getElementById('returnStocks').value) || 7.0,
+    annual_return_re: parseFloat(document.getElementById('returnRE').value) || 3.0,
+    annual_return_cash: parseFloat(document.getElementById('returnCash').value) || 2.0,
+    annual_expense_growth: parseFloat(document.getElementById('expenseGrowth').value) || 2.0,
+    override_annual_inflow: overrideVal
+  };
+  
+  const res = await fetchJSON('/api/lifecycle-settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (res && res.ok) {
+    return true;
+  }
+  return false;
+}
+
+// ── 2. 가족 구성원 CRUD ──
+async function loadProfiles() {
+  const list = await fetchJSON('/api/lifecycle-profile');
+  const el = document.getElementById('profileList');
+  if (!list || list.length === 0) {
+    el.innerHTML = '<div class="text-center py-3 text-muted small">등록된 구성원이 없습니다.</div>';
+    return;
+  }
+  el.innerHTML = list.map(p => `
+    <div class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
+      <div>
+        <span class="fw-bold me-1">${p.name}</span>
+        <span class="badge bg-light text-dark small">${getRoleName(p.role)}</span>
+        <div class="small text-muted">${p.birth_year}년생 (${new Date().getFullYear() - p.birth_year}세)</div>
+      </div>
+      <div>
+        <button class="btn btn-link btn-sm text-secondary py-0" onclick="editProfile(${JSON.stringify(p).replace(/"/g, '&quot;')})">수정</button>
+        <button class="btn btn-link btn-sm text-danger py-0" onclick="deleteProfile(${p.id})">삭제</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function getRoleName(role) {
+  const m = { me: '나 (본인)', spouse: '배우자', child1: '첫째 자녀', child2: '둘째 자녀', child3: '기타' };
+  return m[role] || '가족';
+}
+
+function showAddProfileModal() {
+  document.getElementById('profileForm').reset();
+  document.getElementById('profileId').value = '';
+  document.getElementById('profileModalTitle').textContent = '가족 구성원 추가';
+  profileModal.show();
+}
+
+function editProfile(p) {
+  document.getElementById('profileId').value = p.id;
+  document.getElementById('profileRole').value = p.role;
+  document.getElementById('profileName').value = p.name;
+  document.getElementById('profileBirthYear').value = p.birth_year;
+  document.getElementById('profileModalTitle').textContent = '가족 구성원 수정';
+  profileModal.show();
+}
+
+async function saveProfile() {
+  const pid = document.getElementById('profileId').value;
+  const payload = {
+    role: document.getElementById('profileRole').value,
+    name: document.getElementById('profileName').value,
+    birth_year: parseInt(document.getElementById('profileBirthYear').value)
+  };
+  const url = pid ? `/api/lifecycle-profile/${pid}` : '/api/lifecycle-profile';
+  const method = pid ? 'PUT' : 'POST';
+  
+  const res = await fetchJSON(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (res && res.ok) {
+    profileModal.hide();
+    loadProfiles();
+  }
+}
+
+async function deleteProfile(id) {
+  if (!confirm('정말 삭제하시겠습니까?')) return;
+  const res = await fetchJSON(`/api/lifecycle-profile/${id}`, { method: 'DELETE' });
+  if (res && res.ok) loadProfiles();
+}
+
+// ── 3. 이벤트 CRUD ──
+async function loadEvents() {
+  const list = await fetchJSON('/api/lifecycle-events');
+  const tbody = document.querySelector('#eventTable tbody');
+  if (!list || list.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted small py-4">등록된 시나리오 이벤트가 없습니다.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(e => `
+    <tr>
+      <td>${e.event_year}년</td>
+      <td><span class="badge bg-secondary-subtle text-secondary">${EVENT_LABELS[e.event_type] || e.event_type}</span></td>
+      <td><strong>${e.asset_name}</strong></td>
+      <td class="text-end fw-semibold ${e.amount >= 0 ? 'text-danger' : 'text-primary'}">${e.amount !== 0 ? fmt(e.amount) + '원' : '-'}</td>
+      <td class="text-muted small">${e.memo || '-'}</td>
+      <td>
+        <button class="btn btn-link btn-sm text-danger p-0" onclick="deleteEvent(${e.id})">삭제</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function showAddEventModal() {
+  document.getElementById('eventForm').reset();
+  document.getElementById('eventId').value = '';
+  document.getElementById('eventYear').value = new Date().getFullYear();
+  document.getElementById('eventModalTitle').textContent = '시나리오 이벤트 추가';
+  eventModal.show();
+}
+
+async function saveEvent() {
+  const payload = {
+    event_year: parseInt(document.getElementById('eventYear').value),
+    event_type: document.getElementById('eventType').value,
+    asset_name: document.getElementById('eventAssetName').value,
+    amount: parseInt(document.getElementById('eventAmount').value.replace(/,/g, '')) || 0,
+    memo: document.getElementById('eventMemo').value
+  };
+  const res = await fetchJSON('/api/lifecycle-events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (res && res.ok) {
+    eventModal.hide();
+    loadEvents();
+  }
+}
+
+async function deleteEvent(id) {
+  if (!confirm('이벤트를 삭제하시겠습니까?')) return;
+  const res = await fetchJSON(`/api/lifecycle-events/${id}`, { method: 'DELETE' });
+  if (res && res.ok) loadEvents();
+}
+
+// ── 4. 시뮬레이션 핵심 및 차트 그리기 ──
+function formatKRW(val) {
+  if (val === null || val === undefined) return '-';
+  if (Math.abs(val) >= 100000000) {
+    return (val / 100000000).toFixed(1) + '억원';
+  } else if (Math.abs(val) >= 10000) {
+    return (val / 10000).toFixed(0) + '만원';
+  }
+  return fmt(val) + '원';
+}
+
+async function runSimulation() {
+  // 먼저 파라미터 임시 저장
+  await saveSettings();
+  
+  // 시뮬레이션 호출
+  const res = await fetchJSON('/api/lifecycle-simulate');
+  if (!res) return;
+  
+  const sim = res.simulation;
+  
+  // X축 라벨 생성
+  const labels = sim.map(d => {
+    const me = d.family_ages.find(f => f.role === 'me');
+    const myAge = me ? `${me.age}세` : '';
+    return `${d.year}년\n(${myAge})`;
+  });
+
+  const cashData = sim.map(d => d.cash);
+  const stocksData = sim.map(d => d.stocks);
+  const reData = sim.map(d => d.real_estate);
+  const cryptoData = sim.map(d => d.crypto);
+  const pensionData = sim.map(d => d.pension);
+  const netWorthData = sim.map(d => d.net_worth);
+
+  // 이벤트 어노테이션 수직선 생성
+  const annotations = {};
+  sim.forEach((d, idx) => {
+    if (d.events && d.events.length > 0) {
+      d.events.forEach((evt, eIdx) => {
+        annotations[`line_evt_${idx}_${eIdx}`] = {
+          type: 'line',
+          xMin: idx,
+          xMax: idx,
+          borderColor: 'rgba(230,126,34,0.7)',
+          borderWidth: 1.5,
+          borderDash: [5, 5],
+          label: {
+            display: true,
+            content: evt.asset_name,
+            position: 'start',
+            font: { size: 9 },
+            backgroundColor: 'rgba(255,255,255,0.85)',
+            color: '#1e293b'
+          }
+        };
+      });
+    }
+  });
+
+  // 차트 렌더링
+  if (simChart) simChart.destroy();
+  const ctx = document.getElementById('sim-chart').getContext('2d');
+  simChart = new Chart(ctx, {
+    data: {
+      labels,
+      datasets: [
+        { type: 'bar', label: '현금/예금', data: cashData, backgroundColor: 'rgba(20,184,166,0.6)', stack: 'assets' },
+        { type: 'bar', label: '주식/ETF', data: stocksData, backgroundColor: 'rgba(59,130,246,0.6)', stack: 'assets' },
+        { type: 'bar', label: '부동산', data: reData, backgroundColor: 'rgba(16,185,129,0.6)', stack: 'assets' },
+        { type: 'bar', label: '코인', data: cryptoData, backgroundColor: 'rgba(245,158,11,0.6)', stack: 'assets' },
+        { type: 'bar', label: '연금', data: pensionData, backgroundColor: 'rgba(139,92,246,0.6)', stack: 'assets' },
+        {
+          type: 'line',
+          label: '순자산',
+          data: netWorthData,
+          borderColor: '#ef4444',
+          borderWidth: 2.5,
+          fill: false,
+          tension: 0.25,
+          pointRadius: 3,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 6 } },
+        annotation: { annotations },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ` ${ctx.dataset.label}: ${formatKRW(ctx.raw)}`,
+            afterBody: (items) => {
+              const yearIdx = items[0].dataIndex;
+              const d = sim[yearIdx];
+              const ageStr = d.family_ages.map(f => `${f.name}: ${f.age}세`).join(', ');
+              const lines = ['', `👨‍👩‍👧 가족 나이: ${ageStr}`];
+              if (d.events && d.events.length > 0) {
+                const evs = d.events.map(e => `[${EVENT_LABELS[e.event_type] || e.event_type}] ${e.asset_name}`).join(', ');
+                lines.push(`📌 이벤트: ${evs}`);
+              }
+              return lines;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { stacked: true },
+        y: {
+          stacked: true,
+          ticks: { callback: v => formatKRW(v) }
+        }
+      }
+    }
+  });
+
+  // 데이터 요약 테이블 렌더링
+  renderSimTable(sim);
+}
+
+function renderSimTable(sim) {
+  const tbody = document.querySelector('#sim-table tbody');
+  tbody.innerHTML = '';
+  sim.forEach(d => {
+    const me = d.family_ages.find(f => f.role === 'me');
+    const myAge = me ? `${me.age}세` : '-';
+    const eventBadge = d.events && d.events.length > 0
+      ? d.events.map(e => `<span class="badge bg-warning text-dark small" title="${e.memo || ''}">${e.asset_name}</span>`).join(' ')
+      : '';
+    tbody.insertAdjacentHTML('beforeend', `
+      <tr class="${d.events && d.events.length > 0 ? 'table-warning' : ''}">
+        <td class="fw-bold">${d.year}년<br><small class="text-muted">${myAge}</small></td>
+        <td class="fw-bold text-danger">${formatKRW(d.net_worth)}</td>
+        <td>${formatKRW(d.cash)}</td>
+        <td>${formatKRW(d.stocks)}</td>
+        <td>${formatKRW(d.real_estate)}</td>
+        <td>${formatKRW(d.pension)}</td>
+        <td class="text-warning">${d.loans > 0 ? formatKRW(d.loans) : '-'}</td>
+        <td>${eventBadge}</td>
+      </tr>
+    `);
+  });
+}
+</script>
+{% endblock %}

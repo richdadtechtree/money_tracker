@@ -286,6 +286,39 @@ def init_db():
             updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS lifecycle_profile (
+            id         SERIAL PRIMARY KEY,
+            role       VARCHAR(20) NOT NULL,
+            name       VARCHAR(50),
+            birth_year INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS lifecycle_events (
+            id          SERIAL PRIMARY KEY,
+            event_year  INTEGER NOT NULL,
+            event_type  VARCHAR(30) NOT NULL,
+            asset_name  VARCHAR(100),
+            amount      BIGINT DEFAULT 0,
+            memo        VARCHAR(200),
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS lifecycle_settings (
+            id                   SERIAL PRIMARY KEY,
+            sim_years            INTEGER DEFAULT 30,
+            annual_return_stocks NUMERIC(5,2) DEFAULT 7,
+            annual_return_re     NUMERIC(5,2) DEFAULT 3,
+            annual_return_cash   NUMERIC(5,2) DEFAULT 2,
+            annual_expense_growth NUMERIC(5,2) DEFAULT 2,
+            override_annual_inflow BIGINT DEFAULT NULL,
+            updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT INTO lifecycle_settings (sim_years, annual_return_stocks, annual_return_re, annual_return_cash, annual_expense_growth, override_annual_inflow)
+        SELECT 30, 7.00, 3.00, 2.00, 2.00, NULL
+        WHERE NOT EXISTS (SELECT 1 FROM lifecycle_settings);
+
         CREATE TABLE IF NOT EXISTS etf_tx (
             id      SERIAL PRIMARY KEY,
             etf_id  INTEGER NOT NULL REFERENCES etf(id),
@@ -369,6 +402,35 @@ def init_db():
 
     # 마이그레이션: 기존 DB에 컬럼 추가 / 데이터 이전
     migrations = [
+        """CREATE TABLE IF NOT EXISTS lifecycle_profile (
+            id         SERIAL PRIMARY KEY,
+            role       VARCHAR(20) NOT NULL,
+            name       VARCHAR(50),
+            birth_year INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS lifecycle_events (
+            id          SERIAL PRIMARY KEY,
+            event_year  INTEGER NOT NULL,
+            event_type  VARCHAR(30) NOT NULL,
+            asset_name  VARCHAR(100),
+            amount      BIGINT DEFAULT 0,
+            memo        VARCHAR(200),
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS lifecycle_settings (
+            id                   SERIAL PRIMARY KEY,
+            sim_years            INTEGER DEFAULT 30,
+            annual_return_stocks NUMERIC(5,2) DEFAULT 7,
+            annual_return_re     NUMERIC(5,2) DEFAULT 3,
+            annual_return_cash   NUMERIC(5,2) DEFAULT 2,
+            annual_expense_growth NUMERIC(5,2) DEFAULT 2,
+            override_annual_inflow BIGINT DEFAULT NULL,
+            updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """INSERT INTO lifecycle_settings (sim_years, annual_return_stocks, annual_return_re, annual_return_cash, annual_expense_growth, override_annual_inflow)
+        SELECT 30, 7.00, 3.00, 2.00, 2.00, NULL
+        WHERE NOT EXISTS (SELECT 1 FROM lifecycle_settings)""",
         """CREATE TABLE IF NOT EXISTS daily_snapshots (
             id          SERIAL PRIMARY KEY,
             day         DATE    NOT NULL UNIQUE,

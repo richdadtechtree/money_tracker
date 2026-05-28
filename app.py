@@ -3268,6 +3268,355 @@ def api_networth_history():
     return jsonify(rows_to_list(rows))
 
 
+# ── [NEW] 생애주기별 자산 시뮬레이터 페이지 및 API ───────────────────
+@app.route('/lifecycle')
+def lifecycle():
+    return render_template('lifecycle.html')
+
+
+@app.route('/api/lifecycle-profile', methods=['GET', 'POST'])
+def api_lifecycle_profile():
+    db = get_db()
+    if request.method == 'GET':
+        cur = db.cursor()
+        cur.execute("SELECT * FROM lifecycle_profile ORDER BY id")
+        rows = cur.fetchall()
+        cur.close()
+        db.close()
+        return jsonify(rows_to_list(rows))
+    d = request.json or {}
+    cur = db.cursor()
+    cur.execute(
+        "INSERT INTO lifecycle_profile (role, name, birth_year) VALUES (%s,%s,%s)",
+        (d.get('role'), d.get('name'), d.get('birth_year'))
+    )
+    cur.close()
+    db.commit()
+    db.close()
+    return jsonify({'ok': True}), 201
+
+
+@app.route('/api/lifecycle-profile/<int:rid>', methods=['PUT', 'DELETE'])
+def api_lifecycle_profile_detail(rid):
+    db = get_db()
+    if request.method == 'DELETE':
+        cur = db.cursor()
+        cur.execute("DELETE FROM lifecycle_profile WHERE id=%s", (rid,))
+        cur.close()
+        db.commit()
+        db.close()
+        return jsonify({'ok': True})
+    d = request.json or {}
+    cur = db.cursor()
+    cur.execute(
+        "UPDATE lifecycle_profile SET role=%s, name=%s, birth_year=%s WHERE id=%s",
+        (d.get('role'), d.get('name'), d.get('birth_year'), rid)
+    )
+    cur.close()
+    db.commit()
+    db.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/lifecycle-events', methods=['GET', 'POST'])
+def api_lifecycle_events():
+    db = get_db()
+    if request.method == 'GET':
+        cur = db.cursor()
+        cur.execute("SELECT * FROM lifecycle_events ORDER BY event_year, id")
+        rows = cur.fetchall()
+        cur.close()
+        db.close()
+        return jsonify(rows_to_list(rows))
+    d = request.json or {}
+    cur = db.cursor()
+    cur.execute(
+        "INSERT INTO lifecycle_events (event_year, event_type, asset_name, amount, memo) "
+        "VALUES (%s,%s,%s,%s,%s)",
+        (d.get('event_year'), d.get('event_type'),
+         d.get('asset_name'), d.get('amount', 0), d.get('memo'))
+    )
+    cur.close()
+    db.commit()
+    db.close()
+    return jsonify({'ok': True}), 201
+
+
+@app.route('/api/lifecycle-events/<int:rid>', methods=['PUT', 'DELETE'])
+def api_lifecycle_events_detail(rid):
+    db = get_db()
+    if request.method == 'DELETE':
+        cur = db.cursor()
+        cur.execute("DELETE FROM lifecycle_events WHERE id=%s", (rid,))
+        cur.close()
+        db.commit()
+        db.close()
+        return jsonify({'ok': True})
+    d = request.json or {}
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE lifecycle_events 
+        SET event_year=%s, event_type=%s, asset_name=%s, amount=%s, memo=%s 
+        WHERE id=%s
+    """, (d.get('event_year'), d.get('event_type'), d.get('asset_name'), d.get('amount', 0), d.get('memo'), rid))
+    cur.close()
+    db.commit()
+    db.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/lifecycle-settings', methods=['GET', 'POST'])
+def api_lifecycle_settings():
+    db = get_db()
+    if request.method == 'GET':
+        cur = db.cursor()
+        cur.execute("SELECT * FROM lifecycle_settings LIMIT 1")
+        row = cur.fetchone()
+        cur.close()
+        db.close()
+        return jsonify(dict(row) if row else {})
+    d = request.json or {}
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE lifecycle_settings SET
+            sim_years=%s, annual_return_stocks=%s, annual_return_re=%s,
+            annual_return_cash=%s, annual_expense_growth=%s,
+            override_annual_inflow=%s, updated_at=CURRENT_TIMESTAMP
+        WHERE id=1
+    """, (
+        d.get('sim_years', 30), d.get('annual_return_stocks', 7.00),
+        d.get('annual_return_re', 3.00), d.get('annual_return_cash', 2.00),
+        d.get('annual_expense_growth', 2.00), d.get('override_annual_inflow')
+    ))
+    cur.close()
+    db.commit()
+    db.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/lifecycle-simulate')
+def api_lifecycle_simulate():
+    db = get_db()
+    today = date.today()
+    current_year = today.year
+
+    # ── 1. 시뮬레이션 설정 로드 ──
+    cur = db.cursor()
+    cur.execute("SELECT * FROM lifecycle_settings LIMIT 1")
+    settings = dict(cur.fetchone() or {})
+    cur.close()
+    
+    sim_years    = settings.get('sim_years', 30)
+    r_stocks     = float(settings.get('annual_return_stocks', 7.00)) / 100
+    r_re         = float(settings.get('annual_return_re', 3.00)) / 100
+    r_cash       = float(settings.get('annual_return_cash', 2.00)) / 100
+    exp_growth   = float(settings.get('annual_expense_growth', 2.00)) / 100
+    override_inflow = settings.get('override_annual_inflow')
+
+    # ── 2. 현재 자산 기준점 ──
+    ex_rate = get_current_exchange_rate()
+    stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate)
+    
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
+    base_cash = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    base_stocks = float(stocks_val or 0) + float(etf_val or 0)
+
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
+    base_crypto = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
+    re_total_price = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("""
+    SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts
+    WHERE id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
+    """)
+    re_total_deposit = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
+    residence_deposit = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    base_re = re_total_price - re_total_deposit + residence_deposit
+
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
+    base_pension = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(monthly_payment),0) FROM pension")
+    base_pension_monthly = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(remaining),0) FROM loans")
+    base_loans = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    # ── 3. 연평균 유입속도 (순유입: 수입 - 지출) ──
+    if override_inflow is not None:
+        annual_net_inflow = float(override_inflow)
+        monthly_exp_avg = 0.0
+        monthly_card_avg = 0.0
+        loan_repayment = 0.0
+    else:
+        avg = _calc_annual_avg_income(db)
+        
+        cur = db.cursor()
+        cur.execute("""
+            SELECT COALESCE(AVG(monthly_exp),0) FROM (
+                SELECT to_char(date::date,'YYYY-MM') as ym, SUM(amount) as monthly_exp
+                FROM budget
+                WHERE date >= CURRENT_DATE - INTERVAL '12 months'
+                GROUP BY ym
+            ) sub
+        """)
+        monthly_exp_avg = float(cur.fetchone()[0] or 0)
+        cur.close()
+        
+        cur = db.cursor()
+        cur.execute("""
+            SELECT COALESCE(AVG(monthly_card),0) FROM (
+                SELECT to_char(date::date,'YYYY-MM') as ym, SUM(amount) as monthly_card
+                FROM card_tx
+                WHERE date >= CURRENT_DATE - INTERVAL '12 months' AND budget_id IS NULL
+                GROUP BY ym
+            ) sub
+        """)
+        monthly_card_avg = float(cur.fetchone()[0] or 0)
+        cur.close()
+        
+        cur = db.cursor()
+        cur.execute("SELECT COALESCE(SUM(monthly_payment), 0) FROM loans")
+        loan_repayment = float(cur.fetchone()[0] or 0)
+        cur.close()
+
+        annual_expense_est = (monthly_exp_avg + monthly_card_avg + loan_repayment) * 12
+        annual_net_inflow = (avg['labor_annual'] + avg['passive_annual']) - annual_expense_est
+
+    # ── 4. 이벤트 로드 ──
+    cur = db.cursor()
+    cur.execute("SELECT * FROM lifecycle_events ORDER BY event_year, id")
+    events = cur.fetchall()
+    cur.close()
+    event_map = {}
+    for e in events:
+        yr = e['event_year']
+        if yr not in event_map:
+            event_map[yr] = []
+        event_map[yr].append(dict(e))
+
+    # ── 5. 가족 구성 ──
+    cur = db.cursor()
+    cur.execute("SELECT * FROM lifecycle_profile ORDER BY id")
+    family = cur.fetchall()
+    cur.close()
+
+    # ── 6. 연도별 시뮬레이션 루프 ──
+    result = []
+    
+    cash    = base_cash
+    stocks  = base_stocks
+    re      = base_re
+    crypto  = base_crypto
+    pension = base_pension
+    loans   = base_loans
+
+    retired = False
+
+    for i in range(sim_years + 1):
+        year = current_year + i
+
+        family_ages = [
+            {
+                'name': m['name'],
+                'role': m['role'],
+                'age':  year - m['birth_year']
+            }
+            for m in family
+        ]
+
+        year_events = event_map.get(year, [])
+        event_cash_delta = 0
+        for evt in year_events:
+            etype  = evt['event_type']
+            amount = float(evt['amount'] or 0)
+            if etype == 'sell_realestate':
+                re   -= amount
+                cash += amount
+                event_cash_delta += amount
+            elif etype == 'sell_stock':
+                stocks -= amount
+                cash   += amount
+                event_cash_delta += amount
+            elif etype == 'buy_asset':
+                cash   -= amount
+                stocks += amount
+                event_cash_delta -= amount
+            elif etype == 'extra_income':
+                cash += amount
+                event_cash_delta += amount
+            elif etype == 'extra_expense':
+                cash -= amount
+                event_cash_delta -= amount
+            elif etype == 'loan_payoff':
+                cash -= amount
+                loans = max(0.0, loans - amount)
+                event_cash_delta -= amount
+            elif etype == 'retire':
+                retired = True
+
+        current_year_inflow = annual_net_inflow
+        if retired:
+            if override_inflow is None:
+                avg = _calc_annual_avg_income(db)
+                current_year_inflow = avg['passive_annual'] - (monthly_exp_avg + monthly_card_avg + loan_repayment) * 12
+
+        total = cash + stocks + re + crypto + pension
+        net   = total - loans
+
+        result.append({
+            'year':         year,
+            'family_ages':  family_ages,
+            'cash':         round(cash),
+            'stocks':       round(stocks),
+            'real_estate':  round(re),
+            'crypto':       round(crypto),
+            'pension':      round(pension),
+            'loans':        round(loans),
+            'total_assets': round(total),
+            'net_worth':    round(net),
+            'events':       year_events,
+            'event_cash_delta': round(event_cash_delta),
+        })
+
+        if i < sim_years:
+            cash    = cash    * (1 + r_cash)    + current_year_inflow
+            stocks  = stocks  * (1 + r_stocks)
+            re      = re      * (1 + r_re)
+            crypto  = crypto  * (1 + r_stocks)
+            pension = pension + base_pension_monthly * 12
+            annual_net_inflow *= (1 - exp_growth)
+
+    db.close()
+    return jsonify({
+        'simulation':      result,
+        'annual_net_inflow': round(annual_net_inflow),
+        'settings':        settings,
+    })
+
+
 # ── API: 대시보드 집계 ───────────────────────────────────────
 @app.route('/api/dashboard')
 def api_dashboard():
