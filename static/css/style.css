@@ -752,7 +752,7 @@ body.sidebar-hidden #main-content {
 /* ── 앱 타이틀 고정 레이어 (항상 표시) ── */
 #sidebar-title-fixed {
   position: fixed;
-  top: 0;
+  bottom: 0;
   left: 0;
   width: 232px;
   height: 56px;
@@ -763,7 +763,7 @@ body.sidebar-hidden #main-content {
   padding: 0 1rem;
   cursor: pointer;
   user-select: none;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-top: 1px solid rgba(255,255,255,0.06);
 }
 
 #sidebar-title-fixed .app-title-text {

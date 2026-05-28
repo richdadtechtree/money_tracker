@@ -543,8 +543,8 @@ document.addEventListener('focusin', function(e) {
 
   // ── 전체 문서 마우스 이동 감지 (사이드바 밖) ──
   document.addEventListener('mousemove', (e) => {
-    // 좌상단 타이틀 영역 (x < 80, y < 120) → 표시
-    if (e.clientX < 80 && e.clientY < 120) {
+    // 좌하단 타이틀 영역 (x < 80, y > window.innerHeight - 120) → 표시
+    if (e.clientX < 80 && e.clientY > window.innerHeight - 120) {
       if (isSidebarHidden) showSidebar();
       return;
     }
