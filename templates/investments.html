@@ -992,11 +992,12 @@ const stockTxGrid = new GridTable({
     { key: 'fee',      type: 'number', align: 'end', step: 0.01,
       render: (v, r) => v ? (isForeign(r?.ticker) ? fmtUsd(v) : fmt(v)) : '-' },
     { key: 'memo',     type: 'text' },
+  ],
   apiUrl: '/api/stock-tx',
   getQueryParams: () => {
     const filterEl = document.getElementById('txStockFilter');
     const sid = filterEl ? filterEl.value : '';
-    return sid ?  : '';
+    return sid ? `stock_id=${sid}` : '';
   },
   onLoad: () => {
     loadStockTx();

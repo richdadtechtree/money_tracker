@@ -488,7 +488,7 @@ document.addEventListener('focusin', function(e) {
 
 // ── 사이드바 자동 숨김 / 재표시 ──────────────────────────
 (function () {
-  const HIDE_DELAY_MS = 5000;   // 5초 후 숨김
+  const HIDE_DELAY_MS = 3000;   // 3초 후 숨김
   
   let hideTimer   = null;
   let isSidebarHidden = false;
