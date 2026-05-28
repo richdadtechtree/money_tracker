@@ -273,6 +273,19 @@ def init_db():
             updated_at      TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS daily_snapshots (
+            id          SERIAL PRIMARY KEY,
+            day         DATE    NOT NULL UNIQUE,
+            cash        BIGINT  DEFAULT 0,
+            stocks      BIGINT  DEFAULT 0,
+            real_estate BIGINT  DEFAULT 0,
+            crypto      BIGINT  DEFAULT 0,
+            pension     BIGINT  DEFAULT 0,
+            total       BIGINT  DEFAULT 0,
+            net_worth   BIGINT  DEFAULT 0,
+            updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS etf_tx (
             id      SERIAL PRIMARY KEY,
             etf_id  INTEGER NOT NULL REFERENCES etf(id),
@@ -356,6 +369,18 @@ def init_db():
 
     # 마이그레이션: 기존 DB에 컬럼 추가 / 데이터 이전
     migrations = [
+        """CREATE TABLE IF NOT EXISTS daily_snapshots (
+            id          SERIAL PRIMARY KEY,
+            day         DATE    NOT NULL UNIQUE,
+            cash        BIGINT  DEFAULT 0,
+            stocks      BIGINT  DEFAULT 0,
+            real_estate BIGINT  DEFAULT 0,
+            crypto      BIGINT  DEFAULT 0,
+            pension     BIGINT  DEFAULT 0,
+            total       BIGINT  DEFAULT 0,
+            net_worth   BIGINT  DEFAULT 0,
+            updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""",
         """CREATE TABLE IF NOT EXISTS real_estate_payments (
             id              SERIAL PRIMARY KEY,
             real_estate_id  INTEGER REFERENCES real_estate(id) ON DELETE CASCADE,

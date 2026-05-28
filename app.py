@@ -3099,6 +3099,175 @@ def api_investment_monthly():
     return jsonify(months)
 
 
+def _save_daily_snapshot(db):
+    """
+    오늘 날짜의 순자산을 계산하여 daily_snapshots에 upsert.
+    대시보드 또는 tech-tree 조회 시 자동 호출되어 매일 1회 기록됨.
+    """
+    today_str = date.today().isoformat()
+    ex_rate = get_current_exchange_rate()
+    stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate)
+    
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
+    crypto_val = float(cur.fetchone()[0] or 0)
+    cur.close()
+    
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
+    re_total_price = float(cur.fetchone()[0] or 0)
+    cur.close()
+    
+    cur = db.cursor()
+    cur.execute("""
+    SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts
+    WHERE id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
+    """)
+    re_total_deposit = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
+    residence_deposit = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    re_val = re_total_price - re_total_deposit + residence_deposit
+
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
+    cash_val = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
+    pension_val = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(remaining),0) FROM loans")
+    loan_total = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    cash_int = int(cash_val or 0)
+    stocks_int = int(stocks_val or 0) + int(etf_val or 0)
+    re_int = int(re_val or 0)
+    crypto_int = int(crypto_val or 0)
+    pension_int = int(pension_val or 0)
+    
+    total = cash_int + stocks_int + re_int + crypto_int + pension_int
+    net_worth = total - int(loan_total or 0)
+
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO daily_snapshots (day, cash, stocks, real_estate, crypto, pension, total, net_worth, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+        ON CONFLICT (day) DO UPDATE SET
+            cash=excluded.cash, stocks=excluded.stocks,
+            real_estate=excluded.real_estate, crypto=excluded.crypto,
+            pension=excluded.pension, total=excluded.total,
+            net_worth=excluded.net_worth, updated_at=excluded.updated_at
+    """, (today_str, cash_int, stocks_int, re_int, crypto_int, pension_int, total, net_worth))
+    cur.close()
+
+
+@app.route('/api/networth-history')
+def api_networth_history():
+    period = request.args.get('period', 'monthly')
+    db = get_db()
+    cur = db.cursor()
+    
+    if period == 'daily':
+        cur.execute("""
+            SELECT day::text, net_worth, total,
+                   net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY day), net_worth) AS change,
+                   ROUND(
+                     COALESCE(
+                       (net_worth - LAG(net_worth) OVER (ORDER BY day))::numeric
+                       / NULLIF(LAG(net_worth) OVER (ORDER BY day), 0) * 100,
+                       0
+                     ), 2
+                   ) AS change_pct
+            FROM daily_snapshots
+            WHERE day >= CURRENT_DATE - INTERVAL '90 days'
+            ORDER BY day
+        """)
+        rows = cur.fetchall()
+        
+    elif period == 'weekly':
+        cur.execute("""
+            WITH weekly AS (
+                SELECT *,
+                       DATE_TRUNC('week', day) AS week_start,
+                       ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('week', day) ORDER BY day DESC) AS rn
+                FROM daily_snapshots
+                WHERE day >= CURRENT_DATE - INTERVAL '52 weeks'
+            )
+            SELECT week_start::date::text AS day, net_worth, total,
+                   net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY week_start), net_worth) AS change,
+                   ROUND(
+                     COALESCE(
+                       (net_worth - LAG(net_worth) OVER (ORDER BY week_start))::numeric
+                       / NULLIF(LAG(net_worth) OVER (ORDER BY week_start), 0) * 100,
+                       0
+                     ), 2
+                   ) AS change_pct
+            FROM weekly WHERE rn = 1
+            ORDER BY week_start
+        """)
+        rows = cur.fetchall()
+        
+    elif period == 'monthly':
+        cur.execute("""
+            SELECT month AS day,
+                   (cash + stocks + real_estate + crypto + pension) AS net_worth,
+                   total,
+                   (cash + stocks + real_estate + crypto + pension)
+                     - COALESCE(LAG(cash + stocks + real_estate + crypto + pension) OVER (ORDER BY month), (cash + stocks + real_estate + crypto + pension)) AS change,
+                   ROUND(
+                     COALESCE(
+                       ((cash+stocks+real_estate+crypto+pension)
+                         - LAG(cash+stocks+real_estate+crypto+pension) OVER (ORDER BY month))::numeric
+                       / NULLIF(LAG(cash+stocks+real_estate+crypto+pension) OVER (ORDER BY month), 0) * 100,
+                       0
+                     ), 2
+                   ) AS change_pct
+            FROM asset_snapshots
+            ORDER BY month
+            LIMIT 24
+        """)
+        rows = cur.fetchall()
+        
+    elif period == 'yearly':
+        cur.execute("""
+            WITH yearly AS (
+                SELECT *,
+                       LEFT(month, 4) AS year,
+                       ROW_NUMBER() OVER (PARTITION BY LEFT(month, 4) ORDER BY month DESC) AS rn
+                FROM asset_snapshots
+            )
+            SELECT year AS day,
+                   (cash + stocks + real_estate + crypto + pension) AS net_worth,
+                   total,
+                   (cash + stocks + real_estate + crypto + pension)
+                     - COALESCE(LAG(cash + stocks + real_estate + crypto + pension) OVER (ORDER BY year), (cash + stocks + real_estate + crypto + pension)) AS change,
+                   ROUND(
+                     COALESCE(
+                       ((cash+stocks+real_estate+crypto+pension)
+                         - LAG(cash+stocks+real_estate+crypto+pension) OVER (ORDER BY year))::numeric
+                       / NULLIF(LAG(cash+stocks+real_estate+crypto+pension) OVER (ORDER BY year), 0) * 100,
+                       0
+                     ), 2
+                   ) AS change_pct
+            FROM yearly WHERE rn = 1
+            ORDER BY year
+        """)
+        rows = cur.fetchall()
+    
+    cur.close()
+    db.close()
+    return jsonify(rows_to_list(rows))
+
+
 # ── API: 대시보드 집계 ───────────────────────────────────────
 @app.route('/api/dashboard')
 def api_dashboard():
@@ -3292,6 +3461,13 @@ def _api_dashboard_inner():
     crypto_cost = cur.fetchone()['c']
     cur.close()
 
+    try:
+        _save_daily_snapshot(db)
+        db.commit()
+    except Exception as snapshot_err:
+        db.rollback()
+        print(f"Error saving daily snapshot in dashboard: {snapshot_err}")
+
     db.close()
 
     return jsonify({
@@ -3324,6 +3500,95 @@ def _api_dashboard_inner():
             'has_active': sell_received > 0 or buy_paid > 0,
         },
     })
+
+
+def _calc_annual_avg_income(db):
+    """
+    실제 기록이 있는 월의 평균을 기준으로 연환산 수입을 계산한다.
+    
+    반환값:
+      labor_monthly_avg   : 월평균 근로소득 (급여+사업소득)
+      passive_monthly_avg : 월평균 자생소득 (나머지 수입)
+      labor_annual        : 연환산 근로소득 (× 12)
+      passive_annual      : 연환산 자생소득 (× 12)
+      labor_months        : 집계에 사용된 월 수 (신뢰도 지표)
+      passive_months      : 집계에 사용된 월 수 (신뢰도 지표)
+    """
+    # ── 근로소득: 월별 합계를 구하고, 합계 > 0인 월만 평균에 포함 ──
+    cur = db.cursor()
+    cur.execute("""
+        SELECT 
+            to_char(date::date, 'YYYY-MM') AS ym,
+            SUM(amount) AS monthly_total
+        FROM income
+        WHERE category IN ('급여', '사업소득')
+          AND date <= CURRENT_DATE           -- 미래 사전등록 수입 제외
+        GROUP BY ym
+        HAVING SUM(amount) > 0              -- 0인 달은 제외 (데이터 없는 달과 동일 취급)
+        ORDER BY ym DESC
+        LIMIT 12                            -- 최근 12개월 이내만 사용 (이직/폐업 등 과거 왜곡 방지)
+    """)
+    labor_rows = cur.fetchall()
+    cur.close()
+
+    if labor_rows:
+        labor_monthly_avg = sum(r['monthly_total'] for r in labor_rows) / len(labor_rows)
+    else:
+        labor_monthly_avg = 0
+
+    # ── 자생소득: 동일 방식 ──
+    cur = db.cursor()
+    cur.execute("""
+        SELECT 
+            to_char(date::date, 'YYYY-MM') AS ym,
+            SUM(amount) AS monthly_total
+        FROM income
+        WHERE category NOT IN ('급여', '사업소득')
+          AND date <= CURRENT_DATE
+        GROUP BY ym
+        HAVING SUM(amount) > 0
+        ORDER BY ym DESC
+        LIMIT 12
+    """)
+    passive_rows = cur.fetchall()
+    cur.close()
+
+    # 부동산 임대 수입은 매달 고정으로 발생하므로 그대로 합산
+    cur = db.cursor()
+    cur.execute("""
+        SELECT COALESCE(SUM(monthly_rent), 0)
+        FROM tenant_contracts
+        WHERE contract_type = '월세'
+          AND id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
+    """)
+    rental_monthly = cur.fetchone()[0]
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("""
+        SELECT COALESCE(SUM(deposit * 0.04 / 12), 0)
+        FROM tenant_contracts
+        WHERE contract_type = '전세'
+          AND id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
+    """)
+    leverage_monthly = cur.fetchone()[0]
+    cur.close()
+
+    if passive_rows:
+        passive_monthly_avg = sum(r['monthly_total'] for r in passive_rows) / len(passive_rows)
+    else:
+        passive_monthly_avg = 0
+
+    passive_monthly_avg += (rental_monthly + leverage_monthly)
+
+    return {
+        'labor_monthly_avg':   round(labor_monthly_avg),
+        'passive_monthly_avg': round(passive_monthly_avg),
+        'labor_annual':        round(labor_monthly_avg * 12),
+        'passive_annual':      round(passive_monthly_avg * 12),
+        'labor_months':        len(labor_rows),
+        'passive_months':      len(passive_rows),
+    }
 
 
 @app.route('/api/tech-tree-data')
@@ -3375,6 +3640,9 @@ def _api_tech_tree_data_inner():
     pension_val = float(cur.fetchone()[0] or 0)
     cur.close()
     
+    # ── [변경] 연평균 유입속도 산출 ──────────────────────────
+    avg_income = _calc_annual_avg_income(db)
+
     # 소득 현황 (이번달 기준, 오늘 이후 날짜의 반복 수입 등은 제외)
     today = date.today()
     ym = today.strftime('%Y-%m')
@@ -3382,7 +3650,7 @@ def _api_tech_tree_data_inner():
     cur = db.cursor()
     cur.execute(
     "SELECT COALESCE(SUM(amount),0) FROM income "
-    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득', '기타') AND date <= CURRENT_DATE",
+    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= CURRENT_DATE",
     (ym,)
     )
     labor_inc = float(cur.fetchone()[0] or 0)
@@ -3392,7 +3660,7 @@ def _api_tech_tree_data_inner():
     cur = db.cursor()
     cur.execute(
     "SELECT COALESCE(SUM(amount),0) FROM income "
-    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득', '기타') AND date <= CURRENT_DATE",
+    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= CURRENT_DATE",
     (ym,)
     )
     passive_inc = float(cur.fetchone()[0] or 0)
@@ -3548,6 +3816,10 @@ def _api_tech_tree_data_inner():
     """, (ym, cash_val, stocks_val + etf_val, re_val, crypto_val, pension_val, 
     cash_val + stocks_val + etf_val + re_val + crypto_val + pension_val))
     cur.close()
+    try:
+        _save_daily_snapshot(db)
+    except Exception as snapshot_err:
+        print(f"Error saving daily snapshot in tech tree: {snapshot_err}")
     db.commit()
 
     db.close()
@@ -3562,7 +3834,11 @@ def _api_tech_tree_data_inner():
         'income': {
             'labor': int(labor_inc or 0),
             'passive': int(passive_inc or 0),
-            'stock_pnl': int(stock_realized_pnl or 0)
+            'stock_pnl': int(stock_realized_pnl or 0),
+            'labor_annual_avg': avg_income['labor_annual'],
+            'passive_annual_avg': avg_income['passive_annual'],
+            'labor_months': avg_income['labor_months'],
+            'passive_months': avg_income['passive_months']
         },
         'expense': int(total_exp or 0),
         'straw_total': int(straw_total or 0),

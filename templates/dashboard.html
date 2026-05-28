@@ -168,6 +168,45 @@
     </div>
   </div>
 </div>
+
+<!-- 순자산 변화 추이 -->
+<div class="row g-3 mt-1 mb-4">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm" id="networth-chart-section">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center border-0 pt-3 flex-wrap gap-2">
+        <h5 class="mb-0 fw-semibold"><i class="bi bi-graph-up-arrow me-2 text-primary"></i>순자산 변화 추이</h5>
+        <!-- 기간 선택 탭 -->
+        <div class="btn-group btn-group-sm" role="group" id="period-tabs">
+          <button type="button" class="btn btn-outline-primary" data-period="daily">일간</button>
+          <button type="button" class="btn btn-outline-primary" data-period="weekly">주간</button>
+          <button type="button" class="btn btn-outline-primary active" data-period="monthly">월간</button>
+          <button type="button" class="btn btn-outline-primary" data-period="yearly">연간</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <!-- 요약 지표 -->
+        <div class="row mb-3 text-center g-2" id="networth-summary">
+          <div class="col-4">
+            <div class="text-muted small">현재 순자산</div>
+            <div class="fw-bold fs-6 amt" id="nw-current">-</div>
+          </div>
+          <div class="col-4">
+            <div class="text-muted small">기간 변동액</div>
+            <div class="fw-bold fs-6 amt" id="nw-change">-</div>
+          </div>
+          <div class="col-4">
+            <div class="text-muted small">기간 변동률</div>
+            <div class="fw-bold fs-6 amt" id="nw-pct">-</div>
+          </div>
+        </div>
+        <!-- 차트 캔버스 -->
+        <div style="position:relative; height:300px;">
+          <canvas id="networth-chart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block styles %}

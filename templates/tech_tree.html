@@ -190,6 +190,15 @@
               <span class="fw-bold text-primary" id="flowRateCompletion">-</span>
             </div>
           </div>
+          
+          <!-- 상세 유입 breakdown & 신뢰도 표시 -->
+          <div class="inflow-detail mt-2 pt-2 border-top text-muted" style="font-size: 0.75rem;">
+            <div class="d-flex justify-content-between mb-1"><span>근로소득 월평균:</span> <span id="laborMonthlyAvg">-</span></div>
+            <div class="d-flex justify-content-between mb-1"><span>자생소득 월평균:</span> <span><span id="passiveMonthlyAvg">-</span> <small class="text-muted" style="font-size: 0.65rem;">(임대/손익 포함)</small></span></div>
+            <hr class="my-1">
+            <div class="d-flex justify-content-between fw-bold text-primary mb-1"><span>연환산 합계:</span> <span id="annualTotalAvg">-</span></div>
+            <div class="text-muted text-center mt-2" id="reliabilityNote" style="font-size: 0.65rem;"></div>
+          </div>
         </div>
 
         <div class="mt-4 w-100 small">
@@ -537,6 +546,29 @@ async function loadTechTree() {
   document.getElementById('passiveIncomeVal').textContent = fmt(income.passive) + '원';
   document.getElementById('expenseTotalVal').textContent = fmt(expense) + '원';
   document.getElementById('strawTotalVal').textContent = fmt(straw_total) + '원';
+
+  // 상세 유입 breakdown 업데이트
+  const laborMonthly = Math.round(income.labor_annual_avg / 12);
+  const passiveMonthly = Math.round(income.passive_annual_avg / 12);
+  const annualTotal = income.labor_annual_avg + income.passive_annual_avg;
+  const laborMonths = income.labor_months;
+
+  document.getElementById('laborMonthlyAvg').textContent = fmt(laborMonthly) + '원';
+  document.getElementById('passiveMonthlyAvg').textContent = fmt(passiveMonthly) + '원';
+  document.getElementById('annualTotalAvg').textContent = fmt(annualTotal) + '원';
+
+  // 신뢰도 기준 정의
+  let relNote = '';
+  if (laborMonths <= 2) {
+    relNote = `⚠️ 데이터 부족 (${laborMonths}개월 기준)`;
+  } else if (laborMonths <= 5) {
+    relNote = `🔵 ${laborMonths}개월 평균`;
+  } else if (laborMonths <= 11) {
+    relNote = `🟢 ${laborMonths}개월 평균`;
+  } else {
+    relNote = `🟢 12개월 평균 (최근 1년)`;
+  }
+  document.getElementById('reliabilityNote').textContent = relNote;
 
   // 주식 실현손익 표시
   const stockPnl = income.stock_pnl || 0;
