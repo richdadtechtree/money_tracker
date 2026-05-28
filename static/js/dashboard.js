@@ -604,7 +604,19 @@ function formatKRW(val) {
 
 async function loadNetworthChart(period) {
   const data = await fetchJSON(`/api/networth-history?period=${period}`);
-  if (!data) return;
+  const emptyEl = document.getElementById('networth-chart-empty');
+  if (!data || data.length < 2) {
+    if (emptyEl) emptyEl.style.display = 'flex';
+    document.getElementById('nw-current').textContent = '-';
+    document.getElementById('nw-change').textContent = '-';
+    document.getElementById('nw-pct').textContent = '-';
+    if (networthChart) {
+      networthChart.destroy();
+      networthChart = null;
+    }
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
 
   const labels    = data.map(d => formatChartLabel(d.day, period));
   const netWorths = data.map(d => d.net_worth);
