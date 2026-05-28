@@ -722,3 +722,5 @@ body.dark-mode #mobileTopBar { background: #0D1421; border-bottom-color: rgba(25
 }
 .app-footer-sep { margin: 0 6px; }
 body.dark-mode .app-footer { color: #9ca3af; }
+body.dark-mode #tx-search-bar.bg-light-subtle { background-color: #1A2535 !important; }
+body.dark-mode #tx-search-bar { border-bottom-color: var(--border-light) !important; }
