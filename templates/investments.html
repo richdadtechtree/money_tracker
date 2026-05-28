@@ -948,10 +948,12 @@ const stockGrid = new GridTable({
   apiUrl: '/api/stocks',
   onLoad: rows => {
     allStocks = rows;
-    const sel = document.getElementById('txStockFilter');
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">전체 종목</option>' +
-      rows.map(r => `<option value="${r.id}"${String(r.id) === cur ? ' selected' : ''}>${r.name}${r.ticker ? ` (${r.ticker})` : ''}</option>`).join('');
+    const sel = document.getElementById('txStockFilter') || document.getElementById('tx-search-stock');
+    if (sel) {
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">전체 종목</option>' +
+        rows.map(r => `<option value="${r.id}"${String(r.id) === cur ? ' selected' : ''}>${r.name}${r.ticker ? ` (${r.ticker})` : ''}</option>`).join('');
+    }
     let tv = 0, tp = 0, tr = 0;
     rows.forEach(r => {
       const mul = isForeign(r.ticker) ? usdKrw : 1;
@@ -995,7 +997,7 @@ const stockTxGrid = new GridTable({
   ],
   apiUrl: '/api/stock-tx',
   getQueryParams: () => {
-    const filterEl = document.getElementById('txStockFilter');
+    const filterEl = document.getElementById('txStockFilter') || document.getElementById('tx-search-stock');
     const sid = filterEl ? filterEl.value : '';
     return sid ? `stock_id=${sid}` : '';
   },
