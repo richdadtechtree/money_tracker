@@ -1540,6 +1540,187 @@ def api_ipo_detail(rid):
     return jsonify({'ok': True})
 
 
+# ── API: 지수/레버리지 분할매수 계획기 ──────────────────────────
+@app.route('/api/split-buy-plans', methods=['GET', 'POST'])
+def api_split_buy_plans():
+    db = get_db()
+    if request.method == 'GET':
+        cur = db.cursor()
+        cur.execute("SELECT * FROM split_buy_plans ORDER BY id ASC")
+        rows = cur.fetchall()
+        cur.close()
+        db.close()
+        return jsonify(rows_to_list(rows))
+
+    # POST
+    data = request.json
+    name = data.get('name')
+    ticker = data.get('ticker')
+    total_budget = int(data.get('total_budget', 0))
+    ath = float(data.get('ath', 0))
+    current_price = data.get('current_price')
+    if current_price is not None and current_price != '':
+        current_price = float(current_price)
+    else:
+        current_price = None
+
+    if not name or ath <= 0:
+        db.close()
+        return jsonify({'error': '종목명과 역대 최고가(ATH)는 필수 입력 사항입니다.'}), 400
+
+    cur = db.cursor()
+    cur.execute(
+        "INSERT INTO split_buy_plans (name, ticker, total_budget, ath, current_price) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+        (name, ticker, total_budget, ath, current_price)
+    )
+    plan_id = cur.fetchone()['id']
+
+    # steps가 요청에 있으면 저장, 없으면 TQQQ 기본 40단계 생성 (-10% ~ -49%, 각 2.5%)
+    steps = data.get('steps')
+    if steps:
+        for s in steps:
+            cur.execute(
+                "INSERT INTO split_buy_plan_steps (plan_id, step_number, drawdown_pct, ratio) VALUES (%s, %s, %s, %s)",
+                (plan_id, int(s.get('step_number')), float(s.get('drawdown_pct')), float(s.get('ratio')))
+            )
+    else:
+        # TQQQ 40단계 기본 생성
+        for idx in range(40):
+            step_num = idx + 1
+            drawdown_pct = 10.0 + idx
+            ratio = 2.5
+            cur.execute(
+                "INSERT INTO split_buy_plan_steps (plan_id, step_number, drawdown_pct, ratio) VALUES (%s, %s, %s, %s)",
+                (plan_id, step_num, drawdown_pct, ratio)
+            )
+
+    db.commit()
+    cur.close()
+    db.close()
+    return jsonify({'ok': True, 'id': plan_id}), 201
+
+
+@app.route('/api/split-buy-plans/<int:rid>', methods=['PUT', 'DELETE'])
+def api_split_buy_plan_detail(rid):
+    db = get_db()
+    if request.method == 'PUT':
+        data = request.json
+        name = data.get('name')
+        ticker = data.get('ticker')
+        total_budget = int(data.get('total_budget', 0))
+        ath = float(data.get('ath', 0))
+        current_price = data.get('current_price')
+        if current_price is not None and current_price != '':
+            current_price = float(current_price)
+        else:
+            current_price = None
+
+        if not name or ath <= 0:
+            db.close()
+            return jsonify({'error': '종목명과 최고가(ATH)는 필수 입력 사항입니다.'}), 400
+
+        cur = db.cursor()
+        cur.execute(
+            "UPDATE split_buy_plans SET name=%s, ticker=%s, total_budget=%s, ath=%s, current_price=%s WHERE id=%s",
+            (name, ticker, total_budget, ath, current_price, rid)
+        )
+        db.commit()
+        cur.close()
+        db.close()
+        return jsonify({'ok': True})
+
+    # DELETE
+    cur = db.cursor()
+    cur.execute("DELETE FROM split_buy_plans WHERE id = %s", (rid,))
+    db.commit()
+    cur.close()
+    db.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/split-buy-plans/<int:pid>/steps', methods=['GET', 'POST'])
+def api_split_buy_plan_steps(pid):
+    db = get_db()
+    if request.method == 'GET':
+        cur = db.cursor()
+        cur.execute("SELECT * FROM split_buy_plan_steps WHERE plan_id = %s ORDER BY step_number ASC", (pid,))
+        rows = cur.fetchall()
+        cur.close()
+        db.close()
+        return jsonify(rows_to_list(rows))
+
+    # POST
+    steps = request.json
+    if not isinstance(steps, list):
+        db.close()
+        return jsonify({'error': '데이터가 리스트 형식이 아닙니다.'}), 400
+
+    cur = db.cursor()
+    # 기존 steps 삭제 후 재생성
+    cur.execute("DELETE FROM split_buy_plan_steps WHERE plan_id = %s", (pid,))
+    for s in steps:
+        cur.execute(
+            "INSERT INTO split_buy_plan_steps (plan_id, step_number, drawdown_pct, ratio) VALUES (%s, %s, %s, %s)",
+            (pid, int(s.get('step_number')), float(s.get('drawdown_pct')), float(s.get('ratio')))
+        )
+    db.commit()
+    cur.close()
+    db.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/split-buy-plans/<int:pid>/tx', methods=['GET', 'POST'])
+def api_split_buy_plan_tx(pid):
+    db = get_db()
+    if request.method == 'GET':
+        cur = db.cursor()
+        cur.execute("SELECT * FROM split_buy_transactions WHERE plan_id = %s ORDER BY tx_date ASC, id ASC", (pid,))
+        rows = cur.fetchall()
+        cur.close()
+        db.close()
+        return jsonify(rows_to_list(rows))
+
+    # POST
+    data = request.json
+    tx_type = data.get('tx_type')
+    step_number = data.get('step_number')
+    if step_number is not None and step_number != '':
+        step_number = int(step_number)
+    else:
+        step_number = None
+    price = float(data.get('price', 0))
+    quantity = float(data.get('quantity', 0))
+    tx_date = data.get('tx_date')
+    memo = data.get('memo')
+
+    if tx_type not in ['buy', 'sell'] or price <= 0 or quantity <= 0 or not tx_date:
+        db.close()
+        return jsonify({'error': '올바르지 않은 거래 데이터입니다.'}), 400
+
+    cur = db.cursor()
+    cur.execute(
+        "INSERT INTO split_buy_transactions (plan_id, tx_type, step_number, price, quantity, tx_date, memo) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        (pid, tx_type, step_number, price, quantity, tx_date, memo)
+    )
+    tx_id = cur.fetchone()['id']
+    db.commit()
+    cur.close()
+    db.close()
+    return jsonify({'ok': True, 'id': tx_id}), 201
+
+
+@app.route('/api/split-buy-plans/<int:pid>/tx/<int:tx_id>', methods=['DELETE'])
+def api_split_buy_plan_tx_delete(pid, tx_id):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("DELETE FROM split_buy_transactions WHERE plan_id = %s AND id = %s", (pid, tx_id))
+    db.commit()
+    cur.close()
+    db.close()
+    return jsonify({'ok': True})
+
+
+
 # ── API: 현재가 업데이트 ─────────────────────────────────────
 import time
 
@@ -1858,6 +2039,30 @@ def api_price_update():
                 else:
                     results['errors'].append(f"코인 [{name}({symbol})]: 가격 조회 실패")
                     results['crypto'].append({'id': cid, 'name': name, 'symbol': symbol, 'price': None, 'ok': False})
+
+        # ── 분할매수 계획 종목 ──
+        cur = db.cursor()
+        cur.execute("SELECT id, name, ticker FROM split_buy_plans WHERE ticker IS NOT NULL AND ticker != ''")
+        plan_rows = cur.fetchall()
+        cur.close()
+
+        results['split_plans'] = []
+        for row in plan_rows:
+            pid, name, ticker = row['id'], row['name'], row['ticker']
+            try:
+                price = _fetch_stock_price(ticker)
+            except Exception as e:
+                price = None
+                results['errors'].append(f"분할매수 계획 [{name}({ticker})]: {e}")
+            if price:
+                cur = db.cursor()
+                cur.execute("UPDATE split_buy_plans SET current_price = %s WHERE id = %s", (price, pid))
+                cur.close()
+                results['split_plans'].append({'id': pid, 'name': name, 'ticker': ticker, 'price': price, 'ok': True})
+            else:
+                if not any(f"분할매수 계획 [{name}({ticker})]" in e for e in results['errors']):
+                    results['errors'].append(f"분할매수 계획 [{name}({ticker})]: 가격 조회 실패")
+                results['split_plans'].append({'id': pid, 'name': name, 'ticker': ticker, 'price': None, 'ok': False})
 
         db.commit()
     except Exception as e:

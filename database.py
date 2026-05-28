@@ -400,6 +400,35 @@ def init_db():
             memo            TEXT,
             created_at      TEXT DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS split_buy_plans (
+            id              SERIAL PRIMARY KEY,
+            name            TEXT NOT NULL,
+            ticker          TEXT,
+            total_budget    BIGINT NOT NULL DEFAULT 0,
+            ath             REAL NOT NULL,
+            current_price   REAL,
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS split_buy_plan_steps (
+            id              SERIAL PRIMARY KEY,
+            plan_id         INTEGER NOT NULL REFERENCES split_buy_plans(id) ON DELETE CASCADE,
+            step_number     INTEGER NOT NULL,
+            drawdown_pct    REAL NOT NULL,
+            ratio           REAL NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS split_buy_transactions (
+            id              SERIAL PRIMARY KEY,
+            plan_id         INTEGER NOT NULL REFERENCES split_buy_plans(id) ON DELETE CASCADE,
+            tx_type         TEXT NOT NULL, -- 'buy', 'sell'
+            step_number     INTEGER,
+            price           REAL NOT NULL,
+            quantity        REAL NOT NULL,
+            tx_date         TEXT NOT NULL,
+            memo            TEXT
+        );
     """)
 
     conn.commit()
@@ -519,6 +548,32 @@ def init_db():
         "ALTER TABLE etf ADD COLUMN IF NOT EXISTS total_budget BIGINT DEFAULT 0",
         "ALTER TABLE etf ADD COLUMN IF NOT EXISTS invest_periods INTEGER DEFAULT 12",
         "ALTER TABLE etf ADD COLUMN IF NOT EXISTS drawdown_step NUMERIC(4,1) DEFAULT 5.0",
+        """CREATE TABLE IF NOT EXISTS split_buy_plans (
+            id              SERIAL PRIMARY KEY,
+            name            TEXT NOT NULL,
+            ticker          TEXT,
+            total_budget    BIGINT NOT NULL DEFAULT 0,
+            ath             REAL NOT NULL,
+            current_price   REAL,
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS split_buy_plan_steps (
+            id              SERIAL PRIMARY KEY,
+            plan_id         INTEGER NOT NULL REFERENCES split_buy_plans(id) ON DELETE CASCADE,
+            step_number     INTEGER NOT NULL,
+            drawdown_pct    REAL NOT NULL,
+            ratio           REAL NOT NULL
+        )""",
+        """CREATE TABLE IF NOT EXISTS split_buy_transactions (
+            id              SERIAL PRIMARY KEY,
+            plan_id         INTEGER NOT NULL REFERENCES split_buy_plans(id) ON DELETE CASCADE,
+            tx_type         TEXT NOT NULL,
+            step_number     INTEGER,
+            price           REAL NOT NULL,
+            quantity        REAL NOT NULL,
+            tx_date         TEXT NOT NULL,
+            memo            TEXT
+        )"""
     ]
     for sql in migrations:
         try:

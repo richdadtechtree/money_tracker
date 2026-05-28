@@ -724,3 +724,178 @@ body.dark-mode #mobileTopBar { background: #0D1421; border-bottom-color: rgba(25
 body.dark-mode .app-footer { color: #9ca3af; }
 body.dark-mode #tx-search-bar.bg-light-subtle { background-color: #1A2535 !important; }
 body.dark-mode #tx-search-bar { border-bottom-color: var(--border-light) !important; }
+<<<<<<< HEAD
+=======
+body.dark-mode .card-footer { background-color: var(--card-bg) !important; border-top-color: var(--border-light) !important; }
+body.dark-mode .page-link { background-color: #1A2535 !important; border-color: var(--border) !important; color: var(--text-primary) !important; }
+body.dark-mode .page-item.active .page-link { background-color: var(--primary) !important; color: #fff !important; }
+
+/* ── 사이드바 슬라이드 애니메이션 ── */
+#sidebar {
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+#sidebar.sidebar-hidden {
+  transform: translateX(-100%);
+}
+
+/* ── 사이드바 숨김 시 메인 콘텐츠 영역 확장 ── */
+#main-content {
+  transition: margin-left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#sidebar.sidebar-hidden ~ #main-content,
+body.sidebar-hidden #main-content {
+  margin-left: 0 !important;
+}
+
+/* ── 앱 타이틀 고정 레이어 (항상 표시) ── */
+#sidebar-title-fixed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 232px;
+  height: 56px;
+  z-index: 1100;
+  background: var(--sidebar-bg);
+  display: flex;
+  align-items: center;
+  padding: 0 1rem;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+#sidebar-title-fixed .app-title-text {
+  color: #fff;
+  font-size: 0.92rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#sidebar-title-fixed .expand-hint {
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.2s;
+  color: rgba(255,255,255,0.7);
+  font-size: 0.75rem;
+}
+body.sidebar-hidden #sidebar-title-fixed .expand-hint {
+  opacity: 1;
+}
+body.sidebar-hidden #sidebar-title-fixed:hover .expand-hint {
+  color: #fff;
+}
+
+/* ── 사이드바 내 기존 타이틀은 숨김 ── */
+#sidebar .sidebar-logo {
+  visibility: hidden;
+  height: 70px;
+}
+
+/* ══════════════════════════════════════════════
+   다크모드 전체 가시성 픽스
+   [data-bs-theme=dark] 또는 .dark-mode 클래스 기준
+══════════════════════════════════════════════ */
+[data-bs-theme=dark], body.dark-mode {
+  /* ── 폼 요소 ── */
+  select,
+  select option,
+  .form-select,
+  .form-control,
+  .form-control::placeholder,
+  textarea {
+    color: var(--text-primary) !important;
+    background-color: var(--card-bg) !important;
+    border-color: var(--border) !important;
+  }
+
+  /* ── 테이블 ── */
+  .table td,
+  .table th,
+  .table-striped > tbody > tr > td,
+  .table-hover > tbody > tr:hover > td {
+    color: var(--text-primary) !important;
+  }
+
+  /* ── 구분 배지 ── */
+  .badge {
+    color: #fff !important;
+  }
+  .badge.bg-secondary,
+  .badge.bg-light {
+    background-color: #4a4a5a !important;
+    color: #e0e0e0 !important;
+  }
+  .badge.bg-success  { background-color: #1a6b3c !important; }
+  .badge.bg-danger   { background-color: #7a1a2a !important; }
+  .badge.bg-warning  { background-color: #7a5a00 !important; color: #fff !important; }
+  .badge.bg-info     { background-color: #0a5a7a !important; }
+  .badge.bg-primary  { background-color: #1a3a8a !important; }
+
+  /* ── 카드 ── */
+  .card,
+  .card-header,
+  .card-body,
+  .card-footer {
+    color: var(--text-primary) !important;
+    background-color: var(--card-bg) !important;
+  }
+
+  /* ── 모달 ── */
+  .modal-content,
+  .modal-header,
+  .modal-body,
+  .modal-footer {
+    color: var(--text-primary) !important;
+    background-color: var(--card-bg) !important;
+  }
+  .modal-header .btn-close {
+    filter: invert(1);
+  }
+
+  /* ── 드롭다운 ── */
+  .dropdown-menu {
+    color: var(--text-primary) !important;
+    background-color: var(--card-bg) !important;
+    border-color: var(--border) !important;
+  }
+  .dropdown-item {
+    color: var(--text-primary) !important;
+  }
+  .dropdown-item:hover {
+    background-color: rgba(255,255,255,0.08) !important;
+  }
+
+  /* ── 텍스트 유틸리티 ── */
+  .text-muted {
+    color: rgba(255,255,255,0.5) !important;
+  }
+  .text-dark {
+    color: var(--text-primary) !important;
+  }
+
+  /* ── 리스트 그룹 ── */
+  .list-group-item {
+    color: var(--text-primary) !important;
+    background-color: var(--card-bg) !important;
+    border-color: var(--border) !important;
+  }
+
+  /* ── 페이지네이션 ── */
+  .page-link {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border) !important;
+    color: var(--text-primary) !important;
+  }
+  .page-item.active .page-link {
+    background-color: var(--primary) !important;
+    color: #fff !important;
+  }
+  .page-item.disabled .page-link {
+    color: rgba(255,255,255,0.3) !important;
+  }
+}
+>>>>>>> 02d8f97 (260529)

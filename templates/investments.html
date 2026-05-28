@@ -11,6 +11,7 @@
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-etf">ETF</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-crypto">코인</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-ipo">공모주</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-split-plan">분할매수 계획기</a></li>
 </ul>
 
 <div class="tab-content">
@@ -130,6 +131,7 @@
 
       <div class="card-body p-0">
         <div class="table-responsive">
+          <!-- 기존 stockTxTable 아이디 유지 -->
           <table class="table table-hover mb-0" id="stockTxTable">
             <thead class="table-light">
               <tr>
@@ -387,6 +389,266 @@
       </div>
     </div>
   </div>
+
+  <!-- 분할매수 계획기 탭 -->
+  <div class="tab-pane fade" id="tab-split-plan">
+    <div class="row g-3">
+      <!-- 좌측 종목 리스트 사이드바 -->
+      <div class="col-md-3">
+        <div class="card border-0 shadow-sm h-100">
+          <div class="card-header bg-white border-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
+            <span class="fw-semibold"><i class="bi bi-list-stars me-2 text-primary"></i>계획 종목 목록</span>
+            <button class="btn btn-outline-primary btn-sm py-1" onclick="openAddPlanModal()">
+              <i class="bi bi-plus-lg"></i> 추가
+            </button>
+          </div>
+          <div class="card-body p-0">
+            <div class="list-group list-group-flush" id="plan-list-group" style="max-height: 500px; overflow-y: auto;">
+              <!-- 계획 종목들이 동적으로 추가됨 -->
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 우측 상세 정보 패널 -->
+      <div class="col-md-9">
+        <!-- 종목 미선택 시 안내 메시지 -->
+        <div id="plan-empty-panel" class="text-center py-5 text-muted bg-white rounded shadow-sm border">
+          <i class="bi bi-graph-up-arrow text-secondary" style="font-size: 3rem;"></i>
+          <p class="mt-3 fs-5 fw-semibold">분할매수 계획 종목을 선택하거나 추가해 주세요.</p>
+        </div>
+        
+        <!-- 종목 선택 시 보이는 패널 -->
+        <div id="plan-detail-panel" class="d-none">
+          <!-- 상단 정보 및 설정 컨트롤 -->
+          <div class="card border-0 shadow-sm mb-3">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+                <div>
+                  <h4 class="fw-bold mb-1 d-flex align-items-center gap-2">
+                    <span id="detail-plan-name">-</span>
+                    <span class="badge bg-primary-subtle text-primary" id="detail-plan-ticker" style="font-size: 0.85rem;">-</span>
+                  </h4>
+                  <p class="text-muted small mb-0">ATH 고점 대비 분할 매수 계획 및 상태 관리</p>
+                </div>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-outline-warning btn-sm" onclick="openEditPlanModal()">
+                    <i class="bi bi-pencil-square"></i> 종목 수정
+                  </button>
+                  <button class="btn btn-outline-danger btn-sm" onclick="deleteCurrentPlan()">
+                    <i class="bi bi-trash"></i> 삭제
+                  </button>
+                </div>
+              </div>
+              
+              <div class="row g-2 text-center text-md-start">
+                <div class="col-6 col-md-3">
+                  <div class="p-2 bg-light-subtle rounded border">
+                    <div class="small text-muted">총 투자 예산</div>
+                    <div class="fw-bold text-primary fs-5" id="detail-total-budget">-원</div>
+                  </div>
+                </div>
+                <div class="col-6 col-md-3">
+                  <div class="p-2 bg-light-subtle rounded border">
+                    <div class="small text-muted text-danger-emphasis">최고가 (ATH)</div>
+                    <div class="fw-bold fs-5 text-danger-emphasis" id="detail-ath">-원</div>
+                  </div>
+                </div>
+                <div class="col-6 col-md-3">
+                  <div class="p-2 bg-light-subtle rounded border">
+                    <div class="small text-muted">현재가/지수</div>
+                    <div class="fw-bold fs-5 text-warning-emphasis" id="detail-current-price">-원</div>
+                  </div>
+                </div>
+                <div class="col-6 col-md-3">
+                  <div class="p-2 bg-light-subtle rounded border">
+                    <div class="small text-muted">고점 대비 하락률</div>
+                    <div class="fw-bold fs-5 text-danger" id="detail-drop-pct">- %</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Ruler: 현재가 매수 구간 위치 -->
+          <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white border-0 pt-3 pb-0 fw-semibold d-flex justify-content-between align-items-center">
+              <span class="small text-muted text-uppercase tracking-wider">현재가 매수 구간 위치</span>
+              <span class="small text-dark" id="ruler-status-text">-</span>
+            </div>
+            <div class="card-body">
+              <div class="price-ruler-container py-4 position-relative">
+                <div class="r-bar position-relative rounded-pill" style="height: 14px; background: linear-gradient(90deg, #3fb950 0%, #e3b341 48%, #f85149 100%);">
+                  <div id="ruler-done-bar" class="position-absolute h-100 rounded-pill-start" style="top:0; left:0; background: rgba(0,0,0,0.55); width: 0%;"></div>
+                  <!-- tick line들은 js에서 동적 생성 -->
+                  <div id="ruler-ticks-lines" class="w-100 h-100 position-absolute"></div>
+                </div>
+                <div id="ruler-pin-wrap" class="position-absolute" style="top: -24px; left: 0; transform: translateX(-50%); z-index: 6; display: none;">
+                  <div class="r-pin d-flex flex-column align-items-center">
+                    <div class="r-pin-lbl bg-warning text-dark font-monospace fw-bold px-2 py-1 rounded small text-center" id="ruler-pin-lbl" style="font-size: 0.75rem; line-height: 1.2; box-shadow: 0 2px 5px rgba(0,0,0,0.2);">-</div>
+                    <div class="r-pin-line bg-warning" style="width: 2px; height: 16px;"></div>
+                    <div class="r-pin-tip" style="width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid var(--bs-warning);"></div>
+                  </div>
+                </div>
+                <!-- Ticks 라벨들 -->
+                <div id="ruler-ticks-labels" class="position-relative mt-2" style="height: 30px;"></div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 요약 카드 (Summary) -->
+          <div class="row g-3 mb-3" id="plan-summary-cards">
+            <!-- 동적으로 생성됨 -->
+          </div>
+          
+          <!-- 서브 탭 -->
+          <ul class="nav nav-pills mb-3 bg-light-subtle p-1 rounded border" id="planSubTabs">
+            <li class="nav-item"><a class="nav-link active py-1.5 px-3" data-bs-toggle="tab" href="#plan-sub-plan">📋 매수 계획</a></li>
+            <li class="nav-item"><a class="nav-link py-1.5 px-3" data-bs-toggle="tab" href="#plan-sub-buys">📥 매수 이력</a></li>
+            <li class="nav-item"><a class="nav-link py-1.5 px-3" data-bs-toggle="tab" href="#plan-sub-sells">📜 매도 이력</a></li>
+            <li class="nav-item"><a class="nav-link py-1.5 px-3" data-bs-toggle="tab" href="#plan-sub-analysis">📊 손익 분석</a></li>
+          </ul>
+          
+          <div class="tab-content">
+            <!-- 서브 탭 1: 매수 계획 -->
+            <div class="tab-pane fade show active" id="plan-sub-plan">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="small text-muted">* 각 차수의 투자금액 직접 수정 시 실시간 계산 및 자동 저장됩니다.</span>
+                <button class="btn btn-outline-secondary btn-sm" onclick="resetPlanSteps()">
+                  <i class="bi bi-arrow-counterclockwise"></i> 기본 TQQQ 40단계 템플릿 초기화
+                </button>
+              </div>
+              <div class="card border-0 shadow-sm">
+                <div class="card-body p-0">
+                  <div class="table-responsive" style="max-height: 600px;">
+                    <table class="table table-hover align-middle mb-0" id="planStepsTable">
+                      <thead class="table-light sticky-top">
+                        <tr>
+                          <th class="text-center">차수</th>
+                          <th class="text-center">상태</th>
+                          <th class="text-center">낙폭</th>
+                          <th class="text-end">매수 목표가</th>
+                          <th class="text-end" style="width: 150px;">투자금액 (원)</th>
+                          <th class="text-end">매수 수량</th>
+                          <th class="text-end">누적 수량</th>
+                          <th class="text-end">누적 투자금</th>
+                          <th class="text-end">평균 단가</th>
+                          <th class="text-center">관리</th>
+                        </tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 서브 탭 2: 매수 이력 -->
+            <div class="tab-pane fade" id="plan-sub-buys">
+              <div class="row g-2 mb-3" id="plan-buys-summary"></div>
+              <div class="card border-0 shadow-sm">
+                <div class="card-body p-0">
+                  <div class="table-responsive">
+                    <table class="table table-hover mb-0" id="planBuysTable">
+                      <thead class="table-light">
+                        <tr>
+                          <th class="text-center">매수 일자</th>
+                          <th class="text-center">차수</th>
+                          <th class="text-end">매수가</th>
+                          <th class="text-end">수량</th>
+                          <th class="text-end">투자금액</th>
+                          <th class="text-center">메모</th>
+                          <th class="text-center">삭제</th>
+                        </tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 서브 탭 3: 매도 이력 -->
+            <div class="tab-pane fade" id="plan-sub-sells">
+              <div class="row g-3">
+                <div class="col-md-7">
+                  <div class="card border-0 shadow-sm h-100">
+                    <div class="card-header bg-white border-0 pt-3 pb-2 fw-semibold">
+                      매도 거래내역
+                    </div>
+                    <div class="card-body p-0">
+                      <div class="table-responsive">
+                        <table class="table table-hover mb-0" id="planSellsTable">
+                          <thead class="table-light">
+                            <tr>
+                              <th class="text-center">날짜</th>
+                              <th class="text-center">차수</th>
+                              <th class="text-end">매도가</th>
+                              <th class="text-end">매도수량</th>
+                              <th class="text-end">수익금</th>
+                              <th class="text-center">메모</th>
+                              <th class="text-center">삭제</th>
+                            </tr>
+                          </thead>
+                          <tbody></tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-md-5">
+                  <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-header bg-white border-0 pt-3 pb-2 fw-semibold">
+                      📅 일별 손익 집계
+                    </div>
+                    <div class="card-body p-0">
+                      <div class="table-responsive" style="max-height: 250px;">
+                        <table class="table table-sm table-hover mb-0">
+                          <thead class="table-light">
+                            <tr><th class="text-center">날짜</th><th class="text-end">수익금</th></tr>
+                          </thead>
+                          <tbody id="plan-daily-pnl-body"></tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-white border-0 pt-3 pb-2 fw-semibold">
+                      📊 월별 손익 집계
+                    </div>
+                    <div class="card-body p-0">
+                      <div class="table-responsive" style="max-height: 250px;">
+                        <table class="table table-sm table-hover mb-0">
+                          <thead class="table-light">
+                            <tr><th class="text-center">월 (YYYY-MM)</th><th class="text-end">수익금</th></tr>
+                          </thead>
+                          <tbody id="plan-monthly-pnl-body"></tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 서브 탭 4: 손익 분석 -->
+            <div class="tab-pane fade" id="plan-sub-analysis">
+              <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-0 pt-3 pb-2 fw-semibold">
+                  월별 실현 손익 현황
+                </div>
+                <div class="card-body">
+                  <div style="position:relative; height:320px">
+                    <canvas id="planProfitChart"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- 구분별 수익률 모달 -->
@@ -524,6 +786,88 @@
         </div>
         <ul id="stockCatList" class="list-group list-group-flush"></ul>
       </div>
+</div>
+
+<!-- 분할매수 계획 추가 모달 -->
+<div class="modal fade" id="addPlanModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content text-dark">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold"><i class="bi bi-plus-circle me-2 text-primary"></i>분할매수 계획 추가</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">종목명</label>
+          <input type="text" class="form-control" id="add-plan-name" placeholder="예: 코스닥 레버리지, TQQQ">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">티커 (선택)</label>
+          <input type="text" class="form-control" id="add-plan-ticker" placeholder="예: 122630, TQQQ">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">총 투자 예산 (원)</label>
+          <input type="number" class="form-control" id="add-plan-budget" placeholder="예: 20000000">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">최고가 (ATH)</label>
+          <input type="number" step="0.01" class="form-control" id="add-plan-ath" placeholder="기준 최고가 입력">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">현재가 / 지수 (선택)</label>
+          <input type="number" step="0.01" class="form-control" id="add-plan-current" placeholder="현재 가격/지수 입력">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">초기 계획 템플릿</label>
+          <select class="form-select" id="add-plan-template">
+            <option value="tqqq">TQQQ 40단계 템플릿 (-10% ~ -49%, 균등 비중 2.5%)</option>
+            <option value="kosdaq">코스닥 8단계 템플릿 (-10%, -15%, -20%, -30%, -40%, -50%, -60%, -70%, 균등 비중 12.5%)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+        <button class="btn btn-primary btn-sm" onclick="saveNewPlan()">저장</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 분할매수 계획 수정 모달 -->
+<div class="modal fade" id="editPlanModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content text-dark">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2 text-warning"></i>분할매수 계획 수정</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="edit-plan-id">
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">종목명</label>
+          <input type="text" class="form-control" id="edit-plan-name">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">티커 (선택)</label>
+          <input type="text" class="form-control" id="edit-plan-ticker">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">총 투자 예산 (원)</label>
+          <input type="number" class="form-control" id="edit-plan-budget">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">최고가 (ATH)</label>
+          <input type="number" step="0.01" class="form-control" id="edit-plan-ath">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">현재가 / 지수 (선택)</label>
+          <input type="number" step="0.01" class="form-control" id="edit-plan-current">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+        <button class="btn btn-warning btn-sm text-white" onclick="saveEditedPlan()">수정</button>
+      </div>
     </div>
   </div>
 </div>
@@ -648,13 +992,15 @@ const stockTxGrid = new GridTable({
     { key: 'fee',      type: 'number', align: 'end', step: 0.01,
       render: (v, r) => v ? (isForeign(r?.ticker) ? fmtUsd(v) : fmt(v)) : '-' },
     { key: 'memo',     type: 'text' },
-  ],
   apiUrl: '/api/stock-tx',
   getQueryParams: () => {
-    const sid = document.getElementById('txStockFilter').value;
-    return sid ? `stock_id=${sid}` : '';
+    const filterEl = document.getElementById('txStockFilter');
+    const sid = filterEl ? filterEl.value : '';
+    return sid ?  : '';
   },
-  onLoad: () => {},
+  onLoad: () => {
+    loadStockTx();
+  },
   onSave:   () => stockGrid.load(),
   onDelete: () => stockGrid.load(),
 });
@@ -1297,7 +1643,11 @@ function renderTxPage(page) {
   const pageData = filteredTxData.slice(start, end);
   
   // ── 테이블 렌더링 ──
+<<<<<<< HEAD
   const tbody = document.getElementById('tx-tbody');
+=======
+  const tbody = stockTxGrid.tbody;
+>>>>>>> 02d8f97 (260529)
   tbody.innerHTML = '';
   
   if (pageData.length === 0) {
@@ -1308,22 +1658,38 @@ function renderTxPage(page) {
       const isBuy = t.tx_type === 'buy';
       const totalAmt = t.price * t.quantity;
       tbody.insertAdjacentHTML('beforeend', `
+<<<<<<< HEAD
         <tr>
           <td>${t.tx_date}</td>
           <td>${t.name || '-'}</td>
           <td><span class="badge bg-secondary">${t.ticker || '-'}</span></td>
           <td>
             <span class="badge ${isBuy ? 'bg-primary' : 'bg-danger'}">
+=======
+        <tr data-id="${t.id}" class="grid-row">
+          <td>${t.tx_date}</td>
+          <td>${t.name || '-'}</td>
+          <td>
+            <span class="badge ${isBuy ? 'bg-danger-subtle text-danger' : 'bg-primary-subtle text-primary'}">
+>>>>>>> 02d8f97 (260529)
               ${isBuy ? '매수' : '매도'}
             </span>
           </td>
           <td class="text-end">${isForeign(t.ticker) ? fmtUsd(t.price) : formatKRW(t.price)}</td>
           <td class="text-end">${t.quantity}</td>
+<<<<<<< HEAD
           <td class="text-end text-muted">${isForeign(t.ticker) ? fmtUsd(t.fee) : formatKRW(t.fee)}</td>
           <td class="text-muted small">${t.memo || ''}</td>
           <td>
             <button class="btn btn-xs btn-outline-primary" onclick="stockTxGrid.startEdit(this.closest('tr'))">수정</button>
             <button class="btn btn-xs btn-outline-danger"  onclick="stockTxGrid._delete(${t.id})">삭제</button>
+=======
+          <td class="text-end"><span class="fw-semibold">${formatKRW(toKrw(totalAmt, t.ticker))}</span></td>
+          <td class="text-end text-muted">${isForeign(t.ticker) ? fmtUsd(t.fee) : formatKRW(t.fee)}</td>
+          <td class="text-muted small">${t.memo || ''}</td>
+          <td class="text-center">
+            <button class="btn btn-sm btn-outline-danger py-0" data-ga="d" data-id="${t.id}"><i class="bi bi-trash"></i></button>
+>>>>>>> 02d8f97 (260529)
           </td>
         </tr>
       `);
@@ -1424,6 +1790,888 @@ initPage();
 
 document.querySelector('[href="#tab-etf"]').addEventListener('shown.bs.tab', () => etfGrid.load());
 document.querySelector('[href="#tab-ipo"]').addEventListener('shown.bs.tab', () => ipoGrid.load());
+document.querySelector('[href="#tab-split-plan"]').addEventListener('shown.bs.tab', () => {
+  loadPlanList();
+});
+
+// ── 지수/레버리지 분할매수 계획기 관련 JS ──────────────────────
+let currentPlanId = null;
+let currentPlanData = null;
+let currentPlanSteps = [];
+let currentPlanTx = [];
+let planProfitChart = null;
+
+async function loadPlanList() {
+  const list = await fetchJSON('/api/split-buy-plans');
+  const group = document.getElementById('plan-list-group');
+  if (!group) return;
+  group.innerHTML = '';
+  
+  if (!list || list.length === 0) {
+    group.innerHTML = '<div class="text-center py-4 text-muted small">등록된 계획이 없습니다.</div>';
+    document.getElementById('plan-empty-panel').classList.remove('d-none');
+    document.getElementById('plan-detail-panel').classList.add('d-none');
+    return;
+  }
+  
+  list.forEach(p => {
+    const active = currentPlanId === p.id;
+    const btn = document.createElement('button');
+    btn.className = `list-group-item list-group-item-action ${active ? 'active text-white' : ''} d-flex justify-content-between align-items-center`;
+    btn.onclick = () => selectPlan(p.id);
+    
+    const drop = p.ath && p.current_price ? ((1 - p.current_price / p.ath) * 100).toFixed(1) : null;
+    btn.innerHTML = `
+      <div class="text-truncate me-2">
+        <div class="fw-semibold text-truncate text-start">${p.name}</div>
+        <small class="text-start d-block ${active ? 'text-white-50' : 'text-muted'}">${p.ticker || '티커 없음'}</small>
+      </div>
+      ${drop ? `<span class="badge ${active ? 'bg-white text-primary' : 'bg-danger-subtle text-danger'} font-monospace">-${drop}%</span>` : ''}
+    `;
+    group.appendChild(btn);
+  });
+  
+  if (currentPlanId === null && list.length > 0) {
+    selectPlan(list[0].id);
+  }
+}
+
+async function selectPlan(planId) {
+  currentPlanId = planId;
+  const list = await fetchJSON('/api/split-buy-plans');
+  currentPlanData = list.find(p => p.id === planId);
+  
+  if (!currentPlanData) return;
+  
+  // 리스트 UI 재렌더링
+  const group = document.getElementById('plan-list-group');
+  if (group) {
+    const buttons = group.querySelectorAll('button');
+    buttons.forEach((btn, idx) => {
+      const p = list[idx];
+      if (p) {
+        const active = p.id === planId;
+        btn.className = `list-group-item list-group-item-action ${active ? 'active text-white bg-primary' : ''} d-flex justify-content-between align-items-center`;
+      }
+    });
+  }
+  
+  document.getElementById('plan-empty-panel').classList.add('d-none');
+  document.getElementById('plan-detail-panel').classList.remove('d-none');
+  
+  // 기본 정보 세팅
+  document.getElementById('detail-plan-name').textContent = currentPlanData.name;
+  document.getElementById('detail-plan-ticker').textContent = currentPlanData.ticker || '-';
+  document.getElementById('detail-total-budget').textContent = (currentPlanData.total_budget || 0).toLocaleString() + '원';
+  document.getElementById('detail-ath').textContent = (currentPlanData.ath || 0).toLocaleString() + '원';
+  document.getElementById('detail-current-price').textContent = currentPlanData.current_price ? currentPlanData.current_price.toLocaleString() + '원' : '입력 대기';
+  
+  const drop = currentPlanData.ath && currentPlanData.current_price ? ((1 - currentPlanData.current_price / currentPlanData.ath) * 100).toFixed(1) : null;
+  document.getElementById('detail-drop-pct').textContent = drop ? `-${drop}%` : '-';
+  
+  await Promise.all([
+    loadPlanSteps(),
+    loadPlanTx()
+  ]);
+  
+  renderPlan();
+}
+
+async function loadPlanSteps() {
+  currentPlanSteps = await fetchJSON(`/api/split-buy-plans/${currentPlanId}/steps`);
+}
+
+async function loadPlanTx() {
+  currentPlanTx = await fetchJSON(`/api/split-buy-plans/${currentPlanId}/tx`);
+}
+
+function getPlanTargetPrice(ath, drawdownPct) {
+  return ath * (1 - drawdownPct / 100);
+}
+
+function getPlanNextRound() {
+  const ath = currentPlanData.ath;
+  const cur = currentPlanData.current_price;
+  if (!cur || !ath || currentPlanSteps.length === 0) return -1;
+  
+  for (let i = 0; i < currentPlanSteps.length; i++) {
+    const tp = getPlanTargetPrice(ath, currentPlanSteps[i].drawdown_pct);
+    if (cur > tp) return i;
+  }
+  return currentPlanSteps.length;
+}
+
+function getPlanActiveRound() {
+  const next = getPlanNextRound();
+  if (next <= 0) return -1;
+  return next > currentPlanSteps.length - 1 ? currentPlanSteps.length - 1 : next - 1;
+}
+
+function getPlanHeld() {
+  const buys = currentPlanTx.filter(t => t.tx_type === 'buy');
+  const sells = currentPlanTx.filter(t => t.tx_type === 'sell');
+  const totalBought = buys.reduce((s, b) => s + (parseFloat(b.quantity) || 0), 0);
+  const totalSold = sells.reduce((s, x) => s + (parseFloat(x.quantity) || 0), 0);
+  return Math.max(0, totalBought - totalSold);
+}
+
+function getPlanAvgBuyPrice() {
+  const buys = currentPlanTx.filter(t => t.tx_type === 'buy');
+  const totalQty = buys.reduce((s, b) => s + (parseFloat(b.quantity) || 0), 0);
+  const totalAmt = buys.reduce((s, b) => s + (parseFloat(b.quantity) || 0) * (parseFloat(b.price) || 0), 0);
+  return totalQty > 0 ? totalAmt / totalQty : 0;
+}
+
+function getPlanAvgSellPrice() {
+  const sells = currentPlanTx.filter(t => t.tx_type === 'sell');
+  const totalQty = sells.reduce((s, b) => s + (parseFloat(b.quantity) || 0), 0);
+  const totalAmt = sells.reduce((s, b) => s + (parseFloat(b.quantity) || 0) * (parseFloat(b.price) || 0), 0);
+  return totalQty > 0 ? totalAmt / totalQty : 0;
+}
+
+async function saveCurrentSteps() {
+  await fetchJSON(`/api/split-buy-plans/${currentPlanId}/steps`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(currentPlanSteps)
+  });
+}
+
+function onPlanStepAmt(idx, val) {
+  const v = isNaN(parseFloat(val)) ? 0 : parseFloat(val);
+  const budget = currentPlanData.total_budget || 1;
+  currentPlanSteps[idx].ratio = (v / budget) * 100;
+  recalcPlanTable();
+}
+
+function recalcPlanTable() {
+  const ath = currentPlanData.ath;
+  const budget = currentPlanData.total_budget;
+  let cumI = 0, cumS = 0;
+  
+  const trs = document.querySelectorAll('#planStepsTable tbody tr:not(.buy-form-row):not(.sell-form-row)');
+  trs.forEach((tr, i) => {
+    const step = currentPlanSteps[i];
+    if (!step) return;
+    const tp = getPlanTargetPrice(ath, step.drawdown_pct);
+    const amt = Math.round(budget * (step.ratio / 100));
+    const sh = amt / tp;
+    cumI += amt; cumS += sh;
+    
+    const tds = tr.querySelectorAll('td');
+    if (tds.length > 8) {
+      tds[5].textContent = sh.toFixed(4);
+      tds[6].textContent = cumS.toFixed(4);
+      tds[7].textContent = Math.round(cumI).toLocaleString() + '원';
+      tds[8].textContent = (cumI / cumS).toLocaleString('ko-KR', {maximumFractionDigits: 0}) + '원';
+    }
+  });
+}
+
+function renderPlan() {
+  const ath = currentPlanData.ath;
+  const cur = currentPlanData.current_price;
+  const budget = currentPlanData.total_budget;
+  
+  const active = getPlanActiveRound();
+  const next = active === -1 ? 0 : active + 1;
+  
+  const tbody = document.querySelector('#planStepsTable tbody');
+  tbody.innerHTML = '';
+  
+  const boughtRounds = new Set(currentPlanTx.filter(t => t.tx_type === 'buy').map(b => b.step_number));
+  const avgSellPrice = getPlanAvgSellPrice();
+  
+  let cumI = 0, cumS = 0;
+  
+  currentPlanSteps.forEach((step, idx) => {
+    const tp = getPlanTargetPrice(ath, step.drawdown_pct);
+    const amt = Math.round(budget * (step.ratio / 100));
+    const sh = amt / tp;
+    cumI += amt; cumS += sh;
+    
+    const isDone = active >= 0 && idx < active;
+    const isNow = idx === active;
+    const isBought = boughtRounds.has(step.step_number) && (avgSellPrice === 0 || tp >= avgSellPrice);
+    
+    const tr = document.createElement('tr');
+    if (isBought) tr.classList.add('row-purchased');
+    else if (isDone) tr.classList.add('row-done');
+    if (isNow) tr.classList.add('row-next');
+    
+    const badgeCls = isBought ? 'badge-done' : isDone ? 'badge-done' : isNow ? 'badge-next' : '';
+    const icon = isBought ? '✅' : isDone ? '✓' : isNow ? '▶' : '·';
+    const boughtTag = isBought ? `<span class="bought-tag ms-1">매수완료</span>` : '';
+    
+    tr.innerHTML = `
+      <td class="text-center"><span class="badge ${badgeCls}">${step.step_number}</span></td>
+      <td class="text-center"><span class="status-icon">${icon}</span>${isNow ? '<span class="now-tag">NOW</span>' : ''}${boughtTag}</td>
+      <td class="text-center text-danger font-monospace">-${step.drawdown_pct}%</td>
+      <td class="text-end fw-semibold">${Math.round(tp).toLocaleString()}원</td>
+      <td class="text-end">
+        <input class="invest-in text-end form-control form-control-sm d-inline-block" style="width:110px;" type="number" value="${Math.round(amt)}" min="0" step="10000" 
+          oninput="onPlanStepAmt(${idx}, this.value)" onblur="saveCurrentSteps()">
+      </td>
+      <td class="text-end text-success fw-semibold">${sh.toFixed(4)}</td>
+      <td class="text-end text-muted small">${cumS.toFixed(4)}</td>
+      <td class="text-end text-muted small">${Math.round(cumI).toLocaleString()}원</td>
+      <td class="text-end text-primary fw-semibold">${Math.round(cumI / cumS).toLocaleString()}원</td>
+      <td class="text-center" style="white-space:nowrap">
+        <button class="btn btn-success btn-sm py-0.5 px-1.5" onclick="openPlanBuyForm(${idx}, ${tp})">매수</button>
+        <button class="btn btn-secondary btn-sm py-0.5 px-1.5" onclick="openPlanSellForm(${idx}, ${tp})">매도</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+    
+    // 매수 폼 행
+    const buyFormTr = document.createElement('tr');
+    buyFormTr.id = `plan-buyForm-${idx}`;
+    buyFormTr.className = 'buy-form-row';
+    buyFormTr.style.display = 'none';
+    buyFormTr.innerHTML = `<td colspan="10"><div class="sell-form-inner bg-light-subtle rounded border p-2" id="plan-buyFormInner-${idx}"></div></td>`;
+    tbody.appendChild(buyFormTr);
+
+    // 매도 폼 행
+    const sellFormTr = document.createElement('tr');
+    sellFormTr.id = `plan-sellForm-${idx}`;
+    sellFormTr.className = 'sell-form-row';
+    sellFormTr.style.display = 'none';
+    sellFormTr.innerHTML = `<td colspan="10"><div class="sell-form-inner bg-light-subtle rounded border p-2" id="plan-sellFormInner-${idx}"></div></td>`;
+    tbody.appendChild(sellFormTr);
+  });
+  
+  renderPlanSummary(cumS, cumI / cumS);
+  renderPlanPriceRuler();
+  renderPlanBuyHistory();
+  renderPlanSellHistory();
+}
+
+function renderPlanSummary(totalExpectedShares, finalAvgPrice) {
+  const ath = currentPlanData.ath;
+  const cur = currentPlanData.current_price;
+  const budget = currentPlanData.total_budget;
+  const avgBuy = getPlanAvgBuyPrice();
+  const totalProfit = currentPlanTx.filter(t => t.tx_type === 'sell').reduce((sum, s) => sum + (parseFloat(s.price - avgBuy) * parseFloat(s.quantity)), 0);
+  
+  let html = `
+    <div class="col-6 col-md-3">
+      <div class="s-card bg-white p-3 rounded shadow-sm border border-primary-subtle">
+        <div class="s-label text-muted small text-uppercase fw-semibold mb-1">총 예상 수량</div>
+        <div class="s-val text-primary fw-bold fs-5">${totalExpectedShares.toFixed(4)} 주</div>
+        <div class="s-sub text-muted small">계획 완료 시 누적 수량</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="s-card bg-white p-3 rounded shadow-sm border border-warning-subtle">
+        <div class="s-label text-muted small text-uppercase fw-semibold mb-1">평균 매수 단가</div>
+        <div class="s-val text-warning-emphasis fw-bold fs-5">${Math.round(finalAvgPrice).toLocaleString()}원</div>
+        <div class="s-sub text-muted small">ATH 대비 -${((1 - finalAvgPrice / ath) * 100).toFixed(1)}%</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="s-card bg-white p-3 rounded shadow-sm border ${totalProfit >= 0 ? 'border-success-subtle' : 'border-danger-subtle'}">
+        <div class="s-label text-muted small text-uppercase fw-semibold mb-1">총 실현 손익</div>
+        <div class="s-val ${totalProfit >= 0 ? 'text-danger' : 'text-primary'} fw-bold fs-5">${totalProfit >= 0 ? '+' : ''}${Math.round(totalProfit).toLocaleString()}원</div>
+        <div class="s-sub text-muted small">매도 기록 실현손익 합계</div>
+      </div>
+    </div>
+  `;
+  
+  const held = getPlanHeld();
+  const avgBuyP = getPlanAvgBuyPrice();
+  if (currentPlanTx.filter(t => t.tx_type === 'buy').length > 0) {
+    const costBasis = held * avgBuyP;
+    const currentVal = cur ? held * cur : 0;
+    const unrealizedPnl = cur ? currentVal - costBasis : 0;
+    
+    html += `
+      <div class="col-6 col-md-3">
+        <div class="s-card bg-white p-3 rounded shadow-sm border ${unrealizedPnl >= 0 ? 'border-success-subtle' : 'border-danger-subtle'}">
+          <div class="s-label text-muted small text-uppercase fw-semibold mb-1">평가 손익 (미실현)</div>
+          <div class="s-val ${unrealizedPnl >= 0 ? 'text-danger' : 'text-primary'} fw-bold fs-5">${unrealizedPnl >= 0 ? '+' : ''}${Math.round(unrealizedPnl).toLocaleString()}원</div>
+          <div class="s-sub text-muted small">${costBasis > 0 ? ((unrealizedPnl / costBasis) * 100).toFixed(2) : 0}% (보유 ${held.toFixed(4)}주)</div>
+        </div>
+      </div>
+    `;
+  }
+  
+  document.getElementById('plan-summary-cards').innerHTML = html;
+}
+
+function renderPlanPriceRuler() {
+  const ath = currentPlanData.ath;
+  const cur = currentPlanData.current_price;
+  const pin = document.getElementById('ruler-pin-wrap');
+  const doneBar = document.getElementById('ruler-done-bar');
+  const ticksLines = document.getElementById('ruler-ticks-lines');
+  const ticksLabels = document.getElementById('ruler-ticks-labels');
+  const statusTxt = document.getElementById('ruler-status-text');
+  
+  if (!cur || !ath || currentPlanSteps.length === 0) {
+    pin.style.display = 'none';
+    doneBar.style.width = '0%';
+    ticksLines.innerHTML = '';
+    ticksLabels.innerHTML = '';
+    statusTxt.textContent = '현재가 정보가 없습니다.';
+    return;
+  }
+  
+  const steps = currentPlanSteps;
+  const r1 = getPlanTargetPrice(ath, steps[0].drawdown_pct);
+  const rLast = getPlanTargetPrice(ath, steps[steps.length - 1].drawdown_pct);
+  const span = r1 - rLast;
+  
+  function pl(price) {
+    return Math.max(0, Math.min(100, (r1 - price) / (span || 1) * 100));
+  }
+  
+  const curPct = ((1 - cur / ath) * 100).toFixed(1);
+  const curLeft = pl(cur);
+  const active = getPlanActiveRound();
+  const next = getPlanNextRound();
+  
+  const doneW = Math.max(0, Math.min(100, (r1 - cur) / (span || 1) * 100));
+  doneBar.style.width = `${doneW}%`;
+  
+  let status = `ATH 대비 -${curPct}%`;
+  if (cur > r1) {
+    status += ` · 매수 구간 미진입 (1차 매수가: ${Math.round(r1).toLocaleString()}원)`;
+  } else if (cur < rLast) {
+    status += ` · 마지막 회차 전 구간 돌파 (${steps.length}차: ${Math.round(rLast).toLocaleString()}원)`;
+  } else {
+    status += ` · ${active + 1}차 매수 진행 중 · ${next < steps.length ? `${next + 1}차 대기 (${Math.round(getPlanTargetPrice(ath, steps[next].drawdown_pct)).toLocaleString()}원)` : '모든 단계 완료'}`;
+  }
+  statusTxt.textContent = status;
+  
+  let ticksHtml = '';
+  let labelsHtml = '';
+  const indices = [0, Math.floor(steps.length * 0.25), Math.floor(steps.length * 0.5), Math.floor(steps.length * 0.75), steps.length - 1];
+  const uniqueIndices = [...new Set(indices)].filter(i => i >= 0 && i < steps.length);
+  
+  uniqueIndices.forEach(idx => {
+    const step = steps[idx];
+    const tp = getPlanTargetPrice(ath, step.drawdown_pct);
+    const left = pl(tp);
+    
+    ticksHtml += `<div class="r-tick-line position-absolute bg-dark bg-opacity-25" style="top: 0; bottom: 0; width: 1px; left: ${left}%;"></div>`;
+    
+    const align = left < 10 ? 'start' : left > 90 ? 'end' : 'center';
+    const tx = align === 'start' ? '0' : align === 'end' ? '-100%' : '-50%';
+    labelsHtml += `
+      <div class="position-absolute text-muted small" style="left: ${left}%; transform: translateX(${tx}); text-align: ${align}; line-height: 1.2;">
+        <span class="fw-bold d-block">${step.step_number}차</span>
+        <span style="font-size: 0.75rem;">${Math.round(tp).toLocaleString()}원</span>
+      </div>
+    `;
+  });
+  
+  ticksLines.innerHTML = ticksHtml;
+  ticksLabels.innerHTML = labelsHtml;
+  
+  if (cur >= rLast * 0.9 && cur <= r1 * 1.1) {
+    pin.style.display = 'block';
+    pin.style.left = `${Math.max(2, Math.min(98, curLeft))}%`;
+    document.getElementById('ruler-pin-lbl').innerHTML = `${Math.round(cur).toLocaleString()}원<br><span class="opacity-75" style="font-size:0.65rem;">ATH -${curPct}%</span>`;
+  } else {
+    pin.style.display = 'none';
+  }
+}
+
+function renderPlanBuyHistory() {
+  const buys = currentPlanTx.filter(t => t.tx_type === 'buy');
+  const tbody = document.querySelector('#planBuysTable tbody');
+  tbody.innerHTML = '';
+  
+  const sumDiv = document.getElementById('plan-buys-summary');
+  sumDiv.innerHTML = '';
+  
+  if (buys.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">매수 거래 기록이 없습니다.</td></tr>';
+    return;
+  }
+  
+  const totalBoughtQ = buys.reduce((s, b) => s + (parseFloat(b.quantity) || 0), 0);
+  const totalBoughtAmt = buys.reduce((s, b) => s + (parseFloat(b.quantity) || 0) * (parseFloat(b.price) || 0), 0);
+  const avgBuyP = totalBoughtQ > 0 ? totalBoughtAmt / totalBoughtQ : 0;
+  const heldQ = getPlanHeld();
+  
+  sumDiv.innerHTML = `
+    <div class="col-6 col-md-3">
+      <div class="rounded border p-2 text-center bg-light-subtle">
+        <div class="small text-muted">매수 누계 수량</div>
+        <div class="fw-bold text-success">${totalBoughtQ.toFixed(4)} 주</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="rounded border p-2 text-center bg-light-subtle">
+        <div class="small text-muted">매수 누계 금액</div>
+        <div class="fw-bold text-success">${Math.round(totalBoughtAmt).toLocaleString()}원</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="rounded border p-2 text-center bg-light-subtle">
+        <div class="small text-muted">현재 보유 수량</div>
+        <div class="fw-bold text-primary">${heldQ.toFixed(4)} 주</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="rounded border p-2 text-center bg-light-subtle">
+        <div class="small text-muted">가중평균 매수가</div>
+        <div class="fw-bold text-warning-emphasis">${Math.round(avgBuyP).toLocaleString()}원</div>
+      </div>
+    </div>
+  `;
+  
+  [...buys].reverse().forEach(b => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="text-center">${b.tx_date}</td>
+      <td class="text-center">${b.step_number}차</td>
+      <td class="text-end font-monospace">${Math.round(b.price).toLocaleString()}원</td>
+      <td class="text-end font-monospace">${b.quantity.toFixed(4)}</td>
+      <td class="text-end font-monospace">${Math.round(b.price * b.quantity).toLocaleString()}원</td>
+      <td class="text-center text-muted small">${b.memo || '-'}</td>
+      <td class="text-center">
+        <button class="btn btn-outline-danger btn-sm py-0 px-2" onclick="deletePlanTx(${b.id})">❌</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderPlanSellHistory() {
+  const sells = currentPlanTx.filter(t => t.tx_type === 'sell');
+  const tbody = document.querySelector('#planSellsTable tbody');
+  const dBody = document.getElementById('plan-daily-pnl-body');
+  const mBody = document.getElementById('plan-monthly-pnl-body');
+  
+  tbody.innerHTML = '';
+  dBody.innerHTML = '';
+  mBody.innerHTML = '';
+  
+  if (sells.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">매도 거래 기록이 없습니다.</td></tr>';
+    renderPlanChart([]);
+    return;
+  }
+  
+  const avgBuy = getPlanAvgBuyPrice();
+  
+  [...sells].reverse().forEach(s => {
+    const profit = (s.price - avgBuy) * s.quantity;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="text-center">${s.tx_date}</td>
+      <td class="text-center">${s.step_number}차</td>
+      <td class="text-end font-monospace">${Math.round(s.price).toLocaleString()}원</td>
+      <td class="text-end font-monospace">${s.quantity.toFixed(4)}</td>
+      <td class="text-end font-monospace fw-semibold ${profit >= 0 ? 'text-danger' : 'text-primary'}">${profit >= 0 ? '+' : ''}${Math.round(profit).toLocaleString()}원</td>
+      <td class="text-center text-muted small">${s.memo || '-'}</td>
+      <td class="text-center">
+        <button class="btn btn-outline-danger btn-sm py-0 px-2" onclick="deletePlanTx(${s.id})">❌</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+  
+  const daily = {};
+  sells.forEach(s => {
+    const d = s.tx_date;
+    const profit = (s.price - avgBuy) * s.quantity;
+    daily[d] = (daily[d] || 0) + profit;
+  });
+  dBody.innerHTML = Object.entries(daily).sort((a,b) => b[0].localeCompare(a[0])).map(([d, p]) => `
+    <tr>
+      <td class="text-center">${d}</td>
+      <td class="text-end fw-semibold ${p >= 0 ? 'text-danger' : 'text-primary'}">${p >= 0 ? '+' : ''}${Math.round(p).toLocaleString()}원</td>
+    </tr>
+  `).join('');
+  
+  const monthly = {};
+  sells.forEach(s => {
+    const m = s.tx_date.slice(0, 7);
+    const profit = (s.price - avgBuy) * s.quantity;
+    monthly[m] = (monthly[m] || 0) + profit;
+  });
+  const monthlyEntries = Object.entries(monthly).sort((a,b) => a[0].localeCompare(b[0]));
+  mBody.innerHTML = [...monthlyEntries].reverse().map(([m, p]) => `
+    <tr>
+      <td class="text-center">${m}</td>
+      <td class="text-end fw-semibold ${p >= 0 ? 'text-danger' : 'text-primary'}">${p >= 0 ? '+' : ''}${Math.round(p).toLocaleString()}원</td>
+    </tr>
+  `).join('');
+  
+  renderPlanChart(monthlyEntries);
+}
+
+function renderPlanChart(monthlyEntries) {
+  const ctx = document.getElementById('planProfitChart').getContext('2d');
+  const labels = monthlyEntries.map(e => e[0]);
+  const data = monthlyEntries.map(e => e[1]);
+  const colors = data.map(v => v >= 0 ? '#cf222e' : '#0969da');
+  
+  if (planProfitChart) planProfitChart.destroy();
+  
+  planProfitChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: '실현 손익 (원)',
+        data: data,
+        backgroundColor: colors,
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false }
+      },
+      scales: {
+        y: {
+          grid: { color: 'rgba(139, 148, 158, 0.1)' },
+          ticks: { callback: (v) => v.toLocaleString() + '원' }
+        },
+        x: {
+          grid: { display: false }
+        }
+      }
+    }
+  });
+}
+
+function openPlanBuyForm(idx, tp) {
+  document.querySelectorAll('.buy-form-row, .sell-form-row').forEach(r => r.style.display = 'none');
+  const row = document.getElementById(`plan-buyForm-${idx}`);
+  const inner = document.getElementById(`plan-buyFormInner-${idx}`);
+  if (!row) return;
+  
+  if (row.style.display === 'table-row') {
+    row.style.display = 'none';
+    return;
+  }
+  
+  const defaultPrice = currentPlanData.current_price || tp;
+  const step = currentPlanSteps[idx];
+  const budget = currentPlanData.total_budget;
+  const defaultQty = (budget * (step.ratio / 100)) / defaultPrice;
+  
+  inner.innerHTML = `
+    <div class="d-flex align-items-end gap-3 flex-wrap text-dark">
+      <div>
+        <label class="form-label small mb-1 fw-semibold">매수 단가 (원)</label>
+        <input type="number" class="form-control form-control-sm" id="p-bp-${idx}" value="${Math.round(defaultPrice)}" style="width: 130px;">
+      </div>
+      <div>
+        <label class="form-label small mb-1 fw-semibold">매수 수량 (주)</label>
+        <input type="number" class="form-control form-control-sm" id="p-bq-${idx}" value="${defaultQty.toFixed(4)}" step="0.0001" style="width: 110px;">
+      </div>
+      <div>
+        <label class="form-label small mb-1 fw-semibold">매수 날짜</label>
+        <input type="date" class="form-control form-control-sm" id="p-bd-${idx}" value="${new Date().toISOString().split('T')[0]}" style="width: 140px;">
+      </div>
+      <div>
+        <label class="form-label small mb-1 fw-semibold">메모</label>
+        <input type="text" class="form-control form-control-sm" id="p-bm-${idx}" placeholder="매수 메모" style="width: 180px;">
+      </div>
+      <div class="ms-auto d-flex align-items-center gap-2">
+        <span class="small text-muted" id="p-bcalc-${idx}"></span>
+        <button class="btn btn-success btn-sm" onclick="savePlanBuy(${idx})">매수 저장</button>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('plan-buyForm-${idx}').style.display='none'">취소</button>
+      </div>
+    </div>
+  `;
+  
+  const $bp = document.getElementById(`p-bp-${idx}`);
+  const $bq = document.getElementById(`p-bq-${idx}`);
+  const $calc = document.getElementById(`p-bcalc-${idx}`);
+  const updateCalc = () => {
+    const p = parseFloat($bp.value) || 0;
+    const q = parseFloat($bq.value) || 0;
+    $calc.textContent = `총액: ${Math.round(p * q).toLocaleString()}원`;
+  };
+  $bp.addEventListener('input', updateCalc);
+  $bq.addEventListener('input', updateCalc);
+  updateCalc();
+  
+  row.style.display = 'table-row';
+}
+
+async function savePlanBuy(idx) {
+  const price = parseFloat(document.getElementById(`p-bp-${idx}`).value) || 0;
+  const qty = parseFloat(document.getElementById(`p-bq-${idx}`).value) || 0;
+  const date = document.getElementById(`p-bd-${idx}`).value;
+  const memo = document.getElementById(`p-bm-${idx}`).value;
+  
+  if (price <= 0 || qty <= 0 || !date) {
+    alert('올바른 매수 가격, 수량, 날짜를 입력하세요.');
+    return;
+  }
+  
+  const step = currentPlanSteps[idx];
+  const payload = {
+    tx_type: 'buy',
+    step_number: step.step_number,
+    price: price,
+    quantity: qty,
+    tx_date: date,
+    memo: memo
+  };
+  
+  const res = await fetchJSON(`/api/split-buy-plans/${currentPlanId}/tx`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  
+  if (res && res.ok) {
+    showToast('매수 기록 저장 완료!');
+    await selectPlan(currentPlanId);
+  }
+}
+
+function openPlanSellForm(idx, tp) {
+  document.querySelectorAll('.buy-form-row, .sell-form-row').forEach(r => r.style.display = 'none');
+  const row = document.getElementById(`plan-sellForm-${idx}`);
+  const inner = document.getElementById(`plan-sellFormInner-${idx}`);
+  if (!row) return;
+  
+  if (row.style.display === 'table-row') {
+    row.style.display = 'none';
+    return;
+  }
+  
+  const held = getPlanHeld();
+  const avgBuy = getPlanAvgBuyPrice();
+  const curP = currentPlanData.current_price || tp;
+  
+  inner.innerHTML = `
+    <div class="d-flex align-items-end gap-3 flex-wrap text-dark">
+      <div>
+        <label class="form-label small mb-1 fw-semibold">매도 단가 (원)</label>
+        <input type="number" class="form-control form-control-sm" id="p-sp-${idx}" value="${Math.round(curP)}" style="width: 130px;">
+      </div>
+      <div>
+        <label class="form-label small mb-1 fw-semibold">매도 수량 (주) <span class="text-success">(보유: ${held.toFixed(4)}주)</span></label>
+        <input type="number" class="form-control form-control-sm" id="p-sq-${idx}" value="${held.toFixed(4)}" step="0.0001" style="width: 110px;">
+      </div>
+      <div>
+        <label class="form-label small mb-1 fw-semibold">매도 날짜</label>
+        <input type="date" class="form-control form-control-sm" id="p-sd-${idx}" value="${new Date().toISOString().split('T')[0]}" style="width: 140px;">
+      </div>
+      <div>
+        <label class="form-label small mb-1 fw-semibold">메모</label>
+        <input type="text" class="form-control form-control-sm" id="p-sm-${idx}" placeholder="매도 메모" style="width: 180px;">
+      </div>
+      <div class="ms-auto d-flex align-items-center gap-2">
+        <span class="small text-muted" id="p-scalc-${idx}"></span>
+        <button class="btn btn-danger btn-sm" onclick="savePlanSell(${idx}, ${avgBuy}, ${held})">매도 저장</button>
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('plan-sellForm-${idx}').style.display='none'">취소</button>
+      </div>
+    </div>
+  `;
+  
+  const $sp = document.getElementById(`p-sp-${idx}`);
+  const $sq = document.getElementById(`p-sq-${idx}`);
+  const $calc = document.getElementById(`p-scalc-${idx}`);
+  const updateCalc = () => {
+    const p = parseFloat($sp.value) || 0;
+    const q = parseFloat($sq.value) || 0;
+    const profit = (p - avgBuy) * q;
+    $calc.innerHTML = `예상손익: <span class="${profit >= 0 ? 'text-danger' : 'text-primary'}">${profit >= 0 ? '+' : ''}${Math.round(profit).toLocaleString()}원</span>`;
+  };
+  $sp.addEventListener('input', updateCalc);
+  $sq.addEventListener('input', updateCalc);
+  updateCalc();
+  
+  row.style.display = 'table-row';
+}
+
+async function savePlanSell(idx, avgBuy, maxQty) {
+  const price = parseFloat(document.getElementById(`p-sp-${idx}`).value) || 0;
+  const qty = parseFloat(document.getElementById(`p-sq-${idx}`).value) || 0;
+  const date = document.getElementById(`p-sd-${idx}`).value;
+  const memo = document.getElementById(`p-sm-${idx}`).value;
+  
+  if (price <= 0 || qty <= 0 || !date) {
+    alert('올바른 매도 가격, 수량, 날짜를 입력하세요.');
+    return;
+  }
+  if (qty > maxQty + 0.0001) {
+    alert(`보유 수량(${maxQty.toFixed(4)}주)을 초과하여 매도할 수 없습니다.`);
+    return;
+  }
+  
+  const step = currentPlanSteps[idx];
+  const payload = {
+    tx_type: 'sell',
+    step_number: step.step_number,
+    price: price,
+    quantity: qty,
+    tx_date: date,
+    memo: memo
+  };
+  
+  const res = await fetchJSON(`/api/split-buy-plans/${currentPlanId}/tx`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  
+  if (res && res.ok) {
+    showToast('매도 기록 저장 완료!');
+    await selectPlan(currentPlanId);
+  }
+}
+
+async function deletePlanTx(txId) {
+  if (!confirm('거래 기록을 삭제할까요?')) return;
+  const res = await fetchJSON(`/api/split-buy-plans/${currentPlanId}/tx/${txId}`, { method: 'DELETE' });
+  if (res && res.ok) {
+    showToast('거래 내역이 삭제되었습니다.');
+    await selectPlan(currentPlanId);
+  }
+}
+
+async function resetPlanSteps() {
+  if (!confirm('기본 TQQQ 40단계 템플릿(-10% ~ -49%, 각 2.5% 비중)으로 분할 매수 계획을 초기화하시겠습니까?')) return;
+  const steps = [];
+  for (let idx = 0; idx < 40; idx++) {
+    steps.push({
+      step_number: idx + 1,
+      drawdown_pct: 10 + idx,
+      ratio: 2.5
+    });
+  }
+  const res = await fetchJSON(`/api/split-buy-plans/${currentPlanId}/steps`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(steps)
+  });
+  if (res && res.ok) {
+    showToast('계획이 기본 템플릿으로 초기화되었습니다.');
+    await selectPlan(currentPlanId);
+  }
+}
+
+// ── 분할매수 계획기 모달 및 CRUD 로직 ──────────────────────────
+let addPlanModalObj = null;
+let editPlanModalObj = null;
+
+function openAddPlanModal() {
+  if (!addPlanModalObj) addPlanModalObj = new bootstrap.Modal(document.getElementById('addPlanModal'));
+  document.getElementById('add-plan-name').value = '';
+  document.getElementById('add-plan-ticker').value = '';
+  document.getElementById('add-plan-budget').value = '20000000';
+  document.getElementById('add-plan-ath').value = '';
+  document.getElementById('add-plan-current').value = '';
+  addPlanModalObj.show();
+}
+
+async function saveNewPlan() {
+  const name = document.getElementById('add-plan-name').value.trim();
+  const ticker = document.getElementById('add-plan-ticker').value.trim();
+  const budget = parseInt(document.getElementById('add-plan-budget').value) || 0;
+  const ath = parseFloat(document.getElementById('add-plan-ath').value) || 0;
+  const curPrice = document.getElementById('add-plan-current').value ? parseFloat(document.getElementById('add-plan-current').value) : null;
+  const templateType = document.getElementById('add-plan-template').value;
+  
+  if (!name || ath <= 0) {
+    alert('종목명과 최고가(ATH)는 필수 입력 사항입니다.');
+    return;
+  }
+  
+  const steps = [];
+  if (templateType === 'kosdaq') {
+    const ddValues = [10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0];
+    ddValues.forEach((dd, idx) => {
+      steps.push({
+        step_number: idx + 1,
+        drawdown_pct: dd,
+        ratio: 12.5
+      });
+    });
+  } else {
+    for (let idx = 0; idx < 40; idx++) {
+      steps.push({
+        step_number: idx + 1,
+        drawdown_pct: 10.0 + idx,
+        ratio: 2.5
+      });
+    }
+  }
+  
+  const payload = {
+    name, ticker, total_budget: budget, ath, current_price: curPrice, steps
+  };
+  
+  const res = await fetchJSON('/api/split-buy-plans', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  
+  if (res && res.ok) {
+    showToast('새로운 분할매수 계획이 등록되었습니다.');
+    addPlanModalObj.hide();
+    currentPlanId = res.id;
+    await loadPlanList();
+    await selectPlan(res.id);
+  } else {
+    alert('계획 추가 실패: ' + (res?.error || '알 수 없는 오류'));
+  }
+}
+
+function openEditPlanModal() {
+  if (!editPlanModalObj) editPlanModalObj = new bootstrap.Modal(document.getElementById('editPlanModal'));
+  document.getElementById('edit-plan-id').value = currentPlanData.id;
+  document.getElementById('edit-plan-name').value = currentPlanData.name;
+  document.getElementById('edit-plan-ticker').value = currentPlanData.ticker || '';
+  document.getElementById('edit-plan-budget').value = currentPlanData.total_budget || 0;
+  document.getElementById('edit-plan-ath').value = currentPlanData.ath || 0;
+  document.getElementById('edit-plan-current').value = currentPlanData.current_price || '';
+  editPlanModalObj.show();
+}
+
+async function saveEditedPlan() {
+  const pid = document.getElementById('edit-plan-id').value;
+  const name = document.getElementById('edit-plan-name').value.trim();
+  const ticker = document.getElementById('edit-plan-ticker').value.trim();
+  const budget = parseInt(document.getElementById('edit-plan-budget').value) || 0;
+  const ath = parseFloat(document.getElementById('edit-plan-ath').value) || 0;
+  const curPrice = document.getElementById('edit-plan-current').value ? parseFloat(document.getElementById('edit-plan-current').value) : null;
+  
+  if (!name || ath <= 0) {
+    alert('종목명과 최고가(ATH)는 필수 입력 사항입니다.');
+    return;
+  }
+  
+  const payload = { name, ticker, total_budget: budget, ath, current_price: curPrice };
+  const res = await fetchJSON(`/api/split-buy-plans/${pid}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  
+  if (res && res.ok) {
+    showToast('분할매수 계획이 수정되었습니다.');
+    editPlanModalObj.hide();
+    await loadPlanList();
+    await selectPlan(currentPlanId);
+  }
+}
+
+async function deleteCurrentPlan() {
+  if (!confirm('정말로 이 분할매수 계획을 완전히 삭제할까요? (해당 종목의 모든 단계 및 매수/매도 거래 내역도 함께 삭제됩니다)')) return;
+  const res = await fetchJSON(`/api/split-buy-plans/${currentPlanId}`, { method: 'DELETE' });
+  if (res && res.ok) {
+    showToast('분할매수 계획이 삭제되었습니다.');
+    currentPlanId = null;
+    await loadPlanList();
+  }
+}
 
 async function updateAllPrices() {
   const btn = document.getElementById('priceUpdateBtn');
@@ -1449,11 +2697,18 @@ async function updateAllPrices() {
     await stockGrid.load();
     await etfGrid.load();
     await cryptoGrid.load();
+    if (currentPlanId) {
+      await selectPlan(currentPlanId);
+    } else {
+      await loadPlanList();
+    }
 
     // 결과 토스트
     const ok_s  = res.stocks.filter(x => x.ok).length;
     const ok_e  = res.etf.filter(x => x.ok).length;
     const ok_c  = res.crypto.filter(x => x.ok).length;
+    const ok_p  = res.split_plans ? res.split_plans.filter(x => x.ok).length : 0;
+    const total_p = res.split_plans ? res.split_plans.length : 0;
     const errs  = res.errors || [];
 
     let msg = `✅ 현재가 업데이트 완료`;
@@ -1461,6 +2716,7 @@ async function updateAllPrices() {
     if (res.stocks.length) parts.push(`주식 ${ok_s}/${res.stocks.length}종`);
     if (res.etf.length)    parts.push(`ETF ${ok_e}/${res.etf.length}종`);
     if (res.crypto.length) parts.push(`코인 ${ok_c}/${res.crypto.length}종`);
+    if (total_p)           parts.push(`분할매수 계획 ${ok_p}/${total_p}종`);
     if (parts.length) msg += ` (${parts.join(', ')})`;
     if (errs.length)  msg += `\n⚠️ 실패: ${errs.join(', ')}`;
 
