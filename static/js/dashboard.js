@@ -589,7 +589,15 @@ function formatChartLabel(day, period) {
     return `${day}년`;
   } else if (period === 'weekly') {
     const parts = day.split('-');
-    if (parts.length === 3) return `${parts[1]}/${parts[2]}주`;
+    if (parts.length === 3) {
+      const y = parseInt(parts[0]);
+      const m = parseInt(parts[1]);
+      const d = parseInt(parts[2]);
+      const firstDay = new Date(y, m - 1, 1);
+      const firstDayOfWeek = firstDay.getDay();
+      const weekNum = Math.ceil((d + firstDayOfWeek) / 7);
+      return `${m}월 ${weekNum}주`;
+    }
   } else if (period === 'daily') {
     const parts = day.split('-');
     if (parts.length === 3) return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
