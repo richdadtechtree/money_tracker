@@ -1644,11 +1644,7 @@ function renderTxPage(page) {
   const pageData = filteredTxData.slice(start, end);
   
   // ── 테이블 렌더링 ──
-<<<<<<< HEAD
   const tbody = document.getElementById('tx-tbody');
-=======
-  const tbody = stockTxGrid.tbody;
->>>>>>> 02d8f97 (260529)
   tbody.innerHTML = '';
   
   if (pageData.length === 0) {
@@ -1659,38 +1655,21 @@ function renderTxPage(page) {
       const isBuy = t.tx_type === 'buy';
       const totalAmt = t.price * t.quantity;
       tbody.insertAdjacentHTML('beforeend', `
-<<<<<<< HEAD
-        <tr>
-          <td>${t.tx_date}</td>
-          <td>${t.name || '-'}</td>
-          <td><span class="badge bg-secondary">${t.ticker || '-'}</span></td>
-          <td>
-            <span class="badge ${isBuy ? 'bg-primary' : 'bg-danger'}">
-=======
         <tr data-id="${t.id}" class="grid-row">
           <td>${t.tx_date}</td>
           <td>${t.name || '-'}</td>
-          <td>
+          <td class="text-center">
             <span class="badge ${isBuy ? 'bg-danger-subtle text-danger' : 'bg-primary-subtle text-primary'}">
->>>>>>> 02d8f97 (260529)
               ${isBuy ? '매수' : '매도'}
             </span>
           </td>
           <td class="text-end">${isForeign(t.ticker) ? fmtUsd(t.price) : formatKRW(t.price)}</td>
           <td class="text-end">${t.quantity}</td>
-<<<<<<< HEAD
-          <td class="text-end text-muted">${isForeign(t.ticker) ? fmtUsd(t.fee) : formatKRW(t.fee)}</td>
-          <td class="text-muted small">${t.memo || ''}</td>
-          <td>
-            <button class="btn btn-xs btn-outline-primary" onclick="stockTxGrid.startEdit(this.closest('tr'))">수정</button>
-            <button class="btn btn-xs btn-outline-danger"  onclick="stockTxGrid._delete(${t.id})">삭제</button>
-=======
           <td class="text-end"><span class="fw-semibold">${formatKRW(toKrw(totalAmt, t.ticker))}</span></td>
           <td class="text-end text-muted">${isForeign(t.ticker) ? fmtUsd(t.fee) : formatKRW(t.fee)}</td>
           <td class="text-muted small">${t.memo || ''}</td>
           <td class="text-center">
             <button class="btn btn-sm btn-outline-danger py-0" data-ga="d" data-id="${t.id}"><i class="bi bi-trash"></i></button>
->>>>>>> 02d8f97 (260529)
           </td>
         </tr>
       `);
