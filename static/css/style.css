@@ -724,219 +724,122 @@ body.dark-mode #mobileTopBar { background: #0D1421; border-bottom-color: rgba(25
 body.dark-mode .app-footer { color: #9ca3af; }
 body.dark-mode #tx-search-bar.bg-light-subtle { background-color: #1A2535 !important; }
 body.dark-mode #tx-search-bar { border-bottom-color: var(--border-light) !important; }
-<<<<<<< HEAD
-=======
 body.dark-mode .card-footer { background-color: var(--card-bg) !important; border-top-color: var(--border-light) !important; }
 body.dark-mode .page-link { background-color: #1A2535 !important; border-color: var(--border) !important; color: var(--text-primary) !important; }
 body.dark-mode .page-item.active .page-link { background-color: var(--primary) !important; color: #fff !important; }
 
-/* ── 사이드바 슬라이드 애니메이션 ── */
-#sidebar {
-  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  will-change: transform;
-}
-
-#sidebar.sidebar-hidden {
-  transform: translateX(-100%);
-}
-
-/* ── 사이드바 숨김 시 메인 콘텐츠 영역 확장 ── */
-#main-content {
-  transition: margin-left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-}
-#sidebar.sidebar-hidden ~ #main-content,
-body.sidebar-hidden #main-content {
-  margin-left: 0 !important;
-}
-
-/* ── 앱 타이틀 고정 레이어 (항상 표시) ── */
+/* ── 앱 타이틀 고정 레이어 (데스크톱 전용) ── */
 #sidebar-title-fixed {
   position: fixed;
-  bottom: 0;
-  left: 0;
+  bottom: 0; left: 0;
   width: 232px;
-  height: 56px;
+  height: 52px;
   z-index: 1100;
   background: var(--sidebar-bg);
   display: flex;
   align-items: center;
   padding: 0 1rem;
-  cursor: pointer;
-  user-select: none;
   border-top: 1px solid rgba(255,255,255,0.06);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
 }
-
 #sidebar-title-fixed .app-title-text {
-  color: #fff;
-  font-size: 0.92rem;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: opacity 0.25s ease;
+  color: rgba(255,255,255,0.5);
+  font-size: 0.8rem;
+  font-weight: 500;
 }
+#sidebar-title-fixed .expand-hint,
+#sidebar-title-fixed .sidebar-toggle-icon-compact { display: none; }
 
-#sidebar-title-fixed .expand-hint {
-  margin-left: auto;
-  opacity: 0;
-  transition: opacity 0.2s;
-  color: rgba(255,255,255,0.7);
-  font-size: 0.75rem;
-}
+/* ── 모바일 하단 네비게이션 바 ── */
+#mobileBottomNav { display: none; }
 
-#sidebar-title-fixed .sidebar-toggle-icon-compact {
-  display: none;
-  opacity: 0;
-  transition: opacity 0.25s ease;
-}
+@media (max-width: 768px) {
+  #sidebar-title-fixed { display: none !important; }
 
-/* 사이드바가 감춰졌을 때: 슬림하고 가독성 좋은 플로팅 원형 버튼으로 변형 */
-body.sidebar-hidden #sidebar-title-fixed {
-  width: 46px;
-  height: 46px;
-  bottom: 24px;
-  left: 24px;
-  border-radius: 50%;
-  padding: 0;
-  justify-content: center;
-  background: var(--primary);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(37, 99, 235, 0.2);
+  #mobileBottomNav {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 56px;
+    background: var(--sidebar-bg);
+    z-index: 400;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    padding: 0;
+  }
+  .mob-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,0.5);
+    text-decoration: none;
+    font-size: 0.6rem;
+    gap: 3px;
+    padding: 6px 2px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.12s;
+  }
+  .mob-nav-item i { font-size: 1.25rem; line-height: 1; }
+  .mob-nav-item span { line-height: 1; white-space: nowrap; }
+  .mob-nav-item.active { color: #fff; }
+  .mob-nav-item.active i { color: var(--primary); }
+  .mob-nav-item:active { background: rgba(255,255,255,0.07); }
+  #main-content { padding-bottom: 56px !important; }
 }
-
-body.sidebar-hidden #sidebar-title-fixed:hover {
-  transform: translateY(-2px) scale(1.06);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(37, 99, 235, 0.4);
-  background: #1D4ED8; /* hover state */
-}
-
-body.dark-mode.sidebar-hidden #sidebar-title-fixed:hover {
-  background: #2563EB;
-}
-
-body.sidebar-hidden #sidebar-title-fixed .app-title-text,
-body.sidebar-hidden #sidebar-title-fixed .expand-hint {
-  display: none;
-  opacity: 0;
-}
-
-body.sidebar-hidden #sidebar-title-fixed .sidebar-toggle-icon-compact {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 1.35rem;
-  opacity: 1;
-}
-
-/* ── 사이드바 내 기존 타이틀은 숨김 ── */
-#sidebar .sidebar-logo {
-  visibility: hidden;
-  height: 70px;
-}
+body.dark-mode #mobileBottomNav { background: #0D1421; border-top-color: rgba(255,255,255,0.04); }
 
 /* ══════════════════════════════════════════════
    다크모드 전체 가시성 픽스
-   [data-bs-theme=dark] 또는 .dark-mode 클래스 기준
 ══════════════════════════════════════════════ */
 [data-bs-theme=dark], body.dark-mode {
-  /* ── 폼 요소 ── */
-  select,
-  select option,
-  .form-select,
-  .form-control,
-  .form-control::placeholder,
-  textarea {
+  select, select option, .form-select, .form-control,
+  .form-control::placeholder, textarea {
     color: var(--text-primary) !important;
     background-color: var(--card-bg) !important;
     border-color: var(--border) !important;
   }
-
-  /* ── 테이블 ── */
-  .table td,
-  .table th,
+  .table td, .table th,
   .table-striped > tbody > tr > td,
-  .table-hover > tbody > tr:hover > td {
-    color: var(--text-primary) !important;
-  }
-
-  /* ── 구분 배지 ── */
-  .badge {
-    color: #fff !important;
-  }
-  .badge.bg-secondary,
-  .badge.bg-light {
-    background-color: #4a4a5a !important;
-    color: #e0e0e0 !important;
-  }
+  .table-hover > tbody > tr:hover > td { color: var(--text-primary) !important; }
+  .badge { color: #fff !important; }
+  .badge.bg-secondary, .badge.bg-light { background-color: #4a4a5a !important; color: #e0e0e0 !important; }
   .badge.bg-success  { background-color: #1a6b3c !important; }
   .badge.bg-danger   { background-color: #7a1a2a !important; }
   .badge.bg-warning  { background-color: #7a5a00 !important; color: #fff !important; }
   .badge.bg-info     { background-color: #0a5a7a !important; }
   .badge.bg-primary  { background-color: #1a3a8a !important; }
-
-  /* ── 카드 ── */
-  .card,
-  .card-header,
-  .card-body,
-  .card-footer {
+  .card, .card-header, .card-body, .card-footer {
     color: var(--text-primary) !important;
     background-color: var(--card-bg) !important;
   }
-
-  /* ── 모달 ── */
-  .modal-content,
-  .modal-header,
-  .modal-body,
-  .modal-footer {
+  .modal-content, .modal-header, .modal-body, .modal-footer {
     color: var(--text-primary) !important;
     background-color: var(--card-bg) !important;
   }
-  .modal-header .btn-close {
-    filter: invert(1);
-  }
-
-  /* ── 드롭다운 ── */
+  .modal-header .btn-close { filter: invert(1); }
   .dropdown-menu {
     color: var(--text-primary) !important;
     background-color: var(--card-bg) !important;
     border-color: var(--border) !important;
   }
-  .dropdown-item {
-    color: var(--text-primary) !important;
-  }
-  .dropdown-item:hover {
-    background-color: rgba(255,255,255,0.08) !important;
-  }
-
-  /* ── 텍스트 유틸리티 ── */
-  .text-muted {
-    color: rgba(255,255,255,0.5) !important;
-  }
-  .text-dark {
-    color: var(--text-primary) !important;
-  }
-
-  /* ── 리스트 그룹 ── */
+  .dropdown-item { color: var(--text-primary) !important; }
+  .dropdown-item:hover { background-color: rgba(255,255,255,0.08) !important; }
+  .text-muted { color: rgba(255,255,255,0.5) !important; }
+  .text-dark  { color: var(--text-primary) !important; }
   .list-group-item {
     color: var(--text-primary) !important;
     background-color: var(--card-bg) !important;
     border-color: var(--border) !important;
   }
-
-  /* ── 페이지네이션 ── */
   .page-link {
     background-color: var(--card-bg) !important;
     border-color: var(--border) !important;
     color: var(--text-primary) !important;
   }
-  .page-item.active .page-link {
-    background-color: var(--primary) !important;
-    color: #fff !important;
-  }
-  .page-item.disabled .page-link {
-    color: rgba(255,255,255,0.3) !important;
-  }
+  .page-item.active .page-link { background-color: var(--primary) !important; color: #fff !important; }
+  .page-item.disabled .page-link { color: rgba(255,255,255,0.3) !important; }
 }
->>>>>>> 02d8f97 (260529)

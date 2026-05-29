@@ -196,6 +196,25 @@
   </div>
 </div>
 
+<!-- 모바일 하단 네비게이션 바 -->
+<nav id="mobileBottomNav">
+  <a href="/" class="mob-nav-item {% if request.path == '/' %}active{% endif %}">
+    <i class="bi bi-speedometer2"></i><span>대시보드</span>
+  </a>
+  <a href="/budget" class="mob-nav-item {% if request.path == '/budget' %}active{% endif %}">
+    <i class="bi bi-receipt"></i><span>가계부</span>
+  </a>
+  <a href="/investments" class="mob-nav-item {% if request.path == '/investments' %}active{% endif %}">
+    <i class="bi bi-graph-up-arrow"></i><span>투자</span>
+  </a>
+  <a href="/realestate" class="mob-nav-item {% if request.path == '/realestate' %}active{% endif %}">
+    <i class="bi bi-house-door"></i><span>부동산</span>
+  </a>
+  <button class="mob-nav-item" onclick="toggleSidebar()">
+    <i class="bi bi-grid-3x3-gap"></i><span>전체메뉴</span>
+  </button>
+</nav>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 <script src="/static/js/common.js?v={{ APP_VERSION }}"></script>
