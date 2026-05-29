@@ -737,6 +737,26 @@ body.dark-mode .card-footer { background-color: var(--card-bg) !important; borde
 body.dark-mode .page-link { background-color: #1A2535 !important; border-color: var(--border) !important; color: var(--text-primary) !important; }
 body.dark-mode .page-item.active .page-link { background-color: var(--primary) !important; color: #fff !important; }
 
+/* ── 다크모드: Bootstrap subtle/emphasis 컬러 재정의 ── */
+body.dark-mode .bg-light-subtle  { background-color: #1A2535 !important; }
+body.dark-mode .bg-primary-subtle { background-color: rgba(59,130,246,0.18) !important; }
+body.dark-mode .bg-success-subtle { background-color: rgba(34,197,94,0.15) !important; }
+body.dark-mode .bg-danger-subtle  { background-color: rgba(239,68,68,0.15) !important; }
+body.dark-mode .bg-warning-subtle { background-color: rgba(234,179,8,0.15) !important; }
+body.dark-mode .bg-secondary-subtle { background-color: rgba(100,116,139,0.2) !important; }
+
+body.dark-mode .text-primary        { color: #60A5FA !important; }
+body.dark-mode .text-danger-emphasis { color: #FCA5A5 !important; }
+body.dark-mode .text-warning-emphasis { color: #FCD34D !important; }
+body.dark-mode .text-success-emphasis { color: #6EE7B7 !important; }
+body.dark-mode .text-primary-emphasis { color: #93C5FD !important; }
+
+body.dark-mode .badge.bg-primary-subtle  { background-color: rgba(59,130,246,0.25) !important; color: #93C5FD !important; }
+body.dark-mode .badge.bg-danger-subtle   { background-color: rgba(239,68,68,0.2) !important;  color: #FCA5A5 !important; }
+body.dark-mode .badge.bg-success-subtle  { background-color: rgba(34,197,94,0.2) !important;  color: #6EE7B7 !important; }
+body.dark-mode .badge.bg-warning-subtle  { background-color: rgba(234,179,8,0.2) !important;  color: #FCD34D !important; }
+body.dark-mode .badge.bg-secondary-subtle { background-color: rgba(100,116,139,0.25) !important; color: #CBD5E1 !important; }
+
 /* ── 앱 타이틀 고정 레이어 (데스크톱 전용) ── */
 #sidebar-title-fixed {
   position: fixed;
