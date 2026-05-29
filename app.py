@@ -1747,15 +1747,15 @@ def api_split_buy_plan_refresh(pid):
         cur.close(); db.close()
         return jsonify({'error': '티커가 없어 가격을 조회할 수 없습니다.'}), 400
 
-    # ── 현재가 + 52주 최고가 동시 조회 (Yahoo Finance, 현재가 업데이트와 동일한 소스) ──
-    current_price, ath = _fetch_price_and_52w_high(ticker)
+    # ── 현재가 조회 (기존 price-update와 동일한 소스) ──
+    current_price = None
+    try:
+        current_price = _fetch_stock_price(ticker)
+    except Exception as e:
+        print(f'[refresh] price error {ticker}: {e}', file=sys.stderr)
 
-    # Yahoo 실패 시 현재가만 기존 방식으로 재시도
-    if not current_price:
-        try:
-            current_price = _fetch_stock_price(ticker)
-        except Exception as e:
-            print(f'[refresh] price fallback error {ticker}: {e}', file=sys.stderr)
+    # ── 역사상 최고가(ATH) 조회 — Yahoo Finance 전체 이력 월봉 최대 고가 ──
+    ath = _fetch_all_time_high(ticker)
 
     # ── DB 업데이트 ──
     if current_price or ath:
@@ -1915,6 +1915,31 @@ def _fetch_price_and_52w_high(ticker: str) -> tuple:
 
 
 import sys
+
+def _fetch_all_time_high(ticker: str) -> float | None:
+    """Yahoo Finance 전체 이력 월봉으로 역사상 최고가(ATH) 조회."""
+    syms = ([ticker + s for s in ['.KS', '.KQ']] if _is_krx_ticker(ticker) else [ticker])
+    for sym in syms:
+        try:
+            res = http_req.get(
+                f'https://query2.finance.yahoo.com/v8/finance/chart/{sym}',
+                params={'interval': '1mo', 'range': 'max'},
+                headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
+                timeout=15
+            )
+            if not res.ok:
+                continue
+            result = res.json().get('chart', {}).get('result', [])
+            if not result:
+                continue
+            highs = result[0].get('indicators', {}).get('quote', [{}])[0].get('high', [])
+            highs = [h for h in highs if h is not None]
+            if highs:
+                return float(max(highs))
+        except Exception as e:
+            print(f'[ath] yf error {sym}: {e}', file=sys.stderr)
+    return None
+
 
 def _fetch_alphavantage_price(ticker: str) -> float | None:
     """Alpha Vantage API로 현재가 조회 (env: ALPHAVANTAGE_API_KEY 필요)"""
