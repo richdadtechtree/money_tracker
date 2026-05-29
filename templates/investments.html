@@ -461,6 +461,10 @@
                   <span class="badge bg-primary-subtle text-primary" id="detail-plan-ticker" style="font-size:0.8rem;"></span>
                 </h4>
                 <div class="d-flex gap-2">
+                  <a id="planStockLink" href="#" target="_blank" rel="noopener"
+                     class="btn btn-outline-info btn-sm d-none" title="주가 차트 확인">
+                    <i class="bi bi-graph-up-arrow"></i> 차트
+                  </a>
                   <button class="btn btn-outline-success btn-sm" id="planRefreshBtn" onclick="refreshPlanData()">
                     <i class="bi bi-arrow-repeat"></i> 갱신
                   </button>
@@ -510,9 +514,18 @@
                   </div>
                 </div>
                 <div class="col-6 col-md-3">
-                  <div class="p-2 bg-light-subtle rounded border text-center">
-                    <div class="small text-muted">최고가 (ATH)</div>
+                  <div class="p-2 bg-light-subtle rounded border text-center position-relative" style="cursor:pointer" onclick="toggleAthEdit()" title="클릭하여 직접 수정">
+                    <div class="small text-muted d-flex align-items-center justify-content-center gap-1">
+                      최고가 (ATH) <i class="bi bi-pencil" style="font-size:0.7rem;opacity:0.5"></i>
+                    </div>
                     <div class="fw-bold text-danger-emphasis small" id="detail-ath">-</div>
+                    <div id="ath-edit-area" class="d-none mt-1" onclick="event.stopPropagation()">
+                      <div class="input-group input-group-sm">
+                        <input type="number" id="ath-inline-input" class="form-control form-control-sm text-end" step="0.01" placeholder="ATH 입력">
+                        <button class="btn btn-success btn-sm py-0 px-1" onclick="saveAthInline()"><i class="bi bi-check-lg"></i></button>
+                        <button class="btn btn-secondary btn-sm py-0 px-1" onclick="toggleAthEdit()"><i class="bi bi-x-lg"></i></button>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div class="col-6 col-md-3">
@@ -1703,6 +1716,23 @@ async function selectPlan(planId) {
   tickerEl.textContent = currentPlanData.ticker || '';
   tickerEl.style.display = currentPlanData.ticker ? '' : 'none';
   const planForeign = isForeign(currentPlanData.ticker);
+
+  // 차트 링크 업데이트
+  const stockLink = document.getElementById('planStockLink');
+  if (stockLink) {
+    if (currentPlanData.ticker) {
+      const url = planForeign
+        ? `https://finance.yahoo.com/chart/${currentPlanData.ticker}`
+        : `https://finance.naver.com/item/main.nhn?code=${currentPlanData.ticker}`;
+      stockLink.href = url;
+      stockLink.classList.remove('d-none');
+    } else {
+      stockLink.classList.add('d-none');
+    }
+  }
+  // ATH 인라인 편집 영역 초기화
+  const athEdit = document.getElementById('ath-edit-area');
+  if (athEdit) athEdit.classList.add('d-none');
   document.getElementById('detail-total-budget').textContent = (currentPlanData.total_budget || 0).toLocaleString() + '원';
   document.getElementById('detail-ath').textContent = currentPlanData.ath
     ? (planForeign ? fmtUsd(currentPlanData.ath) : (currentPlanData.ath).toLocaleString() + '원') : '-';
@@ -2018,6 +2048,43 @@ async function refreshPlanData() {
     btn.disabled = false;
     btn.innerHTML = origHtml;
   }
+}
+
+function toggleAthEdit() {
+  const area = document.getElementById('ath-edit-area');
+  if (!area) return;
+  const hidden = area.classList.contains('d-none');
+  area.classList.toggle('d-none', !hidden);
+  if (hidden) {
+    const inp = document.getElementById('ath-inline-input');
+    inp.value = currentPlanData?.ath || '';
+    inp.focus();
+  }
+}
+
+async function saveAthInline() {
+  const inp = document.getElementById('ath-inline-input');
+  const newAth = parseFloat(inp.value);
+  if (!newAth || newAth <= 0) { showToast('유효한 ATH 값을 입력해주세요.', 'warning'); return; }
+  if (!currentPlanId || !currentPlanData) return;
+
+  const payload = {
+    name: currentPlanData.name,
+    ticker: currentPlanData.ticker,
+    total_budget: currentPlanData.total_budget,
+    ath: newAth,
+    current_price: currentPlanData.current_price,
+    drop_from: currentPlanData.drop_from,
+    drop_to: currentPlanData.drop_to,
+    step_count: currentPlanData.step_count,
+  };
+  const res = await fetchJSON('/api/split-buy-plans/' + currentPlanId, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  });
+  if (!res) { showToast('저장 실패', 'danger'); return; }
+  showToast('ATH 업데이트 완료');
+  await selectPlan(currentPlanId);
+  await loadPlanList();
 }
 
 function fmtBudgetInput(input) {
