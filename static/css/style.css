@@ -651,6 +651,15 @@ body.dark-mode .modal-header,
 body.dark-mode .modal-footer { border-color: var(--border-light) !important; }
 body.dark-mode .modal-title { color: var(--text-primary); }
 body.dark-mode .btn-close { filter: invert(1) grayscale(1); }
+body.dark-mode .modal-content .form-control,
+body.dark-mode .modal-content .form-select {
+  background: var(--input-bg, #1e293b);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+body.dark-mode .modal-content .form-text { color: var(--text-secondary); }
+body.dark-mode .modal-content label { color: var(--text-primary); }
+body.dark-mode .modal-content hr { border-color: var(--border-light); }
 
 /* 배지 */
 body.dark-mode .bg-success-subtle { background: #1A3D2F !important; }
