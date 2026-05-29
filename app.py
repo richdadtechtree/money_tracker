@@ -1722,6 +1722,106 @@ def api_split_buy_plan_tx_delete(pid, tx_id):
     return jsonify({'ok': True})
 
 
+@app.route('/api/split-buy-plans/<int:pid>/linked-tx', methods=['GET', 'POST'])
+def api_split_buy_plan_linked_tx(pid):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT ticker FROM split_buy_plans WHERE id = %s", (pid,))
+    plan = cur.fetchone()
+    if not plan:
+        cur.close(); db.close()
+        return jsonify({'error': 'Plan not found'}), 404
+    ticker = (plan['ticker'] or '').strip()
+
+    if request.method == 'GET':
+        if not ticker:
+            cur.close(); db.close()
+            return jsonify([])
+        cur.execute("""
+            SELECT t.id, t.tx_date::text AS tx_date, t.tx_type,
+                   CAST(t.price AS float) AS price,
+                   CAST(t.quantity AS float) AS quantity,
+                   CAST(COALESCE(t.fee, 0) AS float) AS fee,
+                   t.memo, 'stock' AS source, s.id AS source_id
+            FROM stock_tx t
+            JOIN stocks s ON t.stock_id = s.id
+            WHERE UPPER(s.ticker) = UPPER(%s)
+        """, (ticker,))
+        stock_txs = rows_to_list(cur.fetchall())
+        cur.execute("""
+            SELECT t.id, t.tx_date::text AS tx_date, t.tx_type,
+                   CAST(t.price AS float) AS price,
+                   CAST(t.quantity AS float) AS quantity,
+                   CAST(COALESCE(t.fee, 0) AS float) AS fee,
+                   t.memo, 'etf' AS source, e.id AS source_id
+            FROM etf_tx t
+            JOIN etf e ON t.etf_id = e.id
+            WHERE UPPER(e.ticker) = UPPER(%s)
+        """, (ticker,))
+        etf_txs = rows_to_list(cur.fetchall())
+        cur.close(); db.close()
+        all_txs = sorted(stock_txs + etf_txs, key=lambda x: (x.get('tx_date') or '', x.get('id', 0)))
+        return jsonify(all_txs)
+
+    # POST — add transaction directly to stock_tx or etf_tx
+    data = request.json
+    tx_type  = data.get('tx_type')
+    price    = float(data.get('price', 0))
+    quantity = float(data.get('quantity', 0))
+    tx_date  = data.get('tx_date')
+    memo     = data.get('memo')
+    fee      = float(data.get('fee', 0))
+
+    if tx_type not in ['buy', 'sell'] or price <= 0 or quantity <= 0 or not tx_date:
+        cur.close(); db.close()
+        return jsonify({'error': '올바르지 않은 거래 데이터입니다.'}), 400
+    if not ticker:
+        cur.close(); db.close()
+        return jsonify({'error': '이 계획에 티커가 설정되지 않았습니다.'}), 400
+
+    # stocks 테이블 먼저 확인
+    cur.execute("SELECT id FROM stocks WHERE UPPER(ticker) = UPPER(%s) LIMIT 1", (ticker,))
+    stock = cur.fetchone()
+    if stock:
+        cur.execute(
+            "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (stock['id'], tx_date, tx_type, price, quantity, fee, memo)
+        )
+        new_id = cur.fetchone()['id']
+        db.commit(); cur.close(); db.close()
+        return jsonify({'ok': True, 'id': new_id, 'source': 'stock'}), 201
+
+    # ETF 테이블 확인
+    cur.execute("SELECT id FROM etf WHERE UPPER(ticker) = UPPER(%s) LIMIT 1", (ticker,))
+    etf = cur.fetchone()
+    if etf:
+        cur.execute(
+            "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (etf['id'], tx_date, tx_type, price, quantity, fee, memo)
+        )
+        new_id = cur.fetchone()['id']
+        db.commit(); cur.close(); db.close()
+        return jsonify({'ok': True, 'id': new_id, 'source': 'etf'}), 201
+
+    cur.close(); db.close()
+    return jsonify({'error': f'티커 {ticker}에 해당하는 종목이 없습니다. 주식 또는 ETF 탭에서 먼저 종목을 추가해주세요.'}), 400
+
+
+@app.route('/api/split-buy-plans/<int:pid>/linked-tx/<string:source>/<int:tx_id>', methods=['DELETE'])
+def api_split_buy_plan_linked_tx_delete(pid, source, tx_id):
+    db = get_db()
+    cur = db.cursor()
+    if source == 'stock':
+        cur.execute("DELETE FROM stock_tx WHERE id = %s", (tx_id,))
+    elif source == 'etf':
+        cur.execute("DELETE FROM etf_tx WHERE id = %s", (tx_id,))
+    else:
+        cur.close(); db.close()
+        return jsonify({'error': 'Invalid source'}), 400
+    db.commit(); cur.close(); db.close()
+    return jsonify({'ok': True})
+
+
 
 # ── API: 현재가 업데이트 ─────────────────────────────────────
 import time
