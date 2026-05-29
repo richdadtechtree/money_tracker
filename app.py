@@ -1540,7 +1540,7 @@ def api_ipo_detail(rid):
     return jsonify({'ok': True})
 
 
-# ── API: 지수/레버리지 분할매수 계획기 ──────────────────────────
+# ── API: 종목별 투자계획 ──────────────────────────────────────
 @app.route('/api/split-buy-plans', methods=['GET', 'POST'])
 def api_split_buy_plans():
     db = get_db()

@@ -4,7 +4,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2 class="fw-bold mb-0"><i class="bi bi-graph-up-arrow me-2 text-primary"></i>투자 관리</h2>
-  <button class="btn btn-outline-primary" style="width:40px;height:40px;padding:0;border-radius:10px;" onclick="switchToSplitPlanTab()" title="분할매수 계획기">
+  <button class="btn btn-outline-primary" style="width:40px;height:40px;padding:0;border-radius:10px;" onclick="switchToSplitPlanTab()" title="종목별 투자계획">
     <i class="bi bi-bar-chart-steps fs-5"></i>
   </button>
 </div>
@@ -14,7 +14,7 @@
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-etf">ETF</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-crypto">코인</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-ipo">공모주</a></li>
-  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-split-plan">분할매수 계획기</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-split-plan">종목별 투자계획</a></li>
 </ul>
 
 <div class="tab-content">
@@ -258,7 +258,7 @@
     <!-- ETF 분할매수 계획 계산기 패널 -->
     <div class="card mt-4 border-0 shadow-sm" id="invest-plan-panel">
       <div class="card-header bg-white border-0 pt-3 pb-2 fw-semibold">
-        <h6 class="mb-0">📐 지수/레버리지 분할매수 계획기</h6>
+        <h6 class="mb-0">📐 종목별 투자계획</h6>
       </div>
       <div class="card-body">
         <div class="row g-2 mb-3">
@@ -393,7 +393,7 @@
     </div>
   </div>
 
-  <!-- 분할매수 계획기 탭 -->
+  <!-- 종목별 투자계획 탭 -->
   <div class="tab-pane fade" id="tab-split-plan">
     <div class="row g-3">
       <!-- 좌측 종목 리스트 -->
@@ -1638,7 +1638,7 @@ document.querySelector('[href="#tab-split-plan"]').addEventListener('shown.bs.ta
   loadPlanList();
 });
 
-// ── 분할매수 계획기 ──────────────────────────────────────────
+// ── 종목별 투자계획 ──────────────────────────────────────────
 let currentPlanId = null;
 let currentPlanData = null;
 let currentPlanSteps = [];
