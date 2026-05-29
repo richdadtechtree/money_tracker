@@ -907,4 +907,23 @@ body.dark-mode #mobileBottomNav { background: #0D1421; border-top-color: rgba(25
   }
   .page-item.active .page-link { background-color: var(--primary) !important; color: #fff !important; }
   .page-item.disabled .page-link { color: rgba(255,255,255,0.3) !important; }
+
+  /* 선택된 list-group-item 활성 하이라이트 복원 */
+  .list-group-item.active {
+    background-color: #1e3a6e !important;
+    border-color: var(--primary) !important;
+    color: #fff !important;
+  }
+
+  /* bg-white 배지: 다크모드에서 흰배경+흰글씨 방지 */
+  .badge.bg-white {
+    background-color: rgba(255,255,255,0.12) !important;
+    color: #e2e8f0 !important;
+  }
+
+  /* bg-danger-subtle 배지 텍스트는 흰색 대신 살짝 붉은 계열로 */
+  .badge.bg-danger-subtle { color: #fca5a5 !important; }
+  .badge.bg-success-subtle { color: #86efac !important; }
+  .badge.bg-primary-subtle { color: #93c5fd !important; }
+  .badge.bg-warning-subtle { color: #fcd34d !important; }
 }

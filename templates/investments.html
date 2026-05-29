@@ -1750,7 +1750,7 @@ async function loadPlanList() {
         <div class="fw-semibold text-truncate">${p.name}</div>
         <small class="${active ? 'text-white-50' : 'text-muted'}">${p.ticker || '티커 없음'}</small>
       </div>
-      ${drop ? `<span class="badge ${active ? 'bg-white text-primary' : 'bg-danger-subtle text-danger'} font-monospace flex-shrink-0">-${drop}%</span>` : ''}
+      ${drop ? `<span class="badge bg-danger-subtle text-danger font-monospace flex-shrink-0">-${drop}%</span>` : ''}
     `;
     group.appendChild(btn);
   });
