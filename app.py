@@ -1722,6 +1722,84 @@ def api_split_buy_plan_tx_delete(pid, tx_id):
     return jsonify({'ok': True})
 
 
+@app.route('/api/split-buy-plans/<int:pid>/refresh', methods=['POST'])
+def api_split_buy_plan_refresh(pid):
+    """현재가 및 역대 최고가(ATH)를 자동으로 조회하여 업데이트"""
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT ticker, name FROM split_buy_plans WHERE id = %s", (pid,))
+    plan = cur.fetchone()
+    if not plan:
+        cur.close(); db.close()
+        return jsonify({'error': '계획을 찾을 수 없습니다.'}), 404
+
+    ticker = (plan['ticker'] or '').strip()
+    if not ticker:
+        cur.close(); db.close()
+        return jsonify({'error': '티커가 없어 가격을 조회할 수 없습니다.'}), 400
+
+    # ── 현재가 조회 ──
+    current_price = None
+    try:
+        current_price = _fetch_stock_price(ticker)
+    except Exception as e:
+        print(f'[refresh] price error {ticker}: {e}', file=sys.stderr)
+
+    # ── ATH (역대 최고가) 조회 ──
+    ath = None
+    if _is_krx_ticker(ticker):
+        # 국내: pykrx로 상장 이후 전체 고가 최대값
+        if HAS_PYKRX:
+            try:
+                import datetime
+                from_str = "20000101"
+                today_str = datetime.date.today().strftime("%Y%m%d")
+                df = krx_stock.get_market_ohlcv_by_date(from_str, today_str, ticker)
+                if not df.empty and '고가' in df.columns:
+                    ath = float(df['고가'].max())
+            except Exception as e:
+                print(f'[refresh] pykrx ATH error {ticker}: {e}', file=sys.stderr)
+        # pykrx 실패 시 yfinance KS/KQ
+        if not ath and HAS_YFINANCE:
+            for suffix in ['.KS', '.KQ']:
+                try:
+                    hist = yf.Ticker(ticker + suffix).history(period='max')
+                    if not hist.empty:
+                        ath = float(hist['High'].max())
+                        break
+                except Exception as e:
+                    print(f'[refresh] yfinance ATH error {ticker}{suffix}: {e}', file=sys.stderr)
+    else:
+        # 해외: yfinance로 전체 이력 최고가
+        if HAS_YFINANCE:
+            try:
+                hist = yf.Ticker(ticker).history(period='max')
+                if not hist.empty:
+                    ath = float(hist['High'].max())
+            except Exception as e:
+                print(f'[refresh] yfinance ATH error {ticker}: {e}', file=sys.stderr)
+
+    # ── DB 업데이트 ──
+    if current_price or ath:
+        fields, vals = [], []
+        if current_price:
+            fields.append("current_price=%s"); vals.append(current_price)
+        if ath:
+            fields.append("ath=%s"); vals.append(ath)
+        vals.append(pid)
+        cur.execute(f"UPDATE split_buy_plans SET {', '.join(fields)} WHERE id=%s", vals)
+        db.commit()
+
+    cur.close(); db.close()
+    return jsonify({
+        'ok': True,
+        'current_price': current_price,
+        'ath': ath,
+        'price_ok': current_price is not None,
+        'ath_ok': ath is not None,
+    })
+
+
 @app.route('/api/split-buy-plans/<int:pid>/linked-tx', methods=['GET', 'POST'])
 def api_split_buy_plan_linked_tx(pid):
     db = get_db()

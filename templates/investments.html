@@ -461,6 +461,9 @@
                   <span class="badge bg-primary-subtle text-primary" id="detail-plan-ticker" style="font-size:0.8rem;"></span>
                 </h4>
                 <div class="d-flex gap-2">
+                  <button class="btn btn-outline-success btn-sm" id="planRefreshBtn" onclick="refreshPlanData()">
+                    <i class="bi bi-arrow-repeat"></i> 갱신
+                  </button>
                   <button class="btn btn-outline-warning btn-sm" onclick="toggleEditPlanForm()">
                     <i class="bi bi-pencil-square"></i> 수정
                   </button>
@@ -1917,6 +1920,35 @@ async function deleteCurrentPlan() {
   }
 }
 
+async function refreshPlanData() {
+  if (!currentPlanId || !currentPlanData) return;
+  const ticker = currentPlanData.ticker;
+  if (!ticker) { showToast('티커가 없어 갱신할 수 없습니다.', 'warning'); return; }
+
+  const btn = document.getElementById('planRefreshBtn');
+  const origHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+  try {
+    const res = await fetchJSON('/api/split-buy-plans/' + currentPlanId + '/refresh', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+    });
+    if (!res) { showToast('갱신 실패', 'danger'); return; }
+
+    const msgs = [];
+    if (res.price_ok) msgs.push('현재가 ' + (isForeign(ticker) ? fmtUsd(res.current_price) : Math.round(res.current_price).toLocaleString() + '원'));
+    else msgs.push('현재가 조회 실패');
+    if (res.ath_ok) msgs.push('최고가 ' + (isForeign(ticker) ? fmtUsd(res.ath) : Math.round(res.ath).toLocaleString() + '원'));
+    else msgs.push('최고가 조회 실패');
+
+    showToast('갱신 완료 · ' + msgs.join(' / '));
+    await selectPlan(currentPlanId);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origHtml;
+  }
+}
 
 function fmtBudgetInput(input) {
   const raw = input.value.replace(/[^0-9]/g, '');
