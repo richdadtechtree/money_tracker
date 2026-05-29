@@ -4,6 +4,9 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2 class="fw-bold mb-0"><i class="bi bi-graph-up-arrow me-2 text-primary"></i>투자 관리</h2>
+  <button class="btn btn-outline-primary" style="width:40px;height:40px;padding:0;border-radius:10px;" onclick="switchToSplitPlanTab()" title="분할매수 계획기">
+    <i class="bi bi-bar-chart-steps fs-5"></i>
+  </button>
 </div>
 
 <ul class="nav nav-tabs mb-3" id="investTabs">
@@ -797,6 +800,14 @@
         <button class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label small fw-semibold">등록 종목에서 선택 <span class="text-muted fw-normal">(선택사항)</span></label>
+          <select class="form-select" id="add-plan-from-stock" onchange="onAddPlanStockSelect(this.value)">
+            <option value="">직접 입력</option>
+          </select>
+          <div class="form-text">주식/ETF 탭에 등록된 종목을 선택하면 정보가 자동으로 채워집니다.</div>
+        </div>
+        <hr class="my-2">
         <div class="mb-3">
           <label class="form-label small fw-semibold">종목명</label>
           <input type="text" class="form-control" id="add-plan-name" placeholder="예: 코스닥 레버리지, TQQQ">
@@ -2544,12 +2555,59 @@ let editPlanModalObj = null;
 
 function openAddPlanModal() {
   if (!addPlanModalObj) addPlanModalObj = new bootstrap.Modal(document.getElementById('addPlanModal'));
+
+  // 등록된 주식/ETF 드롭다운 채우기
+  const sel = document.getElementById('add-plan-from-stock');
+  sel.innerHTML = '<option value="">직접 입력</option>';
+  if (allStocks.length > 0) {
+    const og1 = document.createElement('optgroup');
+    og1.label = '주식';
+    allStocks.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = `stock:${s.id}`;
+      opt.textContent = `${s.name}${s.ticker ? ` (${s.ticker})` : ''}`;
+      opt.dataset.name = s.name;
+      opt.dataset.ticker = s.ticker || '';
+      opt.dataset.price = s.current_price || '';
+      og1.appendChild(opt);
+    });
+    sel.appendChild(og1);
+  }
+  if (allEtfs.length > 0) {
+    const og2 = document.createElement('optgroup');
+    og2.label = 'ETF';
+    allEtfs.forEach(e => {
+      const opt = document.createElement('option');
+      opt.value = `etf:${e.id}`;
+      opt.textContent = `${e.name}${e.ticker ? ` (${e.ticker})` : ''}`;
+      opt.dataset.name = e.name;
+      opt.dataset.ticker = e.ticker || '';
+      opt.dataset.price = e.current_price || '';
+      og2.appendChild(opt);
+    });
+    sel.appendChild(og2);
+  }
+
   document.getElementById('add-plan-name').value = '';
   document.getElementById('add-plan-ticker').value = '';
   document.getElementById('add-plan-budget').value = '20000000';
   document.getElementById('add-plan-ath').value = '';
   document.getElementById('add-plan-current').value = '';
   addPlanModalObj.show();
+}
+
+function onAddPlanStockSelect(val) {
+  if (!val) return;
+  const opt = document.querySelector(`#add-plan-from-stock option[value="${val}"]`);
+  if (!opt) return;
+  if (opt.dataset.name)   document.getElementById('add-plan-name').value   = opt.dataset.name;
+  if (opt.dataset.ticker) document.getElementById('add-plan-ticker').value = opt.dataset.ticker;
+  if (opt.dataset.price)  document.getElementById('add-plan-current').value = opt.dataset.price;
+}
+
+function switchToSplitPlanTab() {
+  const tabEl = document.querySelector('[href="#tab-split-plan"]');
+  if (tabEl) bootstrap.Tab.getOrCreateInstance(tabEl).show();
 }
 
 async function saveNewPlan() {
