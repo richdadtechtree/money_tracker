@@ -562,7 +562,7 @@
                     </tr>
                     <tr class="table-secondary small">
                       <td colspan="5" class="text-end text-muted">
-                        예상 평균 단가: <strong class="text-primary" id="plan-avg-price">-</strong>원
+                        예상 평균 단가: <strong class="text-primary" id="plan-avg-price">-</strong><span id="plan-avg-price-unit">원</span>
                       </td>
                       <td></td>
                     </tr>
@@ -1773,7 +1773,7 @@ async function selectPlan(planId) {
     const sm = btns[idx].querySelector('small');
     if (sm) sm.className = active ? 'text-white-50' : 'text-muted';
     const badge = btns[idx].querySelector('.badge');
-    if (badge) badge.className = 'badge ' + (active ? 'bg-white text-primary' : 'bg-danger-subtle text-danger') + ' font-monospace flex-shrink-0';
+    if (badge) badge.className = 'badge bg-danger-subtle text-danger font-monospace flex-shrink-0';
   });
 
   document.getElementById('plan-empty-panel').classList.add('d-none');
@@ -1785,9 +1785,12 @@ async function selectPlan(planId) {
   const tickerEl = document.getElementById('detail-plan-ticker');
   tickerEl.textContent = currentPlanData.ticker || '';
   tickerEl.style.display = currentPlanData.ticker ? '' : 'none';
+  const planForeign = isForeign(currentPlanData.ticker);
   document.getElementById('detail-total-budget').textContent = (currentPlanData.total_budget || 0).toLocaleString() + '원';
-  document.getElementById('detail-ath').textContent = (currentPlanData.ath || 0).toLocaleString() + '원';
-  document.getElementById('detail-current-price').textContent = currentPlanData.current_price ? currentPlanData.current_price.toLocaleString() + '원' : '-';
+  document.getElementById('detail-ath').textContent = currentPlanData.ath
+    ? (planForeign ? fmtUsd(currentPlanData.ath) : (currentPlanData.ath).toLocaleString() + '원') : '-';
+  document.getElementById('detail-current-price').textContent = currentPlanData.current_price
+    ? (planForeign ? fmtUsd(currentPlanData.current_price) : currentPlanData.current_price.toLocaleString() + '원') : '-';
   const drop = currentPlanData.ath && currentPlanData.current_price
     ? ((1 - currentPlanData.current_price / currentPlanData.ath) * 100).toFixed(1) : null;
   document.getElementById('detail-drop-pct').textContent = drop ? '-' + drop + '%' : '-';
@@ -1804,15 +1807,20 @@ function renderSimplePlan() {
   const tbody = document.querySelector('#planStepsTable tbody');
   if (!tbody || !currentPlanData) return;
   tbody.innerHTML = '';
-  const ath    = currentPlanData.ath || 1;
-  const budget = currentPlanData.total_budget || 0;
+  const ath     = currentPlanData.ath || 1;
+  const budget  = currentPlanData.total_budget || 0;
+  const ticker  = currentPlanData.ticker || '';
+  const foreign = isForeign(ticker);
   let totalAmt = 0, totalQty = 0;
 
   currentPlanSteps.forEach((step, idx) => {
-    const tp  = ath * (1 - step.drawdown_pct / 100);
-    const amt = Math.round(budget * (step.ratio / 100));
-    const qty = tp > 0 ? amt / tp : 0;
+    const tp  = ath * (1 - step.drawdown_pct / 100);         // USD if foreign, KRW if domestic
+    const amt = Math.round(budget * (step.ratio / 100));      // always KRW
+    const qty = tp > 0 ? (foreign ? amt / (tp * usdKrw) : amt / tp) : 0;
     totalAmt += amt; totalQty += qty;
+
+    const tpDisplay = foreign ? fmtUsd(tp) : Math.round(tp).toLocaleString() + '원';
+    const krwPerShare = foreign ? tp * usdKrw : tp;
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td class="text-center fw-semibold">${idx + 1}차</td>
@@ -1824,7 +1832,10 @@ function renderSimplePlan() {
           <span class="text-danger fw-semibold small">%</span>
         </div>
       </td>
-      <td class="text-end fw-semibold">${Math.round(tp).toLocaleString()}원</td>
+      <td class="text-end fw-semibold">
+        ${tpDisplay}
+        ${foreign ? `<div class="small text-muted">≈${Math.round(krwPerShare).toLocaleString()}원</div>` : ''}
+      </td>
       <td class="text-end">
         <div>${amt.toLocaleString()}원</div>
         <div class="small text-muted">${step.ratio.toFixed(1)}%</div>
@@ -1838,10 +1849,19 @@ function renderSimplePlan() {
     tbody.appendChild(tr);
   });
 
-  const avgPrice = totalQty > 0 ? totalAmt / totalQty : 0;
+  // 평균 단가: 외국 종목은 KRW 역산 후 USD 표시
+  const avgKrwPerShare = totalQty > 0 ? totalAmt / totalQty : 0;
+  const avgDisplay = foreign
+    ? fmtUsd(avgKrwPerShare / usdKrw)
+    : Math.round(avgKrwPerShare).toLocaleString();
+  const avgUnit = foreign ? '' : '원';
+
   document.getElementById('plan-total-amt').textContent = totalAmt.toLocaleString() + '원';
   document.getElementById('plan-total-qty').textContent = totalQty.toFixed(4) + '주';
-  document.getElementById('plan-avg-price').textContent = Math.round(avgPrice).toLocaleString();
+  document.getElementById('plan-avg-price').textContent = avgDisplay;
+  const unitEl = document.getElementById('plan-avg-price-unit');
+  if (unitEl) unitEl.textContent = avgUnit;
+
   const n = currentPlanSteps.length;
   const el = document.getElementById('plan-step-count-text');
   if (el) el.textContent = n + '단계 · 각 ' + (100 / n).toFixed(1) + '%';
@@ -2047,21 +2067,26 @@ function renderBuyHistory() {
     if (footer) footer.textContent = '';
     return;
   }
+  const foreign = isForeign(currentPlanData && currentPlanData.ticker);
   let totalAmt = 0, totalQty = 0;
   buys.sort((a, b) => a.tx_date > b.tx_date ? -1 : 1).forEach(b => {
-    const amt = parseFloat(b.price) * parseFloat(b.quantity);
-    totalAmt += amt; totalQty += parseFloat(b.quantity);
+    const price = parseFloat(b.price);
+    const qty   = parseFloat(b.quantity);
+    const amt   = foreign ? price * usdKrw * qty : price * qty;
+    totalAmt += amt; totalQty += qty;
+    const priceDisplay = foreign ? fmtUsd(price) : Math.round(price).toLocaleString() + '원';
     const tr = document.createElement('tr');
     tr.innerHTML = `<td class="text-center">${b.tx_date}</td>
-      <td class="text-end">${parseFloat(b.price).toLocaleString()}원</td>
-      <td class="text-end">${parseFloat(b.quantity).toFixed(4)}</td>
+      <td class="text-end">${priceDisplay}</td>
+      <td class="text-end">${qty.toFixed(4)}</td>
       <td class="text-end">${Math.round(amt).toLocaleString()}원</td>
       <td class="text-center text-muted">${b.memo || ''}</td>
       <td class="text-center"><button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="deletePlanTx('${b.source}',${b.id})"><i class="bi bi-x"></i></button></td>`;
     tbody.appendChild(tr);
   });
-  const avgBuy = totalQty > 0 ? totalAmt / totalQty : 0;
-  if (footer) footer.textContent = '총 ' + buys.length + '건 · 보유 ' + totalQty.toFixed(4) + '주 · 평균 매수가 ' + Math.round(avgBuy).toLocaleString() + '원';
+  const avgKrw = totalQty > 0 ? totalAmt / totalQty : 0;
+  const avgDisplay = foreign ? fmtUsd(avgKrw / usdKrw) : Math.round(avgKrw).toLocaleString() + '원';
+  if (footer) footer.textContent = '총 ' + buys.length + '건 · 보유 ' + totalQty.toFixed(4) + '주 · 평균 매수가 ' + avgDisplay;
 }
 
 // ── 매도 이력 ──
@@ -2105,17 +2130,22 @@ function renderSellHistory() {
     tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3 small">매도 이력이 없습니다.</td></tr>';
     return;
   }
+  const foreign = isForeign(currentPlanData && currentPlanData.ticker);
   const buys = (currentPlanTx || []).filter(t => t.tx_type === 'buy');
   const tq = buys.reduce((s, b) => s + parseFloat(b.quantity), 0);
   const ta = buys.reduce((s, b) => s + parseFloat(b.price) * parseFloat(b.quantity), 0);
-  const avgBuy = tq > 0 ? ta / tq : 0;
+  const avgBuyPrice = tq > 0 ? ta / tq : 0; // USD if foreign, KRW if domestic
   sells.sort((a, b) => a.tx_date > b.tx_date ? -1 : 1).forEach(s => {
-    const pnl = (parseFloat(s.price) - avgBuy) * parseFloat(s.quantity);
+    const sellPrice = parseFloat(s.price);
+    const qty = parseFloat(s.quantity);
+    const pnlNative = (sellPrice - avgBuyPrice) * qty; // in USD or KRW
+    const pnlKrw = foreign ? pnlNative * usdKrw : pnlNative;
+    const priceDisplay = foreign ? fmtUsd(sellPrice) : Math.round(sellPrice).toLocaleString() + '원';
     const tr = document.createElement('tr');
     tr.innerHTML = `<td class="text-center">${s.tx_date}</td>
-      <td class="text-end">${parseFloat(s.price).toLocaleString()}원</td>
-      <td class="text-end">${parseFloat(s.quantity).toFixed(4)}</td>
-      <td class="text-end ${pnl >= 0 ? 'text-danger' : 'text-primary'} fw-semibold">${pnl >= 0 ? '+' : ''}${Math.round(pnl).toLocaleString()}원</td>
+      <td class="text-end">${priceDisplay}</td>
+      <td class="text-end">${qty.toFixed(4)}</td>
+      <td class="text-end ${pnlKrw >= 0 ? 'text-danger' : 'text-primary'} fw-semibold">${pnlKrw >= 0 ? '+' : ''}${Math.round(pnlKrw).toLocaleString()}원</td>
       <td class="text-center text-muted">${s.memo || ''}</td>
       <td class="text-center"><button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="deletePlanTx('${s.source}',${s.id})"><i class="bi bi-x"></i></button></td>`;
     tbody.appendChild(tr);
