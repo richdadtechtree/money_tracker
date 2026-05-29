@@ -731,6 +731,8 @@
         </div>
         <ul id="stockCatList" class="list-group list-group-flush"></ul>
       </div>
+    </div>
+  </div>
 </div>
 
 {% endblock %}
@@ -1431,8 +1433,8 @@ async function loadStockTx(stockId = null) {
   const url = stockId
     ? `/api/stock-tx?stock_id=${stockId}`
     : '/api/stock-tx';
-  const res  = await fetch(url);
-  allTxData  = await res.json();
+  const data = await fetchJSON(url);
+  allTxData  = data || [];
   
   // 종목 선택 드롭다운 업데이트
   const stockSelect = document.getElementById('tx-search-stock');
@@ -1718,7 +1720,7 @@ async function selectPlan(planId) {
   const cntEl   = document.getElementById('range-count');
   if (fromEl)  fromEl.value  = currentPlanData.drop_from  ?? 30;
   if (toEl)    toEl.value    = currentPlanData.drop_to    ?? 70;
-  if (cntEl)   cntEl.value   = currentPlanData.step_count ?? currentPlanSteps.length || 5;
+  if (cntEl)   cntEl.value   = currentPlanData.step_count ?? (currentPlanSteps.length || 5);
 
   renderSimplePlan();
 }
