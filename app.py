@@ -1747,46 +1747,15 @@ def api_split_buy_plan_refresh(pid):
         cur.close(); db.close()
         return jsonify({'error': '티커가 없어 가격을 조회할 수 없습니다.'}), 400
 
-    # ── 현재가 조회 ──
-    current_price = None
-    try:
-        current_price = _fetch_stock_price(ticker)
-    except Exception as e:
-        print(f'[refresh] price error {ticker}: {e}', file=sys.stderr)
+    # ── 현재가 + 52주 최고가 동시 조회 (Yahoo Finance, 현재가 업데이트와 동일한 소스) ──
+    current_price, ath = _fetch_price_and_52w_high(ticker)
 
-    # ── ATH (역대 최고가) 조회 ──
-    ath = None
-    if _is_krx_ticker(ticker):
-        # 국내: pykrx로 상장 이후 전체 고가 최대값
-        if HAS_PYKRX:
-            try:
-                import datetime
-                from_str = "20000101"
-                today_str = datetime.date.today().strftime("%Y%m%d")
-                df = krx_stock.get_market_ohlcv_by_date(from_str, today_str, ticker)
-                if not df.empty and '고가' in df.columns:
-                    ath = float(df['고가'].max())
-            except Exception as e:
-                print(f'[refresh] pykrx ATH error {ticker}: {e}', file=sys.stderr)
-        # pykrx 실패 시 yfinance KS/KQ
-        if not ath and HAS_YFINANCE:
-            for suffix in ['.KS', '.KQ']:
-                try:
-                    hist = yf.Ticker(ticker + suffix).history(period='max')
-                    if not hist.empty:
-                        ath = float(hist['High'].max())
-                        break
-                except Exception as e:
-                    print(f'[refresh] yfinance ATH error {ticker}{suffix}: {e}', file=sys.stderr)
-    else:
-        # 해외: yfinance로 전체 이력 최고가
-        if HAS_YFINANCE:
-            try:
-                hist = yf.Ticker(ticker).history(period='max')
-                if not hist.empty:
-                    ath = float(hist['High'].max())
-            except Exception as e:
-                print(f'[refresh] yfinance ATH error {ticker}: {e}', file=sys.stderr)
+    # Yahoo 실패 시 현재가만 기존 방식으로 재시도
+    if not current_price:
+        try:
+            current_price = _fetch_stock_price(ticker)
+        except Exception as e:
+            print(f'[refresh] price fallback error {ticker}: {e}', file=sys.stderr)
 
     # ── DB 업데이트 ──
     if current_price or ath:
@@ -1916,6 +1885,33 @@ import time
 def _is_krx_ticker(ticker: str) -> bool:
     """6자리 숫자면 국내 KRX 종목으로 판단"""
     return bool(re.match(r'^\d{6}$', ticker))
+
+
+def _fetch_price_and_52w_high(ticker: str) -> tuple:
+    """Yahoo Finance API 한 번 호출로 현재가 + 52주 최고가 동시 조회.
+    국내 종목은 .KS → .KQ 순으로 시도. 반환: (current_price, high_52w) — 실패 시 None"""
+    syms = ([ticker + s for s in ['.KS', '.KQ']] if _is_krx_ticker(ticker) else [ticker])
+    for sym in syms:
+        try:
+            res = http_req.get(
+                f'https://query2.finance.yahoo.com/v8/finance/chart/{sym}',
+                params={'interval': '1d', 'range': '5d'},
+                headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
+                timeout=8
+            )
+            if not res.ok:
+                continue
+            result = res.json().get('chart', {}).get('result', [])
+            if not result:
+                continue
+            meta = result[0].get('meta', {})
+            price = meta.get('regularMarketPrice')
+            high52 = meta.get('fiftyTwoWeekHigh')
+            if price:
+                return float(price), (float(high52) if high52 else None)
+        except Exception as e:
+            print(f'[price_high] yf error {sym}: {e}', file=sys.stderr)
+    return None, None
 
 
 import sys
