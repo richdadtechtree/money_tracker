@@ -153,6 +153,42 @@ body {
   min-width: 0;
 }
 
+/* ── 사이드바 자동 숨김 (데스크톱 전용) ── */
+@media (min-width: 769px) {
+  #sidebar      { transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1); }
+  #main-content { transition: margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1); }
+
+  body.sidebar-hidden #sidebar      { transform: translateX(-100%); }
+  body.sidebar-hidden #main-content { margin-left: 0 !important; }
+
+  /* 숨김 상태일 때 좌측 탭 핸들 */
+  body.sidebar-hidden #sidebar-title-fixed {
+    pointer-events: auto;
+    cursor: pointer;
+    width: 28px;
+    height: 72px;
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
+    border-radius: 0 8px 8px 0;
+    padding: 0;
+    justify-content: center;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    border-right: 1px solid rgba(255,255,255,0.08);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 3px 0 12px rgba(0,0,0,0.4);
+  }
+  body.sidebar-hidden #sidebar-title-fixed .app-title-text { display: none; }
+  body.sidebar-hidden #sidebar-title-fixed .sidebar-toggle-icon-compact {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,0.75);
+    font-size: 1rem;
+  }
+  body.sidebar-hidden #sidebar-title-fixed:hover { background: rgba(255,255,255,0.07); }
+}
+
 .container-fluid {
   padding: 28px 32px !important;
 }

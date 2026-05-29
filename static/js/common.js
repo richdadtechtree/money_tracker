@@ -486,3 +486,65 @@ document.addEventListener('focusin', function(e) {
   }
 });
 
+// ── 사이드바 자동 숨김 (PC 전용) ──────────────────────────────
+(function () {
+  const MOBILE_BREAKPOINT = 768;
+  let hideTimer = null;
+
+  function isDesktop() { return window.innerWidth > MOBILE_BREAKPOINT; }
+
+  window.showSidebar = function () {
+    document.body.classList.remove('sidebar-hidden');
+  };
+
+  window.onTitleHover = function () {
+    if (!isDesktop()) return;
+    clearTimeout(hideTimer);
+    window.showSidebar();
+  };
+
+  function scheduleSidebarHide() {
+    if (!isDesktop()) return;
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(function () {
+      document.body.classList.add('sidebar-hidden');
+    }, 500);
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    var sidebar    = document.getElementById('sidebar');
+    var titleFixed = document.getElementById('sidebar-title-fixed');
+
+    if (sidebar) {
+      sidebar.addEventListener('mouseenter', function () {
+        clearTimeout(hideTimer);
+        window.showSidebar();
+      });
+      sidebar.addEventListener('mouseleave', scheduleSidebarHide);
+    }
+
+    if (titleFixed) {
+      titleFixed.addEventListener('mouseenter', function () {
+        if (!isDesktop()) return;
+        clearTimeout(hideTimer);
+        window.showSidebar();
+      });
+      titleFixed.addEventListener('mouseleave', scheduleSidebarHide);
+    }
+
+    // 페이지 로드 후 데스크톱이면 자동 숨김 (700ms 딜레이)
+    if (isDesktop()) {
+      hideTimer = setTimeout(function () {
+        document.body.classList.add('sidebar-hidden');
+      }, 700);
+    }
+
+    window.addEventListener('resize', function () {
+      if (!isDesktop()) {
+        clearTimeout(hideTimer);
+        document.body.classList.remove('sidebar-hidden');
+      }
+    });
+  });
+})();
+
