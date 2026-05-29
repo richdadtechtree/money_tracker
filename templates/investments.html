@@ -821,12 +821,13 @@
           <input type="number" class="form-control" id="add-plan-budget" placeholder="예: 20000000">
         </div>
         <div class="mb-3">
-          <label class="form-label small fw-semibold">최고가 (ATH)</label>
-          <input type="number" step="0.01" class="form-control" id="add-plan-ath" placeholder="기준 최고가 입력">
+          <label class="form-label small fw-semibold">현재가 / 지수</label>
+          <input type="number" step="0.01" class="form-control" id="add-plan-current" placeholder="현재 가격/지수 입력">
         </div>
         <div class="mb-3">
-          <label class="form-label small fw-semibold">현재가 / 지수 (선택)</label>
-          <input type="number" step="0.01" class="form-control" id="add-plan-current" placeholder="현재 가격/지수 입력">
+          <label class="form-label small fw-semibold">역대 최고가 (ATH) <span class="text-muted fw-normal">— 비워두면 현재가로 대체</span></label>
+          <input type="number" step="0.01" class="form-control" id="add-plan-ath" placeholder="비워두면 현재가를 기준으로 계산">
+          <div class="form-text">하락률 계산의 기준점입니다. 모르면 비워 두세요.</div>
         </div>
         <div class="mb-3">
           <label class="form-label small fw-semibold">초기 계획 템플릿</label>
@@ -2588,6 +2589,7 @@ function openAddPlanModal() {
     sel.appendChild(og2);
   }
 
+  document.getElementById('add-plan-from-stock').value = '';
   document.getElementById('add-plan-name').value = '';
   document.getElementById('add-plan-ticker').value = '';
   document.getElementById('add-plan-budget').value = '20000000';
@@ -2602,7 +2604,12 @@ function onAddPlanStockSelect(val) {
   if (!opt) return;
   if (opt.dataset.name)   document.getElementById('add-plan-name').value   = opt.dataset.name;
   if (opt.dataset.ticker) document.getElementById('add-plan-ticker').value = opt.dataset.ticker;
-  if (opt.dataset.price)  document.getElementById('add-plan-current').value = opt.dataset.price;
+  if (opt.dataset.price) {
+    document.getElementById('add-plan-current').value = opt.dataset.price;
+    if (!document.getElementById('add-plan-ath').value) {
+      document.getElementById('add-plan-ath').value = opt.dataset.price;
+    }
+  }
 }
 
 function switchToSplitPlanTab() {
@@ -2614,12 +2621,20 @@ async function saveNewPlan() {
   const name = document.getElementById('add-plan-name').value.trim();
   const ticker = document.getElementById('add-plan-ticker').value.trim();
   const budget = parseInt(document.getElementById('add-plan-budget').value) || 0;
-  const ath = parseFloat(document.getElementById('add-plan-ath').value) || 0;
+  let ath = parseFloat(document.getElementById('add-plan-ath').value) || 0;
   const curPrice = document.getElementById('add-plan-current').value ? parseFloat(document.getElementById('add-plan-current').value) : null;
   const templateType = document.getElementById('add-plan-template').value;
-  
-  if (!name || ath <= 0) {
-    alert('종목명과 최고가(ATH)는 필수 입력 사항입니다.');
+
+  if (!name) {
+    alert('종목명은 필수 입력 사항입니다.');
+    return;
+  }
+  // ATH가 없으면 현재가로 대체
+  if (ath <= 0 && curPrice && curPrice > 0) {
+    ath = curPrice;
+  }
+  if (ath <= 0) {
+    alert('현재가 또는 최고가(ATH) 중 하나는 입력해 주세요.');
     return;
   }
   

@@ -1564,9 +1564,11 @@ def api_split_buy_plans():
     else:
         current_price = None
 
+    if current_price and current_price > 0 and ath <= 0:
+        ath = current_price
     if not name or ath <= 0:
         db.close()
-        return jsonify({'error': '종목명과 역대 최고가(ATH)는 필수 입력 사항입니다.'}), 400
+        return jsonify({'error': '종목명과 현재가(또는 ATH) 중 하나는 필수입니다.'}), 400
 
     cur = db.cursor()
     cur.execute(
