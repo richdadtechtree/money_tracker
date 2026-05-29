@@ -431,7 +431,7 @@
             </div>
             <div class="mb-3">
               <label class="form-label small fw-semibold mb-1">총 투자금 (원) *</label>
-              <input type="number" class="form-control form-control-sm" id="np-budget" value="10000000">
+              <input type="text" inputmode="numeric" class="form-control form-control-sm" id="np-budget" value="10,000,000" oninput="fmtBudgetInput(this)">
             </div>
             <div class="d-flex gap-2">
               <button class="btn btn-secondary btn-sm flex-fill" onclick="toggleAddPlanForm()">취소</button>
@@ -482,7 +482,7 @@
                   </div>
                   <div class="col-6 col-sm-3">
                     <label class="form-label small fw-semibold mb-1">총 투자금</label>
-                    <input type="number" class="form-control form-control-sm" id="ep-budget">
+                    <input type="text" inputmode="numeric" class="form-control form-control-sm" id="ep-budget" oninput="fmtBudgetInput(this)">
                   </div>
                   <div class="col-6 col-sm-3">
                     <label class="form-label small fw-semibold mb-1">현재가</label>
@@ -1896,7 +1896,7 @@ function toggleAddPlanForm() {
   document.getElementById('np-ticker').value = '';
   document.getElementById('np-price').value  = '';
   document.getElementById('np-ath').value    = '';
-  document.getElementById('np-budget').value = '10000000';
+  document.getElementById('np-budget').value = '10,000,000';
   const sel = document.getElementById('np-from-stock');
   sel.innerHTML = '<option value="">— 직접 입력 —</option>';
   const addOpts = (items, label) => {
@@ -1933,7 +1933,7 @@ async function saveNewPlanInline() {
   const ticker = document.getElementById('np-ticker').value.trim();
   let   price  = parseFloat(document.getElementById('np-price').value)  || 0;
   let   ath    = parseFloat(document.getElementById('np-ath').value)    || 0;
-  const budget = parseInt(document.getElementById('np-budget').value)   || 0;
+  const budget = parseBudget(document.getElementById('np-budget').value);
   if (!name)        { showToast('종목명을 입력해 주세요.', 'warning'); return; }
   if (price <= 0)   { showToast('현재가를 입력해 주세요.', 'warning'); return; }
   if (budget <= 0)  { showToast('총 투자금을 입력해 주세요.', 'warning'); return; }
@@ -1963,7 +1963,7 @@ function toggleEditPlanForm() {
   if (opening && currentPlanData) {
     document.getElementById('ep-name').value   = currentPlanData.name || '';
     document.getElementById('ep-ticker').value = currentPlanData.ticker || '';
-    document.getElementById('ep-budget').value = currentPlanData.total_budget || 0;
+    document.getElementById('ep-budget').value = (currentPlanData.total_budget || 0).toLocaleString('ko-KR');
     document.getElementById('ep-price').value  = currentPlanData.current_price || '';
     document.getElementById('ep-ath').value    = currentPlanData.ath || '';
   }
@@ -1973,7 +1973,7 @@ async function saveEditedPlanInline() {
   if (!currentPlanId) return;
   const name   = document.getElementById('ep-name').value.trim();
   const ticker = document.getElementById('ep-ticker').value.trim();
-  const budget = parseInt(document.getElementById('ep-budget').value)  || 0;
+  const budget = parseBudget(document.getElementById('ep-budget').value);
   let   price  = parseFloat(document.getElementById('ep-price').value) || 0;
   let   ath    = parseFloat(document.getElementById('ep-ath').value)   || 0;
   if (!name) { showToast('종목명을 입력해 주세요.', 'warning'); return; }
@@ -2131,6 +2131,14 @@ async function deletePlanTx(txId) {
     renderBuyHistory();
     renderSellHistory();
   }
+}
+
+function fmtBudgetInput(input) {
+  const raw = input.value.replace(/[^0-9]/g, '');
+  input.value = raw ? parseInt(raw, 10).toLocaleString('ko-KR') : '';
+}
+function parseBudget(val) {
+  return parseInt((val || '').replace(/[^0-9]/g, ''), 10) || 0;
 }
 
 function switchToSplitPlanTab() {
