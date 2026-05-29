@@ -1563,6 +1563,9 @@ def api_split_buy_plans():
         current_price = float(current_price)
     else:
         current_price = None
+    drop_from  = float(data.get('drop_from', 30))
+    drop_to    = float(data.get('drop_to', 70))
+    step_count = int(data.get('step_count', 5))
 
     if current_price and current_price > 0 and ath <= 0:
         ath = current_price
@@ -1572,12 +1575,12 @@ def api_split_buy_plans():
 
     cur = db.cursor()
     cur.execute(
-        "INSERT INTO split_buy_plans (name, ticker, total_budget, ath, current_price) VALUES (%s, %s, %s, %s, %s) RETURNING id",
-        (name, ticker, total_budget, ath, current_price)
+        "INSERT INTO split_buy_plans (name, ticker, total_budget, ath, current_price, drop_from, drop_to, step_count) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        (name, ticker, total_budget, ath, current_price, drop_from, drop_to, step_count)
     )
     plan_id = cur.fetchone()['id']
 
-    # steps가 요청에 있으면 저장, 없으면 TQQQ 기본 40단계 생성 (-10% ~ -49%, 각 2.5%)
+    # steps가 요청에 있으면 저장, 없으면 범위 기반 균등 분배
     steps = data.get('steps')
     if steps:
         for s in steps:
@@ -1586,14 +1589,16 @@ def api_split_buy_plans():
                 (plan_id, int(s.get('step_number')), float(s.get('drawdown_pct')), float(s.get('ratio')))
             )
     else:
-        # TQQQ 40단계 기본 생성
-        for idx in range(40):
-            step_num = idx + 1
-            drawdown_pct = 10.0 + idx
-            ratio = 2.5
+        n = max(1, step_count)
+        ratio = round(100.0 / n, 6)
+        for i in range(n):
+            if n == 1:
+                drop = drop_from
+            else:
+                drop = drop_from + (drop_to - drop_from) * i / (n - 1)
             cur.execute(
                 "INSERT INTO split_buy_plan_steps (plan_id, step_number, drawdown_pct, ratio) VALUES (%s, %s, %s, %s)",
-                (plan_id, step_num, drawdown_pct, ratio)
+                (plan_id, i + 1, round(drop, 2), ratio)
             )
 
     db.commit()
@@ -1617,14 +1622,18 @@ def api_split_buy_plan_detail(rid):
         else:
             current_price = None
 
+        drop_from  = float(data.get('drop_from', 30))
+        drop_to    = float(data.get('drop_to', 70))
+        step_count = int(data.get('step_count', 5))
+
         if not name or ath <= 0:
             db.close()
             return jsonify({'error': '종목명과 최고가(ATH)는 필수 입력 사항입니다.'}), 400
 
         cur = db.cursor()
         cur.execute(
-            "UPDATE split_buy_plans SET name=%s, ticker=%s, total_budget=%s, ath=%s, current_price=%s WHERE id=%s",
-            (name, ticker, total_budget, ath, current_price, rid)
+            "UPDATE split_buy_plans SET name=%s, ticker=%s, total_budget=%s, ath=%s, current_price=%s, drop_from=%s, drop_to=%s, step_count=%s WHERE id=%s",
+            (name, ticker, total_budget, ath, current_price, drop_from, drop_to, step_count, rid)
         )
         db.commit()
         cur.close()

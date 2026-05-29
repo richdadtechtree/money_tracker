@@ -573,7 +573,10 @@ def init_db():
             quantity        REAL NOT NULL,
             tx_date         TEXT NOT NULL,
             memo            TEXT
-        )"""
+        )""",
+        "ALTER TABLE split_buy_plans ADD COLUMN IF NOT EXISTS drop_from REAL DEFAULT 30",
+        "ALTER TABLE split_buy_plans ADD COLUMN IF NOT EXISTS drop_to   REAL DEFAULT 70",
+        "ALTER TABLE split_buy_plans ADD COLUMN IF NOT EXISTS step_count INTEGER DEFAULT 5",
     ]
     for sql in migrations:
         try:

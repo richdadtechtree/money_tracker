@@ -533,12 +533,27 @@
 
           <!-- 매수 계획 테이블 -->
           <div class="card border-0 shadow-sm mb-3">
-            <div class="card-header border-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
+            <div class="card-header border-0 pt-3 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
               <span class="fw-semibold"><i class="bi bi-table me-2 text-primary"></i>매수 계획</span>
-              <div class="d-flex gap-2 align-items-center">
+              <div class="d-flex gap-2 align-items-center flex-wrap">
+                <!-- 하락률 범위 설정 -->
+                <div class="d-flex align-items-center gap-1">
+                  <input type="number" id="range-from" class="form-control form-control-sm text-center px-1"
+                    style="width:52px" min="1" max="99" step="1" placeholder="30" title="시작 하락률(%)">
+                  <span class="text-muted small">~</span>
+                  <input type="number" id="range-to" class="form-control form-control-sm text-center px-1"
+                    style="width:52px" min="1" max="99" step="1" placeholder="70" title="종료 하락률(%)">
+                  <span class="text-muted small">%</span>
+                  <input type="number" id="range-count" class="form-control form-control-sm text-center px-1"
+                    style="width:44px" min="1" max="30" step="1" placeholder="5" title="차수">
+                  <span class="text-muted small">차</span>
+                  <button class="btn btn-outline-secondary btn-sm" onclick="applyRangeToSteps()" title="하락률 범위 균등 적용">
+                    <i class="bi bi-check2"></i> 적용
+                  </button>
+                </div>
                 <span class="small text-muted" id="plan-step-count-text"></span>
                 <button class="btn btn-outline-primary btn-sm" onclick="addPlanStep()">
-                  <i class="bi bi-plus-lg"></i> 매수 시점 추가
+                  <i class="bi bi-plus-lg"></i> 추가
                 </button>
               </div>
             </div>
@@ -1696,6 +1711,59 @@ async function selectPlan(planId) {
   document.getElementById('detail-drop-pct').textContent = drop ? '-' + drop + '%' : '-';
 
   currentPlanSteps = await fetchJSON(`/api/split-buy-plans/${planId}/steps`) || [];
+
+  // 하락률 범위 입력 필드 채우기
+  const fromEl  = document.getElementById('range-from');
+  const toEl    = document.getElementById('range-to');
+  const cntEl   = document.getElementById('range-count');
+  if (fromEl)  fromEl.value  = currentPlanData.drop_from  ?? 30;
+  if (toEl)    toEl.value    = currentPlanData.drop_to    ?? 70;
+  if (cntEl)   cntEl.value   = currentPlanData.step_count ?? currentPlanSteps.length || 5;
+
+  renderSimplePlan();
+}
+
+async function applyRangeToSteps() {
+  if (!currentPlanId || !currentPlanData) return;
+  const fromVal  = parseFloat(document.getElementById('range-from').value);
+  const toVal    = parseFloat(document.getElementById('range-to').value);
+  const countVal = parseInt(document.getElementById('range-count').value);
+  if (isNaN(fromVal) || isNaN(toVal) || isNaN(countVal) || countVal < 1) {
+    showToast('시작%, 종료%, 차수를 모두 입력해주세요.', 'warning'); return;
+  }
+  if (fromVal >= toVal) { showToast('종료 하락률은 시작 하락률보다 커야 합니다.', 'warning'); return; }
+  if (fromVal < 1 || toVal > 99) { showToast('하락률은 1~99% 사이로 입력해주세요.', 'warning'); return; }
+
+  const n = countVal;
+  const ratio = parseFloat((100 / n).toFixed(6));
+  const newSteps = Array.from({ length: n }, (_, i) => ({
+    step_number:  i + 1,
+    drawdown_pct: n === 1 ? fromVal : parseFloat((fromVal + (toVal - fromVal) * i / (n - 1)).toFixed(2)),
+    ratio,
+  }));
+  currentPlanSteps = newSteps;
+
+  // 범위 설정 plan에 저장 (PUT)
+  await fetchJSON('/api/split-buy-plans/' + currentPlanId, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name:         currentPlanData.name,
+      ticker:       currentPlanData.ticker,
+      total_budget: currentPlanData.total_budget,
+      ath:          currentPlanData.ath,
+      current_price: currentPlanData.current_price,
+      drop_from:    fromVal,
+      drop_to:      toVal,
+      step_count:   n,
+    })
+  });
+  // 스텝 저장
+  await saveCurrentSteps();
+  currentPlanData.drop_from  = fromVal;
+  currentPlanData.drop_to    = toVal;
+  currentPlanData.step_count = n;
+  showToast(`${fromVal}%~${toVal}% / ${n}차 균등 적용 완료`);
   renderSimplePlan();
 }
 
