@@ -572,108 +572,6 @@
             </div>
           </div>
 
-          <!-- 매수 이력 -->
-          <div class="card border-0 shadow-sm mb-3">
-            <div class="card-header border-0 pt-3 pb-2 fw-semibold d-flex justify-content-between align-items-center">
-              <span>매수 이력</span>
-              <button class="btn btn-outline-success btn-sm" onclick="toggleBuyForm()">
-                <i class="bi bi-plus-lg"></i> 매수 기록
-              </button>
-            </div>
-            <div id="buyFormInline" class="d-none border-top p-3">
-              <div class="row g-2">
-                <div class="col-6 col-md-3">
-                  <label class="form-label small fw-semibold mb-1">날짜</label>
-                  <input type="date" class="form-control form-control-sm" id="buy-date">
-                </div>
-                <div class="col-6 col-md-3">
-                  <label class="form-label small fw-semibold mb-1">매수가</label>
-                  <input type="number" class="form-control form-control-sm" id="buy-price" step="0.01">
-                </div>
-                <div class="col-6 col-md-3">
-                  <label class="form-label small fw-semibold mb-1">수량</label>
-                  <input type="number" class="form-control form-control-sm" id="buy-qty" step="0.0001">
-                </div>
-                <div class="col-6 col-md-3">
-                  <label class="form-label small fw-semibold mb-1">메모</label>
-                  <input type="text" class="form-control form-control-sm" id="buy-memo">
-                </div>
-              </div>
-              <div class="d-flex gap-2 mt-2">
-                <button class="btn btn-secondary btn-sm" onclick="toggleBuyForm()">취소</button>
-                <button class="btn btn-success btn-sm" onclick="saveBuyRecord()">저장</button>
-              </div>
-            </div>
-            <div class="card-body p-0">
-              <div class="table-responsive">
-                <table class="table table-hover mb-0 small" id="planBuysTable">
-                  <thead class="table-light">
-                    <tr>
-                      <th class="text-center">날짜</th>
-                      <th class="text-end">매수가</th>
-                      <th class="text-end">수량</th>
-                      <th class="text-end">금액</th>
-                      <th class="text-center">메모</th>
-                      <th class="text-center">삭제</th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </div>
-            <div class="card-footer small text-muted py-2" id="buy-summary-footer"></div>
-          </div>
-
-          <!-- 매도 이력 -->
-          <div class="card border-0 shadow-sm">
-            <div class="card-header border-0 pt-3 pb-2 fw-semibold d-flex justify-content-between align-items-center">
-              <span>매도 이력</span>
-              <button class="btn btn-outline-secondary btn-sm" onclick="toggleSellForm()">
-                <i class="bi bi-plus-lg"></i> 매도 기록
-              </button>
-            </div>
-            <div id="sellFormInline" class="d-none border-top p-3">
-              <div class="row g-2">
-                <div class="col-6 col-md-3">
-                  <label class="form-label small fw-semibold mb-1">날짜</label>
-                  <input type="date" class="form-control form-control-sm" id="sell-date">
-                </div>
-                <div class="col-6 col-md-3">
-                  <label class="form-label small fw-semibold mb-1">매도가</label>
-                  <input type="number" class="form-control form-control-sm" id="sell-price" step="0.01">
-                </div>
-                <div class="col-6 col-md-3">
-                  <label class="form-label small fw-semibold mb-1">수량</label>
-                  <input type="number" class="form-control form-control-sm" id="sell-qty" step="0.0001">
-                </div>
-                <div class="col-6 col-md-3">
-                  <label class="form-label small fw-semibold mb-1">메모</label>
-                  <input type="text" class="form-control form-control-sm" id="sell-memo">
-                </div>
-              </div>
-              <div class="d-flex gap-2 mt-2">
-                <button class="btn btn-secondary btn-sm" onclick="toggleSellForm()">취소</button>
-                <button class="btn btn-secondary btn-sm" onclick="saveSellRecord()">저장</button>
-              </div>
-            </div>
-            <div class="card-body p-0">
-              <div class="table-responsive">
-                <table class="table table-hover mb-0 small" id="planSellsTable">
-                  <thead class="table-light">
-                    <tr>
-                      <th class="text-center">날짜</th>
-                      <th class="text-end">매도가</th>
-                      <th class="text-end">수량</th>
-                      <th class="text-end">수익금</th>
-                      <th class="text-center">메모</th>
-                      <th class="text-center">삭제</th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -1726,7 +1624,6 @@ document.querySelector('[href="#tab-split-plan"]').addEventListener('shown.bs.ta
 let currentPlanId = null;
 let currentPlanData = null;
 let currentPlanSteps = [];
-let currentPlanTx = [];
 
 async function loadPlanList() {
   const list = await fetchJSON('/api/split-buy-plans');
@@ -1796,11 +1693,7 @@ async function selectPlan(planId) {
   document.getElementById('detail-drop-pct').textContent = drop ? '-' + drop + '%' : '-';
 
   currentPlanSteps = await fetchJSON(`/api/split-buy-plans/${planId}/steps`) || [];
-  currentPlanTx    = await fetchJSON(`/api/split-buy-plans/${planId}/linked-tx`) || [];
-
   renderSimplePlan();
-  renderBuyHistory();
-  renderSellHistory();
 }
 
 function renderSimplePlan() {
@@ -2019,149 +1912,11 @@ async function deleteCurrentPlan() {
   const res = await fetchJSON('/api/split-buy-plans/' + currentPlanId, { method: 'DELETE' });
   if (res && res.ok) {
     showToast('삭제되었습니다.');
-    currentPlanId = null; currentPlanData = null; currentPlanSteps = []; currentPlanTx = [];
+    currentPlanId = null; currentPlanData = null; currentPlanSteps = [];
     await loadPlanList();
   }
 }
 
-// ── 매수 이력 ──
-function toggleBuyForm() {
-  const form = document.getElementById('buyFormInline');
-  const opening = form.classList.contains('d-none');
-  form.classList.toggle('d-none');
-  if (opening) {
-    document.getElementById('buy-date').value  = new Date().toISOString().split('T')[0];
-    document.getElementById('buy-price').value = currentPlanData && currentPlanData.current_price ? currentPlanData.current_price : '';
-    document.getElementById('buy-qty').value   = '';
-    document.getElementById('buy-memo').value  = '';
-  }
-}
-
-async function saveBuyRecord() {
-  const txDate = document.getElementById('buy-date').value;
-  const price  = parseFloat(document.getElementById('buy-price').value) || 0;
-  const qty    = parseFloat(document.getElementById('buy-qty').value)   || 0;
-  const memo   = document.getElementById('buy-memo').value.trim();
-  if (!txDate || price <= 0 || qty <= 0) { showToast('날짜, 매수가, 수량은 필수입니다.', 'warning'); return; }
-  const res = await fetchJSON('/api/split-buy-plans/' + currentPlanId + '/linked-tx', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tx_type: 'buy', price, quantity: qty, tx_date: txDate, memo })
-  });
-  if (res && res.ok) {
-    showToast('매수 기록 저장!');
-    document.getElementById('buyFormInline').classList.add('d-none');
-    currentPlanTx = await fetchJSON('/api/split-buy-plans/' + currentPlanId + '/linked-tx') || [];
-    renderBuyHistory();
-  } else { showToast(res && res.error ? res.error : '저장 실패', 'danger'); }
-}
-
-function renderBuyHistory() {
-  const tbody = document.querySelector('#planBuysTable tbody');
-  if (!tbody) return;
-  const buys = (currentPlanTx || []).filter(t => t.tx_type === 'buy');
-  tbody.innerHTML = '';
-  const footer = document.getElementById('buy-summary-footer');
-  if (buys.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3 small">매수 이력이 없습니다.</td></tr>';
-    if (footer) footer.textContent = '';
-    return;
-  }
-  const foreign = isForeign(currentPlanData && currentPlanData.ticker);
-  let totalAmt = 0, totalQty = 0;
-  buys.sort((a, b) => a.tx_date > b.tx_date ? -1 : 1).forEach(b => {
-    const price = parseFloat(b.price);
-    const qty   = parseFloat(b.quantity);
-    const amt   = foreign ? price * usdKrw * qty : price * qty;
-    totalAmt += amt; totalQty += qty;
-    const priceDisplay = foreign ? fmtUsd(price) : Math.round(price).toLocaleString() + '원';
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td class="text-center">${b.tx_date}</td>
-      <td class="text-end">${priceDisplay}</td>
-      <td class="text-end">${qty.toFixed(4)}</td>
-      <td class="text-end">${Math.round(amt).toLocaleString()}원</td>
-      <td class="text-center text-muted">${b.memo || ''}</td>
-      <td class="text-center"><button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="deletePlanTx('${b.source}',${b.id})"><i class="bi bi-x"></i></button></td>`;
-    tbody.appendChild(tr);
-  });
-  const avgKrw = totalQty > 0 ? totalAmt / totalQty : 0;
-  const avgDisplay = foreign ? fmtUsd(avgKrw / usdKrw) : Math.round(avgKrw).toLocaleString() + '원';
-  if (footer) footer.textContent = '총 ' + buys.length + '건 · 보유 ' + totalQty.toFixed(4) + '주 · 평균 매수가 ' + avgDisplay;
-}
-
-// ── 매도 이력 ──
-function toggleSellForm() {
-  const form = document.getElementById('sellFormInline');
-  const opening = form.classList.contains('d-none');
-  form.classList.toggle('d-none');
-  if (opening) {
-    document.getElementById('sell-date').value  = new Date().toISOString().split('T')[0];
-    document.getElementById('sell-price').value = currentPlanData && currentPlanData.current_price ? currentPlanData.current_price : '';
-    document.getElementById('sell-qty').value   = '';
-    document.getElementById('sell-memo').value  = '';
-  }
-}
-
-async function saveSellRecord() {
-  const txDate = document.getElementById('sell-date').value;
-  const price  = parseFloat(document.getElementById('sell-price').value) || 0;
-  const qty    = parseFloat(document.getElementById('sell-qty').value)   || 0;
-  const memo   = document.getElementById('sell-memo').value.trim();
-  if (!txDate || price <= 0 || qty <= 0) { showToast('날짜, 매도가, 수량은 필수입니다.', 'warning'); return; }
-  const res = await fetchJSON('/api/split-buy-plans/' + currentPlanId + '/linked-tx', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tx_type: 'sell', price, quantity: qty, tx_date: txDate, memo })
-  });
-  if (res && res.ok) {
-    showToast('매도 기록 저장!');
-    document.getElementById('sellFormInline').classList.add('d-none');
-    currentPlanTx = await fetchJSON('/api/split-buy-plans/' + currentPlanId + '/linked-tx') || [];
-    renderSellHistory();
-  } else { showToast(res && res.error ? res.error : '저장 실패', 'danger'); }
-}
-
-function renderSellHistory() {
-  const tbody = document.querySelector('#planSellsTable tbody');
-  if (!tbody) return;
-  const sells = (currentPlanTx || []).filter(t => t.tx_type === 'sell');
-  tbody.innerHTML = '';
-  if (sells.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3 small">매도 이력이 없습니다.</td></tr>';
-    return;
-  }
-  const foreign = isForeign(currentPlanData && currentPlanData.ticker);
-  const buys = (currentPlanTx || []).filter(t => t.tx_type === 'buy');
-  const tq = buys.reduce((s, b) => s + parseFloat(b.quantity), 0);
-  const ta = buys.reduce((s, b) => s + parseFloat(b.price) * parseFloat(b.quantity), 0);
-  const avgBuyPrice = tq > 0 ? ta / tq : 0; // USD if foreign, KRW if domestic
-  sells.sort((a, b) => a.tx_date > b.tx_date ? -1 : 1).forEach(s => {
-    const sellPrice = parseFloat(s.price);
-    const qty = parseFloat(s.quantity);
-    const pnlNative = (sellPrice - avgBuyPrice) * qty; // in USD or KRW
-    const pnlKrw = foreign ? pnlNative * usdKrw : pnlNative;
-    const priceDisplay = foreign ? fmtUsd(sellPrice) : Math.round(sellPrice).toLocaleString() + '원';
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td class="text-center">${s.tx_date}</td>
-      <td class="text-end">${priceDisplay}</td>
-      <td class="text-end">${qty.toFixed(4)}</td>
-      <td class="text-end ${pnlKrw >= 0 ? 'text-danger' : 'text-primary'} fw-semibold">${pnlKrw >= 0 ? '+' : ''}${Math.round(pnlKrw).toLocaleString()}원</td>
-      <td class="text-center text-muted">${s.memo || ''}</td>
-      <td class="text-center"><button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="deletePlanTx('${s.source}',${s.id})"><i class="bi bi-x"></i></button></td>`;
-    tbody.appendChild(tr);
-  });
-}
-
-async function deletePlanTx(source, txId) {
-  if (!confirm('이 거래 내역을 삭제하시겠습니까?\n주식/ETF 탭의 거래 내역에서도 함께 삭제됩니다.')) return;
-  const res = await fetchJSON('/api/split-buy-plans/' + currentPlanId + '/linked-tx/' + source + '/' + txId, { method: 'DELETE' });
-  if (res && res.ok) {
-    showToast('삭제되었습니다.');
-    currentPlanTx = await fetchJSON('/api/split-buy-plans/' + currentPlanId + '/linked-tx') || [];
-    renderBuyHistory();
-    renderSellHistory();
-  }
-}
 
 function fmtBudgetInput(input) {
   const raw = input.value.replace(/[^0-9]/g, '');
