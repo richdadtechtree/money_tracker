@@ -1628,9 +1628,13 @@ async function initPage() {
     const badge = document.getElementById('usdkrw-badge');
     if (badge) badge.textContent = `USD/KRW ${usdKrw.toLocaleString('ko-KR')}`;
   }
-  stockGrid.load();   // onLoad → allStocks 세팅 → stockTxGrid.load() 자동 호출
-  etfGrid.load();     // 주식+ETF 합산 표시를 위해 페이지 로드 시 함께 로드
-  cryptoGrid.load();
+  
+  // 기존 DB에 저장되어 있는 데이터를 즉시 로딩해 줍니다. (사용자 대기 차단)
+  await Promise.all([
+    stockGrid.load(),
+    etfGrid.load(),
+    cryptoGrid.load()
+  ]);
 
   // ETF 분할계획기 셀렉트박스 옵션 빌드
   setTimeout(() => {
@@ -1643,6 +1647,9 @@ async function initPage() {
 
   // 거래내역 로드 호출
   loadStockTx();
+
+  // 백그라운드에서 실시간 시세 자동 갱신 수행
+  updateAllPrices();
 }
 
 initPage();

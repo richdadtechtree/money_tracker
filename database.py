@@ -1,6 +1,7 @@
 import os
 import psycopg2
 from psycopg2.extras import DictCursor
+from psycopg2.pool import ThreadedConnectionPool
 
 def load_dotenv():
     env_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -19,12 +20,46 @@ def load_dotenv():
 # 로컬 .env 파일 자동 로드
 load_dotenv()
 
+_pool = None
+
+def init_pool():
+    global _pool
+    if _pool is None:
+        db_url = os.environ.get('DATABASE_URL')
+        if not db_url:
+            raise ValueError("DATABASE_URL environment variable is not set")
+        # 커넥션 풀 초기화 (최소 2개, 최대 20개 연결 유지)
+        _pool = ThreadedConnectionPool(2, 20, db_url, cursor_factory=DictCursor)
+
+class PooledConnectionWrapper:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if hasattr(self._conn, '__exit__'):
+            return self._conn.__exit__(exc_type, exc_val, exc_tb)
+        return False
+
+    def close(self):
+        global _pool
+        if _pool:
+            # 커넥션을 닫지 않고 풀에 반환합니다.
+            _pool.putconn(self._conn)
+        else:
+            self._conn.close()
+
 def get_db():
-    db_url = os.environ.get('DATABASE_URL')
-    if not db_url:
-        raise ValueError("DATABASE_URL environment variable is not set")
-    conn = psycopg2.connect(db_url, cursor_factory=DictCursor)
-    return conn
+    global _pool
+    if _pool is None:
+        init_pool()
+    conn = _pool.getconn()
+    return PooledConnectionWrapper(conn)
 
 
 def init_db():
