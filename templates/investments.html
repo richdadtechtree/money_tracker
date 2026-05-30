@@ -2114,17 +2114,32 @@ async function updateAllPrices() {
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>업데이트 중...';
 
   try {
-    // 환율 + 주식 가격 동시 갱신
-    const [rateData, res] = await Promise.all([
-      fetchJSON('/api/exchange-rate'),
-      fetchJSON('/api/price-update', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' }),
-    ]);
+    // 1. 환율 업데이트
+    const rateData = await fetchJSON('/api/exchange-rate');
     if (rateData?.rate) {
       usdKrw = rateData.rate;
       const badge = document.getElementById('usdkrw-badge');
       if (badge) badge.textContent = `USD/KRW ${usdKrw.toLocaleString('ko-KR')}`;
     }
-    if (!res) throw new Error('응답 없음');
+
+    // 2. 백그라운드 업데이트 시작 요청
+    const startRes = await fetchJSON('/api/price-update', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    if (!startRes) throw new Error('업데이트 시작 요청 실패');
+
+    // 3. 완료될 때까지 폴링 (최대 30초, 1초 간격)
+    let attempts = 0;
+    let res = null;
+    while (attempts < 30) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      const statusRes = await fetchJSON('/api/price-update/status');
+      if (statusRes && !statusRes.is_updating) {
+        res = statusRes.last_result;
+        break;
+      }
+      attempts++;
+    }
+
+    if (!res) throw new Error('업데이트 타임아웃 또는 데이터가 없습니다.');
 
     // 화면 새로고침
     _combinedTotalLoaded = false;  // 가격 갱신 후 합산도 재계산
@@ -2138,18 +2153,18 @@ async function updateAllPrices() {
     }
 
     // 결과 토스트
-    const ok_s  = res.stocks.filter(x => x.ok).length;
-    const ok_e  = res.etf.filter(x => x.ok).length;
-    const ok_c  = res.crypto.filter(x => x.ok).length;
+    const ok_s  = res.stocks ? res.stocks.filter(x => x.ok).length : 0;
+    const ok_e  = res.etf ? res.etf.filter(x => x.ok).length : 0;
+    const ok_c  = res.crypto ? res.crypto.filter(x => x.ok).length : 0;
     const ok_p  = res.split_plans ? res.split_plans.filter(x => x.ok).length : 0;
     const total_p = res.split_plans ? res.split_plans.length : 0;
     const errs  = res.errors || [];
 
     let msg = `✅ 현재가 업데이트 완료`;
     const parts = [];
-    if (res.stocks.length) parts.push(`주식 ${ok_s}/${res.stocks.length}종`);
-    if (res.etf.length)    parts.push(`ETF ${ok_e}/${res.etf.length}종`);
-    if (res.crypto.length) parts.push(`코인 ${ok_c}/${res.crypto.length}종`);
+    if (res.stocks && res.stocks.length) parts.push(`주식 ${ok_s}/${res.stocks.length}종`);
+    if (res.etf && res.etf.length)    parts.push(`ETF ${ok_e}/${res.etf.length}종`);
+    if (res.crypto && res.crypto.length) parts.push(`코인 ${ok_c}/${res.crypto.length}종`);
     if (total_p)           parts.push(`분할매수 계획 ${ok_p}/${total_p}종`);
     if (parts.length) msg += ` (${parts.join(', ')})`;
     if (errs.length)  msg += `\n⚠️ 실패: ${errs.join(', ')}`;

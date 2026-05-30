@@ -2240,9 +2240,34 @@ def _fetch_crypto_prices(symbols: list[str]) -> dict[str, float]:
     return result
 
 
-@app.route('/api/price-update', methods=['POST'])
-def api_price_update():
-    """등록된 모든 종목(주식/ETF/코인)의 현재가를 외부 API로 조회 후 DB 업데이트"""
+import threading
+
+_price_update_status = {"is_updating": False, "last_result": None}
+_price_update_lock = threading.Lock()
+
+def _bg_price_update():
+    global _price_update_status
+    with _price_update_lock:
+        _price_update_status["is_updating"] = True
+    
+    try:
+        results = _run_price_update_logic()
+        with _price_update_lock:
+            _price_update_status["last_result"] = results
+            # 가격 업데이트가 완료되었으므로 캐시를 무효화합니다.
+            _clear_summary_cache()
+    except Exception as e:
+        import traceback
+        with _price_update_lock:
+            _price_update_status["last_result"] = {
+                "stocks": [], "etf": [], "crypto": [], "split_plans": [],
+                "errors": [f"백그라운드 스레드 예외: {str(e)}", traceback.format_exc()]
+            }
+    finally:
+        with _price_update_lock:
+            _price_update_status["is_updating"] = False
+
+def _run_price_update_logic():
     import traceback
     db = get_db()
     results = {'stocks': [], 'etf': [], 'crypto': [], 'errors': []}
@@ -2350,7 +2375,27 @@ def api_price_update():
     finally:
         db.close()
 
-    return jsonify(results)
+    return results
+
+@app.route('/api/price-update', methods=['POST'])
+def api_price_update():
+    """등록된 모든 종목(주식/ETF/코인)의 현재가를 외부 API로 백그라운드 스레드에서 조회 후 DB 업데이트"""
+    global _price_update_status
+    
+    with _price_update_lock:
+        if _price_update_status["is_updating"]:
+            return jsonify({"ok": True, "status": "already_updating"})
+            
+    t = threading.Thread(target=_bg_price_update)
+    t.start()
+    return jsonify({"ok": True, "status": "started"})
+
+@app.route('/api/price-update/status', methods=['GET'])
+def api_price_update_status():
+    """백그라운드 현재가 업데이트의 진행 상태 조회"""
+    global _price_update_status
+    with _price_update_lock:
+        return jsonify(_price_update_status)
 
 
 @app.route('/api/price-test')
