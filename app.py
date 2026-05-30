@@ -343,56 +343,63 @@ def api_budget():
         if year and month:
             try:
                 req_ym = f"{year}-{month.zfill(2)}"
-                today_d = date.today()
-                cur_ym  = today_d.strftime('%Y-%m')
                 cur = db.cursor()
                 cur.execute("SELECT * FROM budget_recurring WHERE active = TRUE")
                 recurrings = rows_to_list(cur.fetchall())
                 cur.close()
 
-                for rec in recurrings:
-                    # 이 반복항목의 가장 오래된 budget 날짜 → 시작 월 산정
+                if recurrings:
+                    rec_ids = [rec['id'] for rec in recurrings]
                     cur = db.cursor()
+                    # 1. 각 recurring별로 최소 날짜 (MIN(date)) 한번에 가져오기
                     cur.execute(
-                        "SELECT MIN(date) FROM budget WHERE recurring_id=%s", (rec['id'],)
+                        "SELECT recurring_id, MIN(date) FROM budget WHERE recurring_id IN %s GROUP BY recurring_id", 
+                        (tuple(rec_ids),)
                     )
-                    min_row = cur.fetchone()
+                    min_dates = {row[0]: row[1] for row in cur.fetchall() if row[0] is not None}
+                    
+                    # 2. 각 recurring별로 이미 존재하는 YYYY-MM 집합 한번에 가져오기
+                    cur.execute(
+                        "SELECT recurring_id, to_char(date::date, 'YYYY-MM') AS ym FROM budget WHERE recurring_id IN %s",
+                        (tuple(rec_ids),)
+                    )
+                    existing_yms = {(row[0], row[1]) for row in cur.fetchall() if row[0] is not None and row[1] is not None}
                     cur.close()
-                    if min_row and min_row[0]:
-                        start_ym = str(min_row[0])[:7]
-                    else:
-                        start_ym = req_ym
 
-                    # 시작 월부터 요청 월까지 (최대 24개월) 누락 월 보충
-                    sy, sm = int(start_ym[:4]), int(start_ym[5:])
-                    ey, em = int(req_ym[:4]), int(req_ym[5:])
-                    limit  = 24
-                    while (sy < ey or (sy == ey and sm <= em)) and limit > 0:
-                        check_ym  = f"{sy}-{sm:02d}"
-                        date_str  = f"{check_ym}-01"
-                        cur = db.cursor()
-                        cur.execute(
-                            "SELECT id FROM budget WHERE recurring_id=%s AND to_char(date::date,'YYYY-MM')=%s",
-                            (rec['id'], check_ym)
-                        )
-                        exists = cur.fetchone()
-                        cur.close()
-                        if not exists:
-                            cur = db.cursor()
-                            cur.execute(
-                                "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id,recurring_id) "
-                                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                                (date_str, rec['category'], rec['name'], rec['type'],
-                                 rec['payment_method'], rec['amount'], rec['memo'],
-                                 rec['card_id'], rec['id'])
-                            )
-                            cur.close()
-                        sm += 1
-                        if sm > 12: sm = 1; sy += 1
-                        limit -= 1
+                    for rec in recurrings:
+                        min_date = min_dates.get(rec['id'])
+                        if min_date:
+                            start_ym = str(min_date)[:7]
+                        else:
+                            start_ym = req_ym
+
+                        # 시작 월부터 요청 월까지 (최대 24개월) 누락 월 보충
+                        sy, sm = int(start_ym[:4]), int(start_ym[5:])
+                        ey, em = int(req_ym[:4]), int(req_ym[5:])
+                        limit  = 24
+                        while (sy < ey or (sy == ey and sm <= em)) and limit > 0:
+                            check_ym  = f"{sy}-{sm:02d}"
+                            date_str  = f"{check_ym}-01"
+                            
+                            # 인메모리 검색으로 쿼리 획기적 제거
+                            if (rec['id'], check_ym) not in existing_yms:
+                                cur = db.cursor()
+                                cur.execute(
+                                    "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id,recurring_id) "
+                                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                                    (date_str, rec['category'], rec['name'], rec['type'],
+                                     rec['payment_method'], rec['amount'], rec['memo'],
+                                     rec['card_id'], rec['id'])
+                                )
+                                cur.close()
+                                existing_yms.add((rec['id'], check_ym))
+                            sm += 1
+                            if sm > 12: sm = 1; sy += 1
+                            limit -= 1
                 db.commit()
-            except Exception:
+            except Exception as e:
                 db.rollback()
+                print("Error in auto recurring check:", e)
 
         query = """SELECT b.*, c.card_name
                    FROM budget b
