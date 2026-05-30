@@ -32,8 +32,9 @@ def init_pool():
         _pool = ThreadedConnectionPool(2, 20, db_url, cursor_factory=DictCursor)
 
 class PooledConnectionWrapper:
-    def __init__(self, conn):
+    def __init__(self, conn, is_request_scoped=False):
         self._conn = conn
+        self._is_request_scoped = is_request_scoped
 
     def __getattr__(self, name):
         return getattr(self._conn, name)
@@ -47,9 +48,11 @@ class PooledConnectionWrapper:
         return False
 
     def close(self):
+        # request-scoped 커넥션은 요청이 끝날 때 teardown 훅에서 반환하므로 early close하지 않습니다.
+        if self._is_request_scoped:
+            return
         global _pool
         if _pool:
-            # 커넥션을 닫지 않고 풀에 반환합니다.
             _pool.putconn(self._conn)
         else:
             self._conn.close()
@@ -58,8 +61,20 @@ def get_db():
     global _pool
     if _pool is None:
         init_pool()
-    conn = _pool.getconn()
-    return PooledConnectionWrapper(conn)
+    
+    try:
+        from flask import g, has_app_context
+    except ImportError:
+        g = None
+        has_app_context = lambda: False
+
+    if has_app_context():
+        if not hasattr(g, 'db_conn'):
+            g.db_conn = _pool.getconn()
+        return PooledConnectionWrapper(g.db_conn, is_request_scoped=True)
+    else:
+        conn = _pool.getconn()
+        return PooledConnectionWrapper(conn, is_request_scoped=False)
 
 
 def init_db():

@@ -33,6 +33,40 @@ CORS(app)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'richdadtechtree-money-secret-key-1029384756!')
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '881691238914-testlocalgoogleclientid.apps.googleusercontent.com')
 
+from flask_caching import Cache
+cache = Cache(app, config={
+    'CACHE_TYPE': 'SimpleCache',
+    'CACHE_DEFAULT_TIMEOUT': 120  # 기본 2분
+})
+
+def _clear_summary_cache():
+    """수입/지출/자산 데이터 변경 시 모든 캐시 삭제"""
+    try:
+        cache.clear()
+    except Exception as e:
+        print("Error clearing cache:", e)
+
+@app.after_request
+def clear_cache_on_modification(response):
+    if request.method in ('POST', 'PUT', 'DELETE'):
+        if 200 <= response.status_code < 400:
+            _clear_summary_cache()
+    return response
+
+@app.teardown_appcontext
+def close_db_connection(exception=None):
+    from flask import g
+    db_conn = getattr(g, 'db_conn', None)
+    if db_conn is not None:
+        try:
+            from database import _pool
+            if _pool:
+                _pool.putconn(db_conn)
+            else:
+                db_conn.close()
+        except Exception as e:
+            print("Error returning connection to pool on teardown:", e)
+
 from flask.json.provider import DefaultJSONProvider
 class CustomJSONProvider(DefaultJSONProvider):
     def default(self, obj):
@@ -189,6 +223,16 @@ def analysis_calculator():
 
 
 # ── 공통 헬퍼 ────────────────────────────────────────────────
+def _month_range(year_str, month_str):
+    """'YYYY', 'MM' -> ('YYYY-MM-01', 'YYYY-MM-01' (next month))"""
+    y, m = int(year_str), int(month_str)
+    start = f"{y:04d}-{m:02d}-01"
+    if m == 12:
+        end = f"{y+1:04d}-01-01"
+    else:
+        end = f"{y:04d}-{m+1:02d}-01"
+    return start, end
+
 def rows_to_list(rows):
     res = []
     for r in rows:
@@ -210,8 +254,9 @@ def api_income():
         query = "SELECT * FROM income"
         params = []
         if year and month:
-            query += " WHERE to_char(date::date, 'YYYY') = %s AND to_char(date::date, 'MM') = %s"
-            params = [year, month.zfill(2)]
+            query += " WHERE date >= %s AND date < %s"
+            start_date, end_date = _month_range(year, month)
+            params = [start_date, end_date]
         query += " ORDER BY date DESC"
         cur = db.cursor()
         cur.execute(query, params)
@@ -406,8 +451,9 @@ def api_budget():
                    LEFT JOIN card_info c ON b.card_id = c.id"""
         params = []
         if year and month:
-            query += " WHERE to_char(b.date::date, 'YYYY') = %s AND to_char(b.date::date, 'MM') = %s"
-            params = [year, month.zfill(2)]
+            query += " WHERE b.date >= %s AND b.date < %s"
+            start_date, end_date = _month_range(year, month)
+            params = [start_date, end_date]
         query += " ORDER BY b.date DESC"
         cur = db.cursor()
         cur.execute(query, params)
@@ -2500,32 +2546,44 @@ def api_residence_detail(rid):
 # ── API: 부동산 ──────────────────────────────────────────────
 def _re_enrich(db, rows):
     """real_estate 목록에 현재 계약 정보·비용 집계·실수익률 추가"""
+    if not rows:
+        return []
+        
+    re_ids = [r['id'] for r in rows]
+    
+    cur = db.cursor()
+    # 부동산별 가장 최근의 계약 가져오기 (PostgreSQL의 DISTINCT ON 사용)
+    cur.execute("""
+        SELECT DISTINCT ON (real_estate_id)
+            real_estate_id, contract_type, deposit, monthly_rent, end_date
+        FROM tenant_contracts
+        WHERE real_estate_id IN %s
+        ORDER BY real_estate_id, end_date DESC, id DESC
+    """, (tuple(re_ids),))
+    contracts = {r['real_estate_id']: r for r in cur.fetchall()}
+    cur.close()
+
+    cur = db.cursor()
+    # 부동산별 취득비용 및 순손익(임대수익 - 기타비용) 합계를 한번에 가져오기
+    cur.execute("""
+        SELECT real_estate_id,
+            COALESCE(SUM(CASE WHEN cost_type='취득비용' THEN amount ELSE 0 END), 0) AS acq_cost,
+            COALESCE(SUM(CASE WHEN cost_type='임대수익' THEN amount ELSE -amount END), 0) AS net_extra
+        FROM property_costs
+        WHERE real_estate_id IN %s
+        GROUP BY real_estate_id
+    """, (tuple(re_ids),))
+    costs = {r['real_estate_id']: r for r in cur.fetchall()}
+    cur.close()
+
     result = []
     for r in rows:
         rid = r['id']
-        # 현재 유효 계약 (end_date 가장 최근)
-        cur = db.cursor()
-        cur.execute(
-        "SELECT * FROM tenant_contracts WHERE real_estate_id=%s ORDER BY end_date DESC LIMIT 1", (rid,)
-        )
-        contract = cur.fetchone()
-        cur.close()
-        # 취득비용 합계
-        cur = db.cursor()
-        cur.execute(
-        "SELECT COALESCE(SUM(amount),0) as v FROM property_costs "
-        "WHERE real_estate_id=%s AND cost_type='취득비용'", (rid,)
-        )
-        acq_cost = cur.fetchone()['v']
-        cur.close()
-        # 순손익에 반영될 비용/수익 합계 (amount: 수익=양수, 비용=음수)
-        cur = db.cursor()
-        cur.execute(
-        "SELECT COALESCE(SUM(CASE WHEN cost_type='임대수익' THEN amount ELSE -amount END),0) as v "
-        "FROM property_costs WHERE real_estate_id=%s", (rid,)
-        )
-        net_extra = cur.fetchone()['v']
-        cur.close()
+        contract = contracts.get(rid)
+        cost = costs.get(rid, {'acq_cost': 0, 'net_extra': 0})
+
+        acq_cost = cost['acq_cost']
+        net_extra = cost['net_extra']
 
         deposit = contract['deposit'] if contract else 0
         purchase = r['purchase_price']
@@ -4132,6 +4190,7 @@ def api_lifecycle_simulate():
 
 # ── API: 대시보드 집계 ───────────────────────────────────────
 @app.route('/api/dashboard')
+@cache.cached(timeout=120, query_string=True)
 def api_dashboard():
     try:
      return _api_dashboard_inner()
@@ -4454,6 +4513,7 @@ def _calc_annual_avg_income(db):
 
 
 @app.route('/api/tech-tree-data')
+@cache.cached(timeout=180)
 def api_tech_tree_data():
     try:
         return _api_tech_tree_data_inner()
@@ -4465,90 +4525,114 @@ def _api_tech_tree_data_inner():
     db = get_db()
     ex_rate = get_current_exchange_rate()
     stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate)
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
-    crypto_val = float(cur.fetchone()[0] or 0)
-    cur.close()
-    # 부동산 가치 계산 (현재 시세 총합 - 임대 보증금 총합)
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
-    re_total_price = float(cur.fetchone()[0] or 0)
-    cur.close()
-    # 각 부동산별 가장 최근 계약의 보증금 합계
-    cur = db.cursor()
-    cur.execute("""
-    SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts
-    WHERE id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
-    """)
-    re_total_deposit = float(cur.fetchone()[0] or 0)
-    cur.close()
 
-    # 거주지 보증금 (본인이 돌려받을 돈이므로 자산에 포함)
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
-    residence_deposit = float(cur.fetchone()[0] or 0)
-    cur.close()
-
-    re_val = re_total_price - re_total_deposit + residence_deposit
-
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
-    cash_val = float(cur.fetchone()[0] or 0)
-    cur.close()
-
-    # 연금 자산 추가
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
-    pension_val = float(cur.fetchone()[0] or 0)
-    cur.close()
-    
-    # ── [변경] 연평균 유입속도 산출 ──────────────────────────
-    avg_income = _calc_annual_avg_income(db)
-
-    # 소득 현황 (이번달 기준, 오늘 이후 날짜의 반복 수입 등은 제외)
     today = date.today()
     ym = today.strftime('%Y-%m')
-    # 근로소득: 급여, 사업소득(자영업) - 수입관리 데이터에서 직접 집계
-    cur = db.cursor()
-    cur.execute(
-    "SELECT COALESCE(SUM(amount),0) FROM income "
-    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= CURRENT_DATE",
-    (ym,)
-    )
-    labor_inc = float(cur.fetchone()[0] or 0)
-    cur.close()
+    
+    # 인덱스 친화적인 날짜 범위 계산
+    ym_start = today.strftime('%Y-%m-01')
+    if today.month == 12:
+        ym_end = date(today.year + 1, 1, 1).strftime('%Y-%m-01')
+    else:
+        ym_end = date(today.year, today.month + 1, 1).strftime('%Y-%m-01')
 
-    # 자생소득: 그 외 모든 수입
-    cur = db.cursor()
-    cur.execute(
-    "SELECT COALESCE(SUM(amount),0) FROM income "
-    "WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= CURRENT_DATE",
-    (ym,)
-    )
-    passive_inc = float(cur.fetchone()[0] or 0)
-    cur.close()
-
-    # 부동산 월세(임대료) 자동 합산
+    # 단일 CTE 쿼리로 여러 집계 데이터 일괄 조회
     cur = db.cursor()
     cur.execute("""
-    SELECT COALESCE(SUM(monthly_rent), 0)
-    FROM tenant_contracts
-    WHERE contract_type = '월세'
-    AND id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
-    """)
-    rental_inc = float(cur.fetchone()[0] or 0)
+    WITH
+        crypto_val AS (SELECT COALESCE(SUM(current_price * quantity), 0) AS val FROM crypto),
+        re_total_price AS (SELECT COALESCE(SUM(current_price), 0) AS val FROM real_estate),
+        re_total_deposit AS (
+            SELECT COALESCE(SUM(deposit), 0) AS val FROM tenant_contracts
+            WHERE id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
+        ),
+        residence_deposit AS (SELECT COALESCE(SUM(deposit), 0) AS val FROM residence),
+        cash_val AS (SELECT COALESCE(SUM(amount), 0) AS val FROM cash_deposits),
+        pension_val AS (SELECT COALESCE(SUM(accumulated), 0) AS val FROM pension),
+        
+        labor_inc AS (
+            SELECT COALESCE(SUM(amount), 0) AS val FROM income
+            WHERE date >= %s AND date < %s AND category IN ('급여', '사업소득') AND date <= CURRENT_DATE
+        ),
+        passive_inc AS (
+            SELECT COALESCE(SUM(amount), 0) AS val FROM income
+            WHERE date >= %s AND date < %s AND category NOT IN ('급여', '사업소득') AND date <= CURRENT_DATE
+        ),
+        
+        rental_inc AS (
+            SELECT COALESCE(SUM(monthly_rent), 0) AS val FROM tenant_contracts
+            WHERE contract_type = '월세'
+              AND id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
+        ),
+        leverage_inc AS (
+            SELECT COALESCE(SUM(deposit * 0.04 / 12), 0) AS val FROM tenant_contracts
+            WHERE contract_type = '전세'
+              AND id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
+        ),
+        expense_total AS (
+            SELECT COALESCE(SUM(amount), 0) AS val FROM budget WHERE date >= %s AND date < %s
+        ),
+        card_total AS (
+            SELECT COALESCE(SUM(amount), 0) AS val FROM card_tx WHERE date >= %s AND date < %s AND budget_id IS NULL
+        ),
+        loan_repayment AS (SELECT COALESCE(SUM(monthly_payment), 0) AS val FROM loans),
+        
+        s_buy AS (
+            SELECT COALESCE(SUM(price*quantity), 0) AS val FROM stock_tx 
+            WHERE tx_date >= %s AND tx_date < %s AND tx_type='buy'
+        ),
+        s_sell AS (
+            SELECT COALESCE(SUM(price*quantity), 0) AS val FROM stock_tx 
+            WHERE tx_date >= %s AND tx_date < %s AND tx_type='sell'
+        ),
+        c_buy AS (
+            SELECT COALESCE(SUM(buy_price*quantity), 0) AS val FROM crypto 
+            WHERE buy_date >= %s AND buy_date < %s
+        ),
+        target_amount AS (SELECT value AS val FROM app_settings WHERE key = 'techTreeTarget')
+
+    SELECT
+        (SELECT val FROM crypto_val) AS crypto_val,
+        (SELECT val FROM re_total_price) AS re_total_price,
+        (SELECT val FROM re_total_deposit) AS re_total_deposit,
+        (SELECT val FROM residence_deposit) AS residence_deposit,
+        (SELECT val FROM cash_val) AS cash_val,
+        (SELECT val FROM pension_val) AS pension_val,
+        (SELECT val FROM labor_inc) AS labor_inc,
+        (SELECT val FROM passive_inc) AS passive_inc,
+        (SELECT val FROM rental_inc) AS rental_inc,
+        (SELECT val FROM leverage_inc) AS leverage_inc,
+        (SELECT val FROM expense_total) AS expense_total,
+        (SELECT val FROM card_total) AS card_total,
+        (SELECT val FROM loan_repayment) AS loan_repayment,
+        (SELECT val FROM s_buy) AS s_buy,
+        (SELECT val FROM s_sell) AS s_sell,
+        (SELECT val FROM c_buy) AS c_buy,
+        (SELECT val FROM target_amount) AS target_amount
+    """, (
+        ym_start, ym_end,  # labor_inc
+        ym_start, ym_end,  # passive_inc
+        ym_start, ym_end,  # expense_total
+        ym_start, ym_end,  # card_total
+        ym_start, ym_end,  # s_buy
+        ym_start, ym_end,  # s_sell
+        ym_start, ym_end   # c_buy
+    ))
+    row = cur.fetchone()
     cur.close()
 
-    # 전세 보증금 사적 레버리지 수익 계산 (보증금 * 4% / 12개월)
-    cur = db.cursor()
-    cur.execute("""
-    SELECT COALESCE(SUM(deposit * 0.04 / 12), 0)
-    FROM tenant_contracts
-    WHERE contract_type = '전세'
-    AND id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
-    """)
-    leverage_inc = float(cur.fetchone()[0] or 0)
-    cur.close()
+    crypto_val = float(row['crypto_val'] or 0)
+    re_total_price = float(row['re_total_price'] or 0)
+    re_total_deposit = float(row['re_total_deposit'] or 0)
+    residence_deposit = float(row['residence_deposit'] or 0)
+    re_val = re_total_price - re_total_deposit + residence_deposit
+
+    cash_val = float(row['cash_val'] or 0)
+    pension_val = float(row['pension_val'] or 0)
+    labor_inc = float(row['labor_inc'] or 0)
+    passive_inc = float(row['passive_inc'] or 0)
+    rental_inc = float(row['rental_inc'] or 0)
+    leverage_inc = float(row['leverage_inc'] or 0)
     
     passive_inc += (rental_inc + leverage_inc)
 
@@ -4610,19 +4694,9 @@ def _api_tech_tree_data_inner():
     cur.close()
     straw_total = sum(r['total'] / r['cnt'] for r in straws) # 월평균 고정비
 
-    # 이번달 지출 합계 (가계부 + 카드 + 대출 상환액)
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(amount),0) FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
-    expense_total = float(cur.fetchone()[0] or 0)
-    cur.close()
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(amount),0) FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s AND budget_id IS NULL", (ym,))
-    card_total = float(cur.fetchone()[0] or 0)
-    cur.close()
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(monthly_payment), 0) FROM loans")
-    loan_repayment = float(cur.fetchone()[0] or 0)
-    cur.close()
+    expense_total = float(row['expense_total'] or 0)
+    card_total = float(row['card_total'] or 0)
+    loan_repayment = float(row['loan_repayment'] or 0)
     total_exp = expense_total + card_total + loan_repayment
 
     # [신규] 월간 변동성 계산 (이번달 순유입액 기준)
@@ -4632,22 +4706,11 @@ def _api_tech_tree_data_inner():
         'real_estate': {'change': 0, 'percent': 0},
         'crypto': {'change': 0, 'percent': 0}
     }
-    # 주식/코인 이번달 매수액 집계
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE to_char(tx_date::date, 'YYYY-MM') = %s AND tx_type='buy'", (ym,))
-    s_buy = float(cur.fetchone()[0] or 0)
-    cur.close()
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(price*quantity),0) FROM stock_tx WHERE to_char(tx_date::date, 'YYYY-MM') = %s AND tx_type='sell'", (ym,))
-    s_sell = float(cur.fetchone()[0] or 0)
-    cur.close()
+    
+    s_buy = float(row['s_buy'] or 0)
+    s_sell = float(row['s_sell'] or 0)
     monthly_stats['stocks']['change'] = s_buy - s_sell
-
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(buy_price*quantity),0) FROM crypto WHERE to_char(buy_date::date, 'YYYY-MM') = %s", (ym,))
-    c_buy = float(cur.fetchone()[0] or 0)
-    cur.close()
-    monthly_stats['crypto']['change'] = c_buy
+    monthly_stats['crypto']['change'] = float(row['c_buy'] or 0)
 
     # 변동률 계산 (현재값 대비)
     def calc_pct(val, change):
@@ -4660,11 +4723,7 @@ def _api_tech_tree_data_inner():
     monthly_stats['crypto']['percent'] = calc_pct(crypto_val, monthly_stats['crypto']['change'])
 
     # 목표 자산
-    cur = db.cursor()
-    cur.execute("SELECT value FROM app_settings WHERE key = 'techTreeTarget'")
-    goal = cur.fetchone()
-    cur.close()
-    target_amount = int(goal['value']) if goal and goal['value'] else 1000000000  # 기본 10억
+    target_amount = int(row['target_amount']) if row['target_amount'] else 1000000000  # 기본 10억
 
     # [신규] 월별 자산 스냅샷 자동 저장/업데이트
     cur = db.cursor()
@@ -4678,11 +4737,14 @@ def _api_tech_tree_data_inner():
     """, (ym, cash_val, stocks_val + etf_val, re_val, crypto_val, pension_val, 
     cash_val + stocks_val + etf_val + re_val + crypto_val + pension_val))
     cur.close()
+    
     try:
         _save_daily_snapshot(db)
     except Exception as snapshot_err:
         print(f"Error saving daily snapshot in tech tree: {snapshot_err}")
     db.commit()
+
+    avg_income = _calc_annual_avg_income(db)
 
     db.close()
     return jsonify({
@@ -5034,6 +5096,7 @@ def _api_tech_tree_yearly_stats_inner():
 
 # ── API: 자산별 히스토리 (최근 12개월) ──────────────────────────
 @app.route('/api/asset-history')
+@cache.cached(timeout=300)
 def api_asset_history():
   try:
     db = get_db()
@@ -5088,14 +5151,24 @@ def api_asset_history():
         m -= 1
         if m == 0: m = 12; y -= 1
 
+    # 12개월 범위의 날짜 경계 계산
+    earliest_ym = months_list[-1]
+    latest_ym = months_list[0]
+    start_date = f"{earliest_ym}-01"
+    ly, lm = int(latest_ym[:4]), int(latest_ym[5:])
+    if lm == 12:
+        end_date = f"{ly+1:04d}-01-01"
+    else:
+        end_date = f"{ly:04d}-{lm+1:02d}-01"
+
     # 최근 12개월간의 수입, 지출, 카드, 주식 거래, 코인 거래 일괄 집계 (루프 밖으로 쿼리 통합)
     cur = db.cursor()
     cur.execute("""
         SELECT to_char(date::date, 'YYYY-MM') as ym, COALESCE(SUM(amount), 0)
         FROM income
-        WHERE to_char(date::date, 'YYYY-MM') IN %s
+        WHERE date >= %s AND date < %s
         GROUP BY ym
-    """, (tuple(months_list),))
+    """, (start_date, end_date))
     inc_map = {r[0]: r[1] for r in cur.fetchall()}
     cur.close()
 
@@ -5103,9 +5176,9 @@ def api_asset_history():
     cur.execute("""
         SELECT to_char(date::date, 'YYYY-MM') as ym, COALESCE(SUM(amount), 0)
         FROM budget
-        WHERE to_char(date::date, 'YYYY-MM') IN %s
+        WHERE date >= %s AND date < %s
         GROUP BY ym
-    """, (tuple(months_list),))
+    """, (start_date, end_date))
     exp_map = {r[0]: r[1] for r in cur.fetchall()}
     cur.close()
 
@@ -5113,9 +5186,9 @@ def api_asset_history():
     cur.execute("""
         SELECT to_char(date::date, 'YYYY-MM') as ym, COALESCE(SUM(amount), 0)
         FROM card_tx
-        WHERE to_char(date::date, 'YYYY-MM') IN %s AND budget_id IS NULL
+        WHERE date >= %s AND date < %s AND budget_id IS NULL
         GROUP BY ym
-    """, (tuple(months_list),))
+    """, (start_date, end_date))
     card_map = {r[0]: r[1] for r in cur.fetchall()}
     cur.close()
 
@@ -5125,9 +5198,9 @@ def api_asset_history():
                COALESCE(SUM(CASE WHEN tx_type='buy' THEN price*quantity ELSE 0 END), 0) as s_buy,
                COALESCE(SUM(CASE WHEN tx_type='sell' THEN price*quantity ELSE 0 END), 0) as s_sell
         FROM stock_tx
-        WHERE to_char(tx_date::date, 'YYYY-MM') IN %s
+        WHERE tx_date >= %s AND tx_date < %s
         GROUP BY ym
-    """, (tuple(months_list),))
+    """, (start_date, end_date))
     stock_tx_map = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
     cur.close()
 
@@ -5135,9 +5208,9 @@ def api_asset_history():
     cur.execute("""
         SELECT to_char(buy_date::date, 'YYYY-MM') as ym, COALESCE(SUM(buy_price*quantity), 0)
         FROM crypto
-        WHERE to_char(buy_date::date, 'YYYY-MM') IN %s
+        WHERE buy_date >= %s AND buy_date < %s
         GROUP BY ym
-    """, (tuple(months_list),))
+    """, (start_date, end_date))
     crypto_map = {r[0]: r[1] for r in cur.fetchall()}
     cur.close()
 

@@ -5,3 +5,4 @@ gunicorn
 openpyxl
 xlrd
 yfinance
+Flask-Caching
