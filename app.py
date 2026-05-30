@@ -1544,17 +1544,22 @@ def api_crypto_detail(rid):
 
 
 # ── API: 공모주 ──────────────────────────────────────────────
+@cache.cached(timeout=180)
+def _get_ipo_cached():
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT * FROM ipo ORDER BY listing_date DESC, id DESC")
+    rows = cur.fetchall()
+    cur.close()
+    db.close()
+    return rows_to_list(rows)
+
 @app.route('/api/ipo', methods=['GET', 'POST'])
 def api_ipo():
-    db = get_db()
     if request.method == 'GET':
-        cur = db.cursor()
-        cur.execute("SELECT * FROM ipo ORDER BY listing_date DESC, id DESC")
-        rows = cur.fetchall()
-        cur.close()
-        db.close()
-        return jsonify(rows_to_list(rows))
+        return jsonify(_get_ipo_cached())
 
+    db = get_db()
     data = request.json
     cur = db.cursor()
     cur.execute(
@@ -1594,16 +1599,22 @@ def api_ipo_detail(rid):
 
 
 # ── API: 종목별 투자계획 ──────────────────────────────────────
+@cache.cached(timeout=180)
+def _get_split_buy_plans_cached():
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT * FROM split_buy_plans ORDER BY id ASC")
+    rows = cur.fetchall()
+    cur.close()
+    db.close()
+    return rows_to_list(rows)
+
 @app.route('/api/split-buy-plans', methods=['GET', 'POST'])
 def api_split_buy_plans():
-    db = get_db()
     if request.method == 'GET':
-        cur = db.cursor()
-        cur.execute("SELECT * FROM split_buy_plans ORDER BY id ASC")
-        rows = cur.fetchall()
-        cur.close()
-        db.close()
-        return jsonify(rows_to_list(rows))
+        return jsonify(_get_split_buy_plans_cached())
+
+    db = get_db()
 
     # POST
     data = request.json
@@ -1702,16 +1713,22 @@ def api_split_buy_plan_detail(rid):
     return jsonify({'ok': True})
 
 
+@cache.memoize(timeout=180)
+def _get_split_buy_plan_steps_cached(pid):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT * FROM split_buy_plan_steps WHERE plan_id = %s ORDER BY step_number ASC", (pid,))
+    rows = cur.fetchall()
+    cur.close()
+    db.close()
+    return rows_to_list(rows)
+
 @app.route('/api/split-buy-plans/<int:pid>/steps', methods=['GET', 'POST'])
 def api_split_buy_plan_steps(pid):
-    db = get_db()
     if request.method == 'GET':
-        cur = db.cursor()
-        cur.execute("SELECT * FROM split_buy_plan_steps WHERE plan_id = %s ORDER BY step_number ASC", (pid,))
-        rows = cur.fetchall()
-        cur.close()
-        db.close()
-        return jsonify(rows_to_list(rows))
+        return jsonify(_get_split_buy_plan_steps_cached(pid))
+
+    db = get_db()
 
     # POST
     steps = request.json
