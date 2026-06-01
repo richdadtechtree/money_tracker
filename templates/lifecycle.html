@@ -377,8 +377,7 @@ async function saveProfile() {
     body: JSON.stringify(payload)
   });
   if (res && res.ok) {
-    profileModal.hide();
-    loadProfiles();
+    _afterSaveSuccess('profileModal', loadProfiles);
   }
 }
 
@@ -432,8 +431,7 @@ async function saveEvent() {
     body: JSON.stringify(payload)
   });
   if (res && res.ok) {
-    eventModal.hide();
-    loadEvents();
+    _afterSaveSuccess('eventModal', loadEvents);
   }
 }
 

@@ -711,11 +711,22 @@ async function addRecurring() {
   if (!payload.name || !payload.amount || !payload.start_month) {
     alert('지출명, 금액, 시작 월은 필수입니다.'); return;
   }
-  await fetch('/api/recurring-budget', {
+  const res = await fetch('/api/recurring-budget', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(payload)
   });
+  if (res.ok) {
+    document.getElementById('rc-name').value = '';
+    document.getElementById('rc-category').value = '';
+    document.getElementById('rc-amount').value = '';
+    document.getElementById('rc-day').value = '';
+    document.getElementById('rc-start-month').value = '';
+    document.getElementById('rc-end-month').value = '';
+    document.getElementById('rc-card').value = '';
+    document.getElementById('rc-memo').value = '';
+    _clearAutosave(document.getElementById('recurringModal'));
+  }
   loadRecurringList();
   grid.load();
 }

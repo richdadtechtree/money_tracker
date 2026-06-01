@@ -1051,10 +1051,11 @@ async function saveSellSchedule() {
   });
   if (!res.ok) { alert('정산 정보 저장 실패'); return; }
 
-  bootstrap.Modal.getInstance(document.getElementById('sellModal')).hide();
-  await reGrid.load(); // 그리드 리로드하여 메모리 캐시 최신화
-  loadSummary();
-  alert('거래 일정과 정산 정보가 임시 저장되었습니다.\n매도 확정 시 이 정보들이 반영됩니다.');
+  _afterSaveSuccess('sellModal', async () => {
+    await reGrid.load(); // 그리드 리로드하여 메모리 캐시 최신화
+    loadSummary();
+    alert('거래 일정과 정산 정보가 임시 저장되었습니다.\n매도 확정 시 이 정보들이 반영됩니다.');
+  });
 }
 
 async function confirmSell() {
@@ -1078,9 +1079,10 @@ async function confirmSell() {
   });
   if (!res.ok) { alert('매도 등록 실패'); return; }
 
-  bootstrap.Modal.getInstance(document.getElementById('sellModal')).hide();
-  await reGrid.load();
-  loadSummary();
+  _afterSaveSuccess('sellModal', async () => {
+    await reGrid.load();
+    loadSummary();
+  });
 }
 
 // ── 매수 일정 모달 ─────────────────────────────────────────
@@ -1099,8 +1101,9 @@ function startAddRE() {
 function skipBuyAndAdd() {
   tempBuyRows = null;
   _isNewREAdd = false;
-  bootstrap.Modal.getInstance(document.getElementById('buyModal')).hide();
-  reGrid.addRow();
+  _afterSaveSuccess('buyModal', () => {
+    reGrid.addRow();
+  });
 }
 
 function saveBuyScheduleAndAdd() {
@@ -1110,8 +1113,9 @@ function saveBuyScheduleAndAdd() {
     tempBuyRows = null;
   }
   _isNewREAdd = false;
-  bootstrap.Modal.getInstance(document.getElementById('buyModal')).hide();
-  reGrid.addRow();
+  _afterSaveSuccess('buyModal', () => {
+    reGrid.addRow();
+  });
 }
 
 async function openBuyModal(id, name) {
@@ -1196,8 +1200,9 @@ async function saveBuySchedule() {
   if (buyTargetId === 'new') {
     // 신규 부동산 추가 중인 경우: 메모리에 임시 저장하고 창만 닫음 (그리드 리로드 방지)
     tempBuyRows = JSON.parse(JSON.stringify(_buyRows));
-    bootstrap.Modal.getInstance(document.getElementById('buyModal')).hide();
-    alert('매수 일정이 임시 저장되었습니다.\n부동산 정보 입력칸 오른쪽의 저장(체크버튼)을 누르면 최종 저장됩니다.');
+    _afterSaveSuccess('buyModal', () => {
+      alert('매수 일정이 임시 저장되었습니다.\n부동산 정보 입력칸 오른쪽의 저장(체크버튼)을 누르면 최종 저장됩니다.');
+    });
     return;
   }
 
@@ -1222,10 +1227,11 @@ async function saveBuySchedule() {
     });
   }
 
-  bootstrap.Modal.getInstance(document.getElementById('buyModal')).hide();
-  await reGrid.load();
-  loadSummary();
-  alert('매수 일정이 저장되었습니다.');
+  _afterSaveSuccess('buyModal', async () => {
+    await reGrid.load();
+    loadSummary();
+    alert('매수 일정이 저장되었습니다.');
+  });
 }
 
 // ── 매도 부동산 탭 ─────────────────────────────────────────
@@ -1393,9 +1399,10 @@ async function saveSoldREEdit() {
   });
 
   if (res.ok) {
-    bootstrap.Modal.getInstance(document.getElementById('soldDetailModal')).hide();
-    await loadSoldRE(); // 리스트 즉시 새로고침
-    alert('매도 부동산 정보가 정상적으로 수정되었습니다.');
+    _afterSaveSuccess('soldDetailModal', async () => {
+      await loadSoldRE(); // 리스트 즉시 새로고침
+      alert('매도 부동산 정보가 정상적으로 수정되었습니다.');
+    });
   } else {
     alert('매도 부동산 정보 수정 실패');
   }

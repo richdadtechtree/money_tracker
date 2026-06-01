@@ -548,3 +548,262 @@ document.addEventListener('focusin', function(e) {
   });
 })();
 
+// ── Form Guard (입력 유실 방지) ─────────────────────────────────
+document.addEventListener('DOMContentLoaded', function () {
+    _initAllModals();
+});
+
+function _initAllModals() {
+    document.querySelectorAll('.modal').forEach(modalEl => {
+        if (modalEl.id === '_formGuardConfirmModal' || modalEl.id === '_navGuardModal') return;
+
+        modalEl.setAttribute('data-bs-backdrop', 'static');
+        modalEl.setAttribute('data-bs-keyboard', 'false');
+
+        const existing = bootstrap.Modal.getInstance(modalEl);
+        if (existing) existing.dispose();
+        new bootstrap.Modal(modalEl, {
+            backdrop: 'static',
+            keyboard: false
+        });
+
+        modalEl.querySelectorAll('[data-bs-dismiss="modal"]').forEach(btn => {
+            btn.addEventListener('click', function (e) {
+                if (_hasModalDirtyInput(modalEl)) {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    _showCloseConfirm(modalEl);
+                }
+            }, true);
+        });
+
+        modalEl.addEventListener('hide.bs.modal', function (e) {
+            if (modalEl._forceClose) return;
+
+            if (_hasModalDirtyInput(modalEl)) {
+                e.preventDefault();
+                _showCloseConfirm(modalEl);
+            }
+        });
+
+        _bindAutosave(modalEl);
+    });
+}
+
+function _hasModalDirtyInput(modalEl) {
+    const inputs = modalEl.querySelectorAll(
+        'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([data-no-dirty]),' +
+        'textarea:not([data-no-dirty]),' +
+        'select:not([data-no-dirty])'
+    );
+
+    for (const el of inputs) {
+        if (el.tagName === 'SELECT') {
+            if (el.selectedIndex > 0) return true;
+        } else if (el.type === 'checkbox' || el.type === 'radio') {
+            continue;
+        } else {
+            if ((el.value || '').trim() !== '') return true;
+        }
+    }
+    return false;
+}
+
+function _showCloseConfirm(targetModalEl) {
+    let confirmModal = document.getElementById('_formGuardConfirmModal');
+    if (!confirmModal) {
+        document.body.insertAdjacentHTML('beforeend', `
+            <div class="modal fade" id="_formGuardConfirmModal" tabindex="-1" style="z-index: 1080;">
+                <div class="modal-dialog modal-dialog-centered modal-sm">
+                    <div class="modal-content border-0 shadow">
+                        <div class="modal-header bg-warning text-dark py-2 border-0">
+                            <h6 class="modal-title mb-0 fw-bold">⚠️ 작성 중인 내용이 있습니다</h6>
+                        </div>
+                        <div class="modal-body py-3 text-center">
+                            <p class="mb-1 text-dark">입력한 내용이 모두 <strong>삭제</strong>됩니다.</p>
+                            <p class="mb-0 text-muted small">정말 닫으시겠어요?</p>
+                        </div>
+                        <div class="modal-footer py-2 justify-content-center gap-2 border-0">
+                            <button id="_formGuardCancelBtn" class="btn btn-outline-secondary btn-sm">
+                                계속 작성하기
+                            </button>
+                            <button id="_formGuardConfirmBtn" class="btn btn-danger btn-sm">
+                                닫기 (내용 삭제)
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `);
+        confirmModal = document.getElementById('_formGuardConfirmModal');
+    }
+
+    const bsConfirmModal = new bootstrap.Modal(confirmModal, {
+        backdrop: true,
+        keyboard: true
+    });
+
+    document.getElementById('_formGuardConfirmBtn').onclick = function () {
+        bsConfirmModal.hide();
+        _clearAutosave(targetModalEl);
+        targetModalEl._forceClose = true;
+        bootstrap.Modal.getInstance(targetModalEl)?.hide();
+        targetModalEl._forceClose = false;
+    };
+
+    document.getElementById('_formGuardCancelBtn').onclick = function () {
+        bsConfirmModal.hide();
+    };
+
+    bsConfirmModal.show();
+}
+
+function _debounce(fn, delay) {
+    let timer;
+    return function (...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), delay);
+    };
+}
+
+function _bindAutosave(modalEl) {
+    const key = _getDraftKey(modalEl);
+    const debouncedSave = _debounce(() => _saveAutosave(modalEl, key), 300);
+
+    modalEl.querySelectorAll('input, textarea, select').forEach(el => {
+        el.addEventListener('input',  debouncedSave);
+        el.addEventListener('change', debouncedSave);
+    });
+
+    modalEl.addEventListener('shown.bs.modal', function () {
+        _checkAndOfferRestore(modalEl, key);
+    });
+
+    modalEl.querySelectorAll('[data-save-btn], .btn-success, .btn-primary, [onclick^="save"]').forEach(btn => {
+        btn.addEventListener('click', function () {
+            setTimeout(() => {
+                if (!modalEl.classList.contains('show')) {
+                    _clearAutosave(modalEl);
+                }
+            }, 500);
+        });
+    });
+}
+
+function _getDraftKey(modalEl) {
+    const path    = window.location.pathname;
+    const modalId = modalEl.id || 'modal_unknown';
+    return `form_draft_${path}_${modalId}`;
+}
+
+function _saveAutosave(modalEl, key) {
+    const data = {};
+    modalEl.querySelectorAll(
+        'input:not([type="hidden"]):not([type="submit"]):not([type="button"]),' +
+        'textarea, select'
+    ).forEach(el => {
+        if (el.type === 'checkbox' || el.type === 'radio') {
+            data[el.id || el.name] = el.checked;
+        } else if (el.name || el.id) {
+            data[el.name || el.id] = el.value;
+        }
+    });
+
+    if (Object.keys(data).length === 0) return;
+
+    localStorage.setItem(key, JSON.stringify({
+        data,
+        savedAt: new Date().toISOString(),
+        url: window.location.pathname
+    }));
+}
+
+function _restoreAutosave(modalEl, key) {
+    const raw = localStorage.getItem(key);
+    if (!raw) return false;
+
+    try {
+        const { data } = JSON.parse(raw);
+        Object.entries(data).forEach(([fieldKey, value]) => {
+            const el = modalEl.querySelector(`[name="${fieldKey}"], #${fieldKey}`);
+            if (el) {
+                if (el.type === 'checkbox' || el.type === 'radio') {
+                    el.checked = value;
+                    el.dispatchEvent(new Event('change'));
+                } else {
+                    el.value = value;
+                    el.dispatchEvent(new Event('input'));
+                    el.dispatchEvent(new Event('change'));
+                }
+            }
+        });
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function _clearAutosave(modalEl) {
+    localStorage.removeItem(_getDraftKey(modalEl));
+}
+
+function _checkAndOfferRestore(modalEl, key) {
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+
+    let savedAt = '';
+    try {
+        savedAt = new Date(JSON.parse(raw).savedAt).toLocaleTimeString('ko-KR');
+    } catch (e) {}
+
+    document.getElementById('_restoreToast')?.remove();
+
+    document.body.insertAdjacentHTML('beforeend', `
+        <div id="_restoreToast" class="toast align-items-center text-bg-info border-0" role="alert"
+             style="position:fixed; bottom:80px; right:20px; z-index:1090; min-width:300px;">
+            <div class="d-flex align-items-center p-2">
+                <div class="toast-body py-1 text-white">
+                    📝 <strong>${savedAt}</strong>에 작성하던 내용이 있습니다.
+                </div>
+                <div class="ms-auto d-flex gap-1 pe-2">
+                    <button class="btn btn-light btn-sm py-0 text-info fw-bold" onclick="_restoreAndDismiss('${key}', document.getElementById('${modalEl.id}'))">
+                        복원
+                    </button>
+                    <button class="btn btn-outline-light btn-sm py-0" onclick="_discardAndDismiss('${key}')">
+                        무시
+                    </button>
+                </div>
+            </div>
+        </div>
+    `);
+
+    const toastEl = document.getElementById('_restoreToast');
+    new bootstrap.Toast(toastEl, { autohide: false }).show();
+}
+
+function _restoreAndDismiss(key, modalEl) {
+    _restoreAutosave(modalEl, key);
+    document.getElementById('_restoreToast')?.remove();
+}
+
+function _discardAndDismiss(key) {
+    localStorage.removeItem(key);
+    document.getElementById('_restoreToast')?.remove();
+}
+
+window._afterSaveSuccess = function (modalId, onSuccess) {
+    const modalEl = document.getElementById(modalId);
+    if (!modalEl) return;
+
+    _clearAutosave(modalEl);
+
+    modalEl._forceClose = true;
+    const bsModal = bootstrap.Modal.getInstance(modalEl);
+    if (bsModal) bsModal.hide();
+    setTimeout(() => { modalEl._forceClose = false; }, 500);
+
+    if (typeof onSuccess === 'function') {
+        onSuccess();
+    }
+};
+

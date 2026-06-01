@@ -315,6 +315,114 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 });
+
+// ── Page leave & navigation guards ───────────────────────────
+(function () {
+    window.addEventListener('beforeunload', function (e) {
+        const openModals = document.querySelectorAll('.modal.show');
+        let hasDirty = false;
+
+        for (const modalEl of openModals) {
+            if (modalEl.id === '_formGuardConfirmModal' || modalEl.id === '_navGuardModal') continue;
+            if (typeof _hasModalDirtyInput === 'function' && _hasModalDirtyInput(modalEl)) {
+                hasDirty = true;
+                break;
+            }
+        }
+
+        if (!hasDirty) {
+            const allInputs = document.querySelectorAll(
+                'form input:not([type="hidden"]):not([type="submit"]), ' +
+                'form textarea, form select'
+            );
+            for (const el of allInputs) {
+                if ((el.value || '').trim() !== '') {
+                    hasDirty = true;
+                    break;
+                }
+            }
+        }
+
+        if (hasDirty) {
+            e.preventDefault();
+            e.returnValue = '작성 중인 내용이 있습니다. 페이지를 벗어나면 내용이 삭제됩니다.';
+            return e.returnValue;
+        }
+    });
+
+    document.querySelectorAll('#sidebar a[href], #mobileBottomNav a[href]').forEach(link => {
+        link.addEventListener('click', function (e) {
+            const openModals = document.querySelectorAll('.modal.show');
+            let dirtyModal = null;
+
+            for (const modalEl of openModals) {
+                if (modalEl.id === '_formGuardConfirmModal' || modalEl.id === '_navGuardModal') continue;
+                if (typeof _hasModalDirtyInput === 'function' && _hasModalDirtyInput(modalEl)) {
+                    dirtyModal = modalEl;
+                    break;
+                }
+            }
+
+            if (!dirtyModal) return;
+
+            e.preventDefault();
+            const href = this.href;
+
+            _showNavigationConfirm(href);
+        });
+    });
+
+    function _showNavigationConfirm(href) {
+        let confirmModal = document.getElementById('_navGuardModal');
+        if (!confirmModal) {
+            document.body.insertAdjacentHTML('beforeend', `
+                <div class="modal fade" id="_navGuardModal" tabindex="-1" style="z-index:1080;">
+                    <div class="modal-dialog modal-dialog-centered modal-sm">
+                        <div class="modal-content border-0 shadow">
+                            <div class="modal-header bg-warning text-dark py-2 border-0">
+                                <h6 class="modal-title mb-0 fw-bold">⚠️ 페이지를 이동할까요?</h6>
+                            </div>
+                            <div class="modal-body py-3 text-center">
+                                <p class="mb-1 text-dark">작성 중인 내용이 <strong>삭제</strong>됩니다.</p>
+                                <p class="mb-0 text-muted small">지금 이동하시겠어요?</p>
+                            </div>
+                            <div class="modal-footer py-2 justify-content-center gap-2 border-0">
+                                <button id="_navGuardCancelBtn" class="btn btn-outline-secondary btn-sm">
+                                    계속 작성하기
+                                </button>
+                                <button id="_navGuardConfirmBtn" class="btn btn-danger btn-sm">
+                                    이동하기
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `);
+            confirmModal = document.getElementById('_navGuardModal');
+        }
+
+        const bsNavModal = new bootstrap.Modal(confirmModal, {
+            backdrop: true,
+            keyboard: true
+        });
+
+        document.getElementById('_navGuardConfirmBtn').onclick = function () {
+            bsNavModal.hide();
+            document.querySelectorAll('.modal').forEach(modalEl => {
+                if (typeof _clearAutosave === 'function') {
+                    _clearAutosave(modalEl);
+                }
+            });
+            window.location.href = href;
+        };
+
+        document.getElementById('_navGuardCancelBtn').onclick = function () {
+            bsNavModal.hide();
+        };
+
+        bsNavModal.show();
+    }
+})();
 </script>
 {% block scripts %}{% endblock %}
 </body>

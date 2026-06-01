@@ -1537,280 +1537,35 @@ initPage();
 document.querySelector('[href="#tab-etf"]').addEventListener('shown.bs.tab', () => etfGrid.load());
 document.querySelector('[href="#tab-ipo"]').addEventListener('shown.bs.tab', () => ipoGrid.load());
 document.querySelector('[href="#tab-split-plan"]').addEventListener('shown.bs.tab', () => {
-  loadPlanList();
+  loadSavedPlans();
 });
 
-// ── 종목별 투자계획 ──────────────────────────────────────────
-let currentPlanId = null;
-let currentPlanData = null;
-let currentPlanSteps = [];
+// ── 종목별 분할매수 계획 ──────────────────────────────────────
+let previewSteps = [];  // 미리보기 후 저장 시 재사용
 
-async function loadPlanList() {
-  const list = await fetchJSON('/api/split-buy-plans');
-  const group = document.getElementById('plan-list-group');
-  if (!group) return;
-  group.innerHTML = '';
-  if (!list || list.length === 0) {
-    group.innerHTML = '<div class="text-center py-4 text-muted small">등록된 계획이 없습니다.</div>';
-    document.getElementById('plan-empty-panel').classList.remove('d-none');
-    document.getElementById('plan-detail-panel').classList.add('d-none');
-    return;
+function showPlanForm() {
+  const form = document.getElementById('plan-form-area');
+  if (!form) return;
+  const isHidden = form.style.display === 'none';
+  form.style.display = isHidden ? 'block' : 'none';
+  if (isHidden) {
+    populatePlanStockSelect();
   }
-  list.forEach(p => {
-    const active = currentPlanId === p.id;
-    const drop = p.ath && p.current_price ? ((1 - p.current_price / p.ath) * 100).toFixed(1) : null;
-    const btn = document.createElement('button');
-    btn.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2 px-3' + (active ? ' active' : '');
-    btn.onclick = () => selectPlan(p.id);
-    btn.innerHTML = `
-      <div class="text-truncate me-2">
-        <div class="fw-semibold text-truncate">${p.name}</div>
-        <small class="${active ? 'text-white-50' : 'text-muted'}">${p.ticker || '티커 없음'}</small>
-      </div>
-      ${drop ? `<span class="badge bg-danger-subtle text-danger font-monospace flex-shrink-0">-${drop}%</span>` : ''}
-    `;
-    group.appendChild(btn);
-  });
-  if (currentPlanId === null && list.length > 0) selectPlan(list[0].id);
 }
 
-async function selectPlan(planId) {
-  currentPlanId = planId;
-  const list = await fetchJSON('/api/split-buy-plans');
-  if (!list) return;
-  currentPlanData = list.find(p => p.id === planId);
-  if (!currentPlanData) return;
-
-  // 리스트 활성화 표시
-  const btns = document.querySelectorAll('#plan-list-group .list-group-item');
-  list.forEach((p, idx) => {
-    if (!btns[idx]) return;
-    const active = p.id === planId;
-    btns[idx].classList.toggle('active', active);
-    const sm = btns[idx].querySelector('small');
-    if (sm) sm.className = active ? 'text-white-50' : 'text-muted';
-    const badge = btns[idx].querySelector('.badge');
-    if (badge) badge.className = 'badge bg-danger-subtle text-danger font-monospace flex-shrink-0';
-  });
-
-  document.getElementById('plan-empty-panel').classList.add('d-none');
-  document.getElementById('plan-detail-panel').classList.remove('d-none');
-  const ef = document.getElementById('editPlanInlineForm');
-  if (ef) ef.classList.add('d-none');
-
-  document.getElementById('detail-plan-name').textContent = currentPlanData.name;
-  const tickerEl = document.getElementById('detail-plan-ticker');
-  tickerEl.textContent = currentPlanData.ticker || '';
-  tickerEl.style.display = currentPlanData.ticker ? '' : 'none';
-  const planForeign = isForeign(currentPlanData.ticker);
-
-  // 차트 링크 업데이트
-  const stockLink = document.getElementById('planStockLink');
-  if (stockLink) {
-    if (currentPlanData.ticker) {
-      const url = planForeign
-        ? `https://finance.yahoo.com/chart/${currentPlanData.ticker}`
-        : `https://finance.naver.com/item/main.nhn?code=${currentPlanData.ticker}`;
-      stockLink.href = url;
-      stockLink.classList.remove('d-none');
-    } else {
-      stockLink.classList.add('d-none');
-    }
-  }
-  // ATH 인라인 편집 영역 초기화
-  const athEdit = document.getElementById('ath-edit-area');
-  if (athEdit) athEdit.classList.add('d-none');
-  document.getElementById('detail-total-budget').textContent = (currentPlanData.total_budget || 0).toLocaleString() + '원';
-  document.getElementById('detail-ath').textContent = currentPlanData.ath
-    ? (planForeign ? fmtUsd(currentPlanData.ath) : (currentPlanData.ath).toLocaleString() + '원') : '-';
-  document.getElementById('detail-current-price').textContent = currentPlanData.current_price
-    ? (planForeign ? fmtUsd(currentPlanData.current_price) : currentPlanData.current_price.toLocaleString() + '원') : '-';
-  const drop = currentPlanData.ath && currentPlanData.current_price
-    ? ((1 - currentPlanData.current_price / currentPlanData.ath) * 100).toFixed(1) : null;
-  document.getElementById('detail-drop-pct').textContent = drop ? '-' + drop + '%' : '-';
-
-  currentPlanSteps = await fetchJSON(`/api/split-buy-plans/${planId}/steps`) || [];
-
-  // 하락률 범위 입력 필드 채우기
-  const fromEl  = document.getElementById('range-from');
-  const toEl    = document.getElementById('range-to');
-  const cntEl   = document.getElementById('range-count');
-  if (fromEl)  fromEl.value  = currentPlanData.drop_from  ?? 30;
-  if (toEl)    toEl.value    = currentPlanData.drop_to    ?? 70;
-  if (cntEl)   cntEl.value   = currentPlanData.step_count ?? (currentPlanSteps.length || 5);
-
-  renderSimplePlan();
-}
-
-async function applyRangeToSteps() {
-  if (!currentPlanId || !currentPlanData) return;
-  const fromVal  = parseFloat(document.getElementById('range-from').value);
-  const toVal    = parseFloat(document.getElementById('range-to').value);
-  const countVal = parseInt(document.getElementById('range-count').value);
-  if (isNaN(fromVal) || isNaN(toVal) || isNaN(countVal) || countVal < 1) {
-    showToast('시작%, 종료%, 차수를 모두 입력해주세요.', 'warning'); return;
-  }
-  if (fromVal >= toVal) { showToast('종료 하락률은 시작 하락률보다 커야 합니다.', 'warning'); return; }
-  if (fromVal < 1 || toVal > 99) { showToast('하락률은 1~99% 사이로 입력해주세요.', 'warning'); return; }
-
-  const n = countVal;
-  const ratio = parseFloat((100 / n).toFixed(6));
-  const newSteps = Array.from({ length: n }, (_, i) => ({
-    step_number:  i + 1,
-    drawdown_pct: n === 1 ? fromVal : parseFloat((fromVal + (toVal - fromVal) * i / (n - 1)).toFixed(2)),
-    ratio,
-  }));
-  currentPlanSteps = newSteps;
-
-  // 범위 설정 plan에 저장 (PUT)
-  await fetchJSON('/api/split-buy-plans/' + currentPlanId, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name:         currentPlanData.name,
-      ticker:       currentPlanData.ticker,
-      total_budget: currentPlanData.total_budget,
-      ath:          currentPlanData.ath,
-      current_price: currentPlanData.current_price,
-      drop_from:    fromVal,
-      drop_to:      toVal,
-      step_count:   n,
-    })
-  });
-  // 스텝 저장
-  await saveCurrentSteps();
-  currentPlanData.drop_from  = fromVal;
-  currentPlanData.drop_to    = toVal;
-  currentPlanData.step_count = n;
-  showToast(`${fromVal}%~${toVal}% / ${n}차 균등 적용 완료`);
-  renderSimplePlan();
-}
-
-function renderSimplePlan() {
-  const tbody = document.querySelector('#planStepsTable tbody');
-  if (!tbody || !currentPlanData) return;
-  tbody.innerHTML = '';
-  const ath     = currentPlanData.ath || 1;
-  const budget  = currentPlanData.total_budget || 0;
-  const ticker  = currentPlanData.ticker || '';
-  const foreign = isForeign(ticker);
-  let totalAmt = 0, totalQty = 0;
-
-  currentPlanSteps.forEach((step, idx) => {
-    const tp  = ath * (1 - step.drawdown_pct / 100);         // USD if foreign, KRW if domestic
-    const amt = Math.round(budget * (step.ratio / 100));      // always KRW
-    const qty = tp > 0 ? (foreign ? amt / (tp * usdKrw) : amt / tp) : 0;
-    totalAmt += amt; totalQty += qty;
-
-    const tpDisplay = foreign ? fmtUsd(tp) : Math.round(tp).toLocaleString() + '원';
-    const krwPerShare = foreign ? tp * usdKrw : tp;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td class="text-center fw-semibold">${idx + 1}차</td>
-      <td class="text-center">
-        <div class="d-flex align-items-center justify-content-center gap-1">
-          <input type="number" class="form-control form-control-sm text-center px-1"
-            style="width:62px" value="${step.drawdown_pct}" min="1" max="99" step="1"
-            onchange="onStepDropChange(${idx}, this.value)">
-          <span class="text-danger fw-semibold small">%</span>
-        </div>
-      </td>
-      <td class="text-end fw-semibold">
-        ${tpDisplay}
-        ${foreign ? `<div class="small text-muted">≈${Math.round(krwPerShare).toLocaleString()}원</div>` : ''}
-      </td>
-      <td class="text-end">
-        <div>${amt.toLocaleString()}원</div>
-        <div class="small text-muted">${step.ratio.toFixed(1)}%</div>
-      </td>
-      <td class="text-end text-success fw-semibold">${qty.toFixed(4)}주</td>
-      <td class="text-center">
-        <button class="btn btn-outline-danger btn-sm py-0 px-1 lh-1" style="font-size:0.75rem"
-          onclick="removePlanStep(${idx})"><i class="bi bi-x-lg"></i></button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  // 평균 단가: 외국 종목은 KRW 역산 후 USD 표시
-  const avgKrwPerShare = totalQty > 0 ? totalAmt / totalQty : 0;
-  const avgDisplay = foreign
-    ? fmtUsd(avgKrwPerShare / usdKrw)
-    : Math.round(avgKrwPerShare).toLocaleString();
-  const avgUnit = foreign ? '' : '원';
-
-  document.getElementById('plan-total-amt').textContent = totalAmt.toLocaleString() + '원';
-  document.getElementById('plan-total-qty').textContent = totalQty.toFixed(4) + '주';
-  document.getElementById('plan-avg-price').textContent = avgDisplay;
-  const unitEl = document.getElementById('plan-avg-price-unit');
-  if (unitEl) unitEl.textContent = avgUnit;
-
-  const n = currentPlanSteps.length;
-  const el = document.getElementById('plan-step-count-text');
-  if (el) el.textContent = n + '단계 · 각 ' + (100 / n).toFixed(1) + '%';
-}
-
-function onStepDropChange(idx, val) {
-  const v = parseFloat(val);
-  if (isNaN(v) || v <= 0 || v >= 100) return;
-  currentPlanSteps[idx].drawdown_pct = v;
-  renderSimplePlan();
-  saveCurrentSteps();
-}
-
-function addPlanStep() {
-  if (!currentPlanData) return;
-  const last = currentPlanSteps[currentPlanSteps.length - 1];
-  const newDrop = last ? Math.min(parseFloat(last.drawdown_pct) + 10, 95) : 30;
-  const n = currentPlanSteps.length + 1;
-  const ratio = parseFloat((100 / n).toFixed(6));
-  currentPlanSteps.forEach(s => { s.ratio = ratio; });
-  currentPlanSteps.push({ step_number: n, drawdown_pct: newDrop, ratio });
-  renderSimplePlan();
-  saveCurrentSteps();
-}
-
-function removePlanStep(idx) {
-  if (currentPlanSteps.length <= 1) { showToast('최소 1개 이상 필요합니다.', 'warning'); return; }
-  currentPlanSteps.splice(idx, 1);
-  const n = currentPlanSteps.length;
-  const ratio = parseFloat((100 / n).toFixed(6));
-  currentPlanSteps.forEach((s, i) => { s.step_number = i + 1; s.ratio = ratio; });
-  renderSimplePlan();
-  saveCurrentSteps();
-}
-
-async function saveCurrentSteps() {
-  if (!currentPlanId) return;
-  await fetchJSON(`/api/split-buy-plans/${currentPlanId}/steps`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(currentPlanSteps)
-  });
-}
-
-// ── 추가 폼 ──
-function toggleAddPlanForm() {
-  const form = document.getElementById('addPlanInlineForm');
-  const opening = form.classList.contains('d-none');
-  form.classList.toggle('d-none');
-  if (!opening) return;
-  document.getElementById('np-name').value   = '';
-  document.getElementById('np-ticker').value = '';
-  document.getElementById('np-price').value  = '';
-  document.getElementById('np-ath').value    = '';
-  document.getElementById('np-budget').value = '10,000,000';
-  const sel = document.getElementById('np-from-stock');
-  sel.innerHTML = '<option value="">— 직접 입력 —</option>';
-  const addOpts = (items, label) => {
+function populatePlanStockSelect() {
+  const sel = document.getElementById('plan-stock-select');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">-- 주식/ETF 선택 --</option>';
+  
+  const addOpts = (items, typeLabel) => {
     if (!items || items.length === 0) return;
     const og = document.createElement('optgroup');
-    og.label = label;
+    og.label = typeLabel;
     items.forEach(s => {
       const o = document.createElement('option');
-      o.value = (label === '주식' ? 'stock:' : 'etf:') + s.id;
-      o.textContent = s.name + (s.ticker ? ' (' + s.ticker + ')' : '');
-      o.dataset.name = s.name; o.dataset.ticker = s.ticker || ''; o.dataset.price = s.current_price || '';
+      o.value = `${typeLabel === '주식' ? 'stock' : 'etf'}:${s.id}`;
+      o.textContent = `${s.name}${s.ticker ? ` (${s.ticker})` : ''}`;
       og.appendChild(o);
     });
     sel.appendChild(og);
@@ -1819,159 +1574,271 @@ function toggleAddPlanForm() {
   addOpts(allEtfs, 'ETF');
 }
 
-function onNpStockSelect(val) {
-  if (!val) return;
-  const opt = document.querySelector('#np-from-stock option[value="' + val + '"]');
-  if (!opt) return;
-  if (opt.dataset.name)   document.getElementById('np-name').value   = opt.dataset.name;
-  if (opt.dataset.ticker) document.getElementById('np-ticker').value = opt.dataset.ticker;
-  if (opt.dataset.price) {
-    document.getElementById('np-price').value = opt.dataset.price;
-    if (!document.getElementById('np-ath').value) document.getElementById('np-ath').value = opt.dataset.price;
+// 종목 선택 시 현재가 힌트 표시
+document.getElementById('plan-stock-select').addEventListener('change', function () {
+  if (!this.value) {
+    document.getElementById('plan-current-price-hint').textContent = '';
+    return;
   }
-}
+  const parts = this.value.split(':');
+  const type = parts[0];
+  const id = parseInt(parts[1]);
+  const list = type === 'stock' ? allStocks : allEtfs;
+  const selected = list.find(s => s.id === id);
+  if (selected) {
+    document.getElementById('plan-current-price-hint').textContent =
+      `현재가: ${formatKRW(selected.current_price)}`;
+    // 상단 매수가 자동 채우기
+    document.getElementById('plan-target-price').value = Math.round(selected.current_price);
+  }
+});
 
-async function saveNewPlanInline() {
-  const name   = document.getElementById('np-name').value.trim();
-  const ticker = document.getElementById('np-ticker').value.trim();
-  let   price  = parseFloat(document.getElementById('np-price').value)  || 0;
-  let   ath    = parseFloat(document.getElementById('np-ath').value)    || 0;
-  const budget = parseBudget(document.getElementById('np-budget').value);
-  if (!name)        { showToast('종목명을 입력해 주세요.', 'warning'); return; }
-  if (price <= 0)   { showToast('현재가를 입력해 주세요.', 'warning'); return; }
-  if (budget <= 0)  { showToast('총 투자금을 입력해 주세요.', 'warning'); return; }
-  if (ath <= 0) ath = price;
-  const steps = [30, 40, 50, 60, 70].map((dd, i) => ({ step_number: i + 1, drawdown_pct: dd, ratio: 20.0 }));
-  const res = await fetchJSON('/api/split-buy-plans', {
+async function previewPlan() {
+  const targetPrice = parseInt(document.getElementById('plan-target-price').value || 0);
+  const budget      = parseInt(document.getElementById('plan-budget').value || 0);
+  const lowerPct    = parseFloat(document.getElementById('plan-lower-pct').value || 20);
+  const splitCount  = parseInt(document.getElementById('plan-split').value || 5);
+  const strategy    = document.getElementById('plan-strategy').value;
+
+  if (!targetPrice || !budget) {
+    alert('상단 매수가와 총 예산을 입력하세요.'); return;
+  }
+
+  const res  = await fetch('/api/invest-plans', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, ticker, total_budget: budget, ath, current_price: price, steps })
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      target_price: targetPrice,
+      upper_pct: 0,
+      lower_pct: lowerPct,
+      split_count: splitCount,
+      total_budget: budget,
+      strategy,
+      _preview_only: true
+    })
   });
-  if (res && res.ok) {
-    showToast(name + ' 계획이 추가되었습니다.');
-    document.getElementById('addPlanInlineForm').classList.add('d-none');
-    currentPlanId = res.id;
-    await loadPlanList();
-    await selectPlan(res.id);
-  } else {
-    showToast('추가 실패: ' + (res && res.error ? res.error : '오류'), 'danger');
-  }
+  const data = await res.json();
+  previewSteps = data.steps;
+  renderPlanPreview(previewSteps, targetPrice, budget);
 }
 
-// ── 수정 폼 ──
-function toggleEditPlanForm() {
-  const form = document.getElementById('editPlanInlineForm');
-  const opening = form.classList.contains('d-none');
-  form.classList.toggle('d-none');
-  if (opening && currentPlanData) {
-    document.getElementById('ep-name').value   = currentPlanData.name || '';
-    document.getElementById('ep-ticker').value = currentPlanData.ticker || '';
-    document.getElementById('ep-budget').value = (currentPlanData.total_budget || 0).toLocaleString('ko-KR');
-    document.getElementById('ep-price').value  = currentPlanData.current_price || '';
-    document.getElementById('ep-ath').value    = currentPlanData.ath || '';
-  }
-}
+function renderPlanPreview(steps, targetPrice, budget) {
+  const totalShares = steps.reduce((acc, s) => acc + s.shares, 0);
+  const avgPrice    = Math.round(budget / totalShares);
+  document.getElementById('plan-preview-summary').innerHTML = `
+    <span class="badge bg-primary fs-6">총 예산: ${formatKRW(budget)}</span>
+    <span class="badge bg-secondary fs-6">상단 매수가: ${formatKRW(targetPrice)}</span>
+    <span class="badge bg-success fs-6">전량 체결 시 평균단가: ${formatKRW(avgPrice)}</span>
+    <span class="badge bg-info text-dark fs-6">총 예상 주수: ${totalShares.toFixed(2)}주</span>
+  `;
 
-async function saveEditedPlanInline() {
-  if (!currentPlanId) return;
-  const name   = document.getElementById('ep-name').value.trim();
-  const ticker = document.getElementById('ep-ticker').value.trim();
-  const budget = parseBudget(document.getElementById('ep-budget').value);
-  let   price  = parseFloat(document.getElementById('ep-price').value) || 0;
-  let   ath    = parseFloat(document.getElementById('ep-ath').value)   || 0;
-  if (!name) { showToast('종목명을 입력해 주세요.', 'warning'); return; }
-  if (ath <= 0 && price > 0) ath = price;
-  const res = await fetchJSON('/api/split-buy-plans/' + currentPlanId, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, ticker, total_budget: budget, ath, current_price: price })
+  const tbody = document.getElementById('plan-preview-tbody');
+  tbody.innerHTML = '';
+  
+  const selectedEl = document.getElementById('plan-stock-select');
+  const parts = selectedEl.value.split(':');
+  const type = parts[0];
+  const id = parseInt(parts[1]);
+  const list = type === 'stock' ? allStocks : allEtfs;
+  const selected = list.find(s => s.id === id);
+  const currentPrice = selected?.current_price || 0;
+
+  steps.forEach(s => {
+    const vsCurrentPct = currentPrice
+      ? ((s.trigger_price - currentPrice) / currentPrice * 100).toFixed(1)
+      : '-';
+    const vsCurrentClass = parseFloat(vsCurrentPct) > 0 ? 'text-danger'
+                         : parseFloat(vsCurrentPct) < 0 ? 'text-success' : '';
+    tbody.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td class="text-center fw-bold">${s.step_no}차</td>
+        <td class="text-center ${s.pct_from_target < 0 ? 'text-success' : ''}">
+          ${s.label}
+        </td>
+        <td class="text-end fw-bold">${formatKRW(s.trigger_price)}</td>
+        <td class="text-center ${vsCurrentClass}">
+          ${vsCurrentPct !== '-' ? vsCurrentPct + '%' : '-'}
+        </td>
+        <td class="text-center">${s.weight_pct}%</td>
+        <td class="text-end">${formatKRW(s.amount)}</td>
+        <td class="text-end">${s.shares}주</td>
+        <td class="text-end text-muted">${formatKRW(s.cumulative)}</td>
+      </tr>
+    `);
   });
-  if (res && res.ok) {
-    showToast('수정되었습니다.');
-    document.getElementById('editPlanInlineForm').classList.add('d-none');
-    await loadPlanList();
-    await selectPlan(currentPlanId);
-  } else {
-    showToast('수정 실패', 'danger');
-  }
+
+  document.getElementById('plan-preview').style.display = 'block';
 }
 
-async function deleteCurrentPlan() {
-  if (!currentPlanData) return;
-  if (!confirm('"' + currentPlanData.name + '" 계획을 삭제하시겠습니까?')) return;
-  const res = await fetchJSON('/api/split-buy-plans/' + currentPlanId, { method: 'DELETE' });
-  if (res && res.ok) {
-    showToast('삭제되었습니다.');
-    currentPlanId = null; currentPlanData = null; currentPlanSteps = [];
-    await loadPlanList();
+async function savePlan() {
+  const stockSelect = document.getElementById('plan-stock-select');
+  const targetPrice = parseInt(document.getElementById('plan-target-price').value || 0);
+  const budget      = parseInt(document.getElementById('plan-budget').value || 0);
+  const lowerPct    = parseFloat(document.getElementById('plan-lower-pct').value || 20);
+  const splitCount  = parseInt(document.getElementById('plan-split').value || 5);
+  const strategy    = document.getElementById('plan-strategy').value;
+  const planName    = document.getElementById('plan-name').value.trim();
+  const memo        = document.getElementById('plan-memo').value.trim();
+
+  if (!stockSelect.value) {
+    alert('종목을 선택하세요.'); return;
   }
-}
-
-async function refreshPlanData() {
-  if (!currentPlanId || !currentPlanData) return;
-  const ticker = currentPlanData.ticker;
-  if (!ticker) { showToast('티커가 없어 갱신할 수 없습니다.', 'warning'); return; }
-
-  const btn = document.getElementById('planRefreshBtn');
-  const origHtml = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
-
-  try {
-    const res = await fetchJSON('/api/split-buy-plans/' + currentPlanId + '/refresh', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
-    });
-    if (!res) { showToast('갱신 실패', 'danger'); return; }
-
-    const msgs = [];
-    if (res.price_ok) msgs.push('현재가 ' + (isForeign(ticker) ? fmtUsd(res.current_price) : Math.round(res.current_price).toLocaleString() + '원'));
-    else msgs.push('현재가 조회 실패');
-    if (res.ath_ok) msgs.push('최고가 ' + (isForeign(ticker) ? fmtUsd(res.ath) : Math.round(res.ath).toLocaleString() + '원'));
-    else msgs.push('최고가 조회 실패');
-
-    showToast('갱신 완료 · ' + msgs.join(' / '));
-    await selectPlan(currentPlanId);
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = origHtml;
+  if (!targetPrice || !budget) {
+    alert('상단 매수가와 총 예산을 입력하세요.'); return;
   }
-}
 
-function toggleAthEdit() {
-  const area = document.getElementById('ath-edit-area');
-  if (!area) return;
-  const hidden = area.classList.contains('d-none');
-  area.classList.toggle('d-none', !hidden);
-  if (hidden) {
-    const inp = document.getElementById('ath-inline-input');
-    inp.value = currentPlanData?.ath || '';
-    inp.focus();
-  }
-}
-
-async function saveAthInline() {
-  const inp = document.getElementById('ath-inline-input');
-  const newAth = parseFloat(inp.value);
-  if (!newAth || newAth <= 0) { showToast('유효한 ATH 값을 입력해주세요.', 'warning'); return; }
-  if (!currentPlanId || !currentPlanData) return;
+  const parts = stockSelect.value.split(':');
+  const type = parts[0];
+  const id = parseInt(parts[1]);
 
   const payload = {
-    name: currentPlanData.name,
-    ticker: currentPlanData.ticker,
-    total_budget: currentPlanData.total_budget,
-    ath: newAth,
-    current_price: currentPlanData.current_price,
-    drop_from: currentPlanData.drop_from,
-    drop_to: currentPlanData.drop_to,
-    step_count: currentPlanData.step_count,
+    stock_id: type === 'stock' ? id : null,
+    etf_id: type === 'etf' ? id : null,
+    plan_name: planName,
+    target_price: targetPrice,
+    upper_pct: 0,
+    lower_pct: lowerPct,
+    split_count: splitCount,
+    total_budget: budget,
+    strategy: strategy,
+    memo: memo
   };
-  const res = await fetchJSON('/api/split-buy-plans/' + currentPlanId, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+
+  const res = await fetch('/api/invest-plans', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
   });
-  if (!res) { showToast('저장 실패', 'danger'); return; }
-  showToast('ATH 업데이트 완료');
-  await selectPlan(currentPlanId);
-  await loadPlanList();
+
+  if (res.ok) {
+    showToast('분할매수 계획이 저장되었습니다.');
+    document.getElementById('plan-form-area').style.display = 'none';
+    document.getElementById('plan-preview').style.display = 'none';
+    loadSavedPlans();
+  } else {
+    const err = await res.json();
+    alert('저장 실패: ' + (err.error || '오류 발생'));
+  }
+}
+
+async function loadSavedPlans() {
+  const res   = await fetch('/api/invest-plans');
+  const plans = await res.json();
+  const area  = document.getElementById('saved-plans-area');
+  if (!area) return;
+  area.innerHTML = '';
+
+  if (!plans || plans.length === 0) {
+    area.innerHTML = '<div class="text-center py-5 text-muted">등록된 계획이 없습니다.</div>';
+    return;
+  }
+
+  plans.forEach(plan => {
+    const stockName = plan.stock_name || plan.etf_name || '-';
+    const progress  = `${plan.executed_count} / ${plan.total_steps}차 완료`;
+    const progressPct = plan.total_steps
+      ? Math.round(plan.executed_count / plan.total_steps * 100) : 0;
+
+    const stepsHtml = plan.steps.map(s => `
+      <tr class="${s.is_executed ? 'table-success' : ''}">
+        <td>${s.step_no}차</td>
+        <td>${formatKRW(s.trigger_price)}</td>
+        <td>${formatKRW(s.target_amount)}</td>
+        <td>${s.target_shares}주</td>
+        <td>${s.is_executed
+              ? `✅ ${s.executed_at} / ${formatKRW(s.executed_price)} / ${s.executed_shares}주
+                 <button class="btn btn-xs btn-outline-secondary ms-1 py-0 px-1" onclick="unexecuteStep(${s.id})" title="체결 취소">✕</button>`
+              : `<button class="btn btn-xs btn-outline-success py-0 px-1"
+                         onclick="executeStep(${s.id}, ${s.trigger_price}, ${s.target_shares})">
+                   체결 기록
+                 </button>`}
+        </td>
+      </tr>
+    `).join('');
+
+    area.insertAdjacentHTML('beforeend', `
+      <div class="card mb-3 border-0 shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center bg-white border-0 pt-3 pb-2">
+          <div>
+            <strong class="text-dark">${plan.plan_name || stockName + ' 분할매수 계획'}</strong>
+            <span class="badge bg-secondary ms-2">${stockName}</span>
+            <span class="badge bg-info text-dark ms-1">
+              상단가: ${formatKRW(plan.target_price)}
+            </span>
+            <span class="badge bg-warning text-dark ms-1">
+              -${plan.lower_pct}% / ${plan.split_count}차
+            </span>
+          </div>
+          <span class="text-muted small">${progress}</span>
+        </div>
+        <div class="card-body p-3">
+          <div class="progress mb-2" style="height:6px">
+            <div class="progress-bar bg-success" style="width:${progressPct}%"></div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+              <thead><tr>
+                <th>차수</th><th>트리거 가격</th>
+                <th>투자금</th><th>예정 주수</th><th>상태</th>
+              </tr></thead>
+              <tbody>${stepsHtml}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `);
+  });
+}
+
+async function executeStep(stepId, triggerPrice, targetShares) {
+  const price = prompt('실제 체결 단가를 입력하세요 (원):', triggerPrice);
+  if (price === null) return;
+  const qty = prompt('실제 체결 수량을 입력하세요 (주):', targetShares);
+  if (qty === null) return;
+
+  const exePrice = parseInt(price);
+  const exeQty = parseFloat(qty);
+  if (isNaN(exePrice) || exePrice <= 0 || isNaN(exeQty) || exeQty <= 0) {
+    alert('올바른 값을 입력하세요.'); return;
+  }
+
+  const exeAmt = Math.round(exePrice * exeQty);
+
+  const res = await fetch(`/api/invest-plan-steps/${stepId}/execute`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      executed_at: new Date().toISOString().slice(0, 10),
+      executed_price: exePrice,
+      executed_shares: exeQty,
+      executed_amount: exeAmt
+    })
+  });
+
+  if (res.ok) {
+    showToast('체결이 기록되었습니다.');
+    loadSavedPlans();
+  } else {
+    alert('기록 실패');
+  }
+}
+
+async function unexecuteStep(stepId) {
+  if (!confirm('체결 기록을 취소하시겠습니까?')) return;
+  const res = await fetch(`/api/invest-plan-steps/${stepId}/execute`, {
+    method: 'DELETE'
+  });
+  if (res.ok) {
+    showToast('체결 기록이 취소되었습니다.');
+    loadSavedPlans();
+  } else {
+    alert('취소 실패');
+  }
+}
+
+function formatKRW(val) {
+  if (val === null || val === undefined) return '-';
+  return fmt(val) + '원';
 }
 
 function fmtBudgetInput(input) {
