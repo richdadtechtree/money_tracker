@@ -395,215 +395,95 @@
 
   <!-- 종목별 투자계획 탭 -->
   <div class="tab-pane fade" id="tab-split-plan">
-    <div class="row g-3">
-      <!-- 좌측 종목 리스트 -->
-      <div class="col-md-3">
-        <div class="card border-0 shadow-sm">
-          <div class="card-header border-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
-            <span class="fw-semibold"><i class="bi bi-list-stars me-2 text-primary"></i>계획 종목 목록</span>
-            <button class="btn btn-outline-primary btn-sm py-1" onclick="toggleAddPlanForm()">
-              <i class="bi bi-plus-lg"></i> 추가
-            </button>
-          </div>
-          <!-- 인라인 추가 폼 -->
-          <div id="addPlanInlineForm" class="d-none border-top p-3">
-            <div class="mb-2">
-              <label class="form-label small fw-semibold mb-1">등록 종목 자동채우기</label>
-              <select class="form-select form-select-sm" id="np-from-stock" onchange="onNpStockSelect(this.value)">
-                <option value="">— 직접 입력 —</option>
+    <div class="card mt-4 border-0 shadow-sm">
+      <div class="card-header d-flex justify-content-between align-items-center bg-white border-0 pt-3">
+        <h6 class="mb-0 fw-bold text-dark"><i class="bi bi-list-columns-reverse me-2 text-primary"></i>종목별 분할매수 계획 (상단가 기준)</h6>
+        <button class="btn btn-primary btn-sm" onclick="showPlanForm()"><i class="bi bi-plus-lg me-1"></i>새 계획</button>
+      </div>
+      <div class="card-body">
+        
+        <!-- 계획 생성 폼 -->
+        <div id="plan-form-area" class="bg-light p-3 rounded mb-4" style="display:none">
+          <div class="row g-2">
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">종목 선택</label>
+              <select class="form-select form-select-sm" id="plan-stock-select">
+                <option value="">-- 주식/ETF 선택 --</option>
               </select>
             </div>
-            <div class="mb-2">
-              <label class="form-label small fw-semibold mb-1">종목명 *</label>
-              <input type="text" class="form-control form-control-sm" id="np-name" placeholder="예: TQQQ">
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold">
+                상단 매수가 (원)
+                <span class="text-muted small" data-bs-toggle="tooltip" title="'이 가격 이하에서 사겠다'는 기준 가격. 현재가보다 낮게 설정 가능.">ℹ️</span>
+              </label>
+              <input type="number" class="form-control form-control-sm" id="plan-target-price" placeholder="예: 60000">
+              <div class="form-text" id="plan-current-price-hint"></div>
             </div>
-            <div class="mb-2">
-              <label class="form-label small fw-semibold mb-1">티커</label>
-              <input type="text" class="form-control form-control-sm" id="np-ticker" placeholder="예: TQQQ">
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold">총 예산 (원)</label>
+              <input type="number" class="form-control form-control-sm" id="plan-budget" placeholder="예: 5000000">
             </div>
-            <div class="mb-2">
-              <label class="form-label small fw-semibold mb-1">현재가 *</label>
-              <input type="number" class="form-control form-control-sm" id="np-price" placeholder="예: 50" step="0.01">
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold">범위 하단 (%) ↓</label>
+              <input type="number" class="form-control form-control-sm" id="plan-lower-pct" value="20" min="1" max="80" placeholder="상단가 기준 최대 하락 %">
+              <div class="form-text">상단 매수가 기준 -X%까지</div>
             </div>
-            <div class="mb-2">
-              <label class="form-label small fw-semibold mb-1">역대 최고가 (ATH)</label>
-              <input type="number" class="form-control form-control-sm" id="np-ath" placeholder="비워두면 현재가 사용" step="0.01">
+            <div class="col-md-1">
+              <label class="form-label small fw-semibold">분할 횟수</label>
+              <input type="number" class="form-control form-control-sm" id="plan-split" value="5" min="2" max="10">
             </div>
-            <div class="mb-3">
-              <label class="form-label small fw-semibold mb-1">총 투자금 (원) *</label>
-              <input type="text" inputmode="numeric" class="form-control form-control-sm" id="np-budget" value="10,000,000" oninput="fmtBudgetInput(this)">
-            </div>
-            <div class="d-flex gap-2">
-              <button class="btn btn-secondary btn-sm flex-fill" onclick="toggleAddPlanForm()">취소</button>
-              <button class="btn btn-primary btn-sm flex-fill" onclick="saveNewPlanInline()">추가</button>
+            <div class="col-md-2">
+              <label class="form-label small fw-semibold">배분 전략</label>
+              <select class="form-select form-select-sm" id="plan-strategy">
+                <option value="inverse_pyramid">역피라미딩 (하락 시 더 많이)</option>
+                <option value="equal">균등 배분</option>
+                <option value="pyramid">정피라미딩 (초반에 많이)</option>
+              </select>
             </div>
           </div>
-          <div class="card-body p-0">
-            <div class="list-group list-group-flush" id="plan-list-group" style="max-height: 480px; overflow-y: auto;">
+          <div class="row g-2 mt-2">
+            <div class="col-md-4">
+              <input type="text" class="form-control form-control-sm" id="plan-name" placeholder="계획명 (예: 삼성전자 25년 1분기 분할매수)">
             </div>
-          </div>
-        </div>
-      </div>
-      
-      <!-- 우측 상세 패널 -->
-      <div class="col-md-9">
-        <div id="plan-empty-panel" class="text-center py-5 text-muted rounded shadow-sm border">
-          <i class="bi bi-graph-up-arrow text-secondary" style="font-size: 3rem;"></i>
-          <p class="mt-3 fs-5 fw-semibold">왼쪽에서 계획 종목을 선택하거나 추가해 주세요.</p>
-        </div>
-        <div id="plan-detail-panel" class="d-none">
-          <!-- 헤더 카드 -->
-          <div class="card border-0 shadow-sm mb-3">
-            <div class="card-body">
-              <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
-                <h4 class="fw-bold mb-0 d-flex align-items-center gap-2 flex-wrap">
-                  <span id="detail-plan-name">-</span>
-                  <span class="badge bg-primary-subtle text-primary" id="detail-plan-ticker" style="font-size:0.8rem;"></span>
-                </h4>
-                <div class="d-flex gap-2">
-                  <a id="planStockLink" href="#" target="_blank" rel="noopener"
-                     class="btn btn-outline-info btn-sm d-none" title="주가 차트 확인">
-                    <i class="bi bi-graph-up-arrow"></i> 차트
-                  </a>
-                  <button class="btn btn-outline-success btn-sm" id="planRefreshBtn" onclick="refreshPlanData()">
-                    <i class="bi bi-arrow-repeat"></i> 갱신
-                  </button>
-                  <button class="btn btn-outline-warning btn-sm" onclick="toggleEditPlanForm()">
-                    <i class="bi bi-pencil-square"></i> 수정
-                  </button>
-                  <button class="btn btn-outline-danger btn-sm" onclick="deleteCurrentPlan()">
-                    <i class="bi bi-trash"></i> 삭제
-                  </button>
-                </div>
-              </div>
-              <!-- 인라인 수정 폼 -->
-              <div id="editPlanInlineForm" class="d-none mt-3 pt-3 border-top">
-                <div class="row g-2">
-                  <div class="col-12 col-sm-6">
-                    <label class="form-label small fw-semibold mb-1">종목명</label>
-                    <input type="text" class="form-control form-control-sm" id="ep-name">
-                  </div>
-                  <div class="col-6 col-sm-3">
-                    <label class="form-label small fw-semibold mb-1">티커</label>
-                    <input type="text" class="form-control form-control-sm" id="ep-ticker">
-                  </div>
-                  <div class="col-6 col-sm-3">
-                    <label class="form-label small fw-semibold mb-1">총 투자금</label>
-                    <input type="text" inputmode="numeric" class="form-control form-control-sm" id="ep-budget" oninput="fmtBudgetInput(this)">
-                  </div>
-                  <div class="col-6 col-sm-3">
-                    <label class="form-label small fw-semibold mb-1">현재가</label>
-                    <input type="number" class="form-control form-control-sm" id="ep-price" step="0.01">
-                  </div>
-                  <div class="col-6 col-sm-3">
-                    <label class="form-label small fw-semibold mb-1">역대 최고가 (ATH)</label>
-                    <input type="number" class="form-control form-control-sm" id="ep-ath" step="0.01">
-                  </div>
-                </div>
-                <div class="d-flex gap-2 mt-2">
-                  <button class="btn btn-secondary btn-sm" onclick="toggleEditPlanForm()">취소</button>
-                  <button class="btn btn-primary btn-sm" onclick="saveEditedPlanInline()">저장</button>
-                </div>
-              </div>
-              <!-- 정보 요약 -->
-              <div class="row g-2 mt-2">
-                <div class="col-6 col-md-3">
-                  <div class="p-2 bg-light-subtle rounded border text-center">
-                    <div class="small text-muted">총 투자금</div>
-                    <div class="fw-bold text-primary small" id="detail-total-budget">-</div>
-                  </div>
-                </div>
-                <div class="col-6 col-md-3">
-                  <div class="p-2 bg-light-subtle rounded border text-center position-relative" style="cursor:pointer" onclick="toggleAthEdit()" title="클릭하여 직접 수정">
-                    <div class="small text-muted d-flex align-items-center justify-content-center gap-1">
-                      최고가 (ATH) <i class="bi bi-pencil" style="font-size:0.7rem;opacity:0.5"></i>
-                    </div>
-                    <div class="fw-bold text-danger-emphasis small" id="detail-ath">-</div>
-                    <div id="ath-edit-area" class="d-none mt-1" onclick="event.stopPropagation()">
-                      <div class="input-group input-group-sm">
-                        <input type="number" id="ath-inline-input" class="form-control form-control-sm text-end" step="0.01" placeholder="ATH 입력">
-                        <button class="btn btn-success btn-sm py-0 px-1" onclick="saveAthInline()"><i class="bi bi-check-lg"></i></button>
-                        <button class="btn btn-secondary btn-sm py-0 px-1" onclick="toggleAthEdit()"><i class="bi bi-x-lg"></i></button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div class="col-6 col-md-3">
-                  <div class="p-2 bg-light-subtle rounded border text-center">
-                    <div class="small text-muted">현재가</div>
-                    <div class="fw-bold text-warning-emphasis small" id="detail-current-price">-</div>
-                  </div>
-                </div>
-                <div class="col-6 col-md-3">
-                  <div class="p-2 bg-light-subtle rounded border text-center">
-                    <div class="small text-muted">고점 대비 하락</div>
-                    <div class="fw-bold text-danger small" id="detail-drop-pct">-</div>
-                  </div>
-                </div>
-              </div>
+            <div class="col-md-4">
+              <input type="text" class="form-control form-control-sm" id="plan-memo" placeholder="메모">
+            </div>
+            <div class="col-md-2">
+              <button class="btn btn-outline-success btn-sm w-100 fw-semibold" onclick="previewPlan()">미리보기</button>
+            </div>
+            <div class="col-md-2">
+              <button class="btn btn-primary btn-sm w-100 fw-semibold" onclick="savePlan()">저장</button>
             </div>
           </div>
 
-          <!-- 매수 계획 테이블 -->
-          <div class="card border-0 shadow-sm mb-3">
-            <div class="card-header border-0 pt-3 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
-              <span class="fw-semibold"><i class="bi bi-table me-2 text-primary"></i>매수 계획</span>
-              <div class="d-flex gap-2 align-items-center flex-wrap">
-                <!-- 하락률 범위 설정 -->
-                <div class="d-flex align-items-center gap-1">
-                  <input type="number" id="range-from" class="form-control form-control-sm text-center px-1"
-                    style="width:52px" min="1" max="99" step="1" placeholder="30" title="시작 하락률(%)">
-                  <span class="text-muted small">~</span>
-                  <input type="number" id="range-to" class="form-control form-control-sm text-center px-1"
-                    style="width:52px" min="1" max="99" step="1" placeholder="70" title="종료 하락률(%)">
-                  <span class="text-muted small">%</span>
-                  <input type="number" id="range-count" class="form-control form-control-sm text-center px-1"
-                    style="width:44px" min="1" max="30" step="1" placeholder="5" title="차수">
-                  <span class="text-muted small">차</span>
-                  <button class="btn btn-outline-secondary btn-sm" onclick="applyRangeToSteps()" title="하락률 범위 균등 적용">
-                    <i class="bi bi-check2"></i> 적용
-                  </button>
-                </div>
-                <span class="small text-muted" id="plan-step-count-text"></span>
-                <button class="btn btn-outline-primary btn-sm" onclick="addPlanStep()">
-                  <i class="bi bi-plus-lg"></i> 추가
-                </button>
-              </div>
-            </div>
-            <div class="card-body p-0">
-              <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0" id="planStepsTable">
-                  <thead class="table-light sticky-top">
-                    <tr>
-                      <th class="text-center" style="width:50px">차수</th>
-                      <th class="text-center" style="width:110px">하락률</th>
-                      <th class="text-end">매수 목표가</th>
-                      <th class="text-end">투자금액</th>
-                      <th class="text-end">예상 수량</th>
-                      <th class="text-center" style="width:40px"></th>
-                    </tr>
-                  </thead>
-                  <tbody></tbody>
-                  <tfoot>
-                    <tr class="table-secondary fw-semibold small">
-                      <td colspan="3" class="text-end text-muted">합계</td>
-                      <td class="text-end" id="plan-total-amt">-</td>
-                      <td class="text-end" id="plan-total-qty">-</td>
-                      <td></td>
-                    </tr>
-                    <tr class="table-secondary small">
-                      <td colspan="5" class="text-end text-muted">
-                        예상 평균 단가: <strong class="text-primary" id="plan-avg-price">-</strong><span id="plan-avg-price-unit">원</span>
-                      </td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+          <!-- 미리보기 결과 -->
+          <div id="plan-preview" class="mt-3 border-top pt-3" style="display:none">
+            <div class="d-flex gap-2 mb-2 flex-wrap" id="plan-preview-summary"></div>
+            <div class="table-responsive">
+              <table class="table table-sm table-bordered table-hover">
+                <thead class="table-dark">
+                  <tr>
+                    <th>차수</th>
+                    <th>상단가 대비</th>
+                    <th>트리거 가격</th>
+                    <th>현재가 대비</th>
+                    <th>비중</th>
+                    <th>투자금</th>
+                    <th>매수 주수</th>
+                    <th>누적 투자금</th>
+                  </tr>
+                </thead>
+                <tbody id="plan-preview-tbody"></tbody>
+              </table>
             </div>
           </div>
-
         </div>
+
+        <!-- 저장된 계획 목록 -->
+        <div id="saved-plans-area">
+          <div class="text-center py-5 text-muted">계획 데이터를 가져오는 중...</div>
+        </div>
+
       </div>
     </div>
   </div>

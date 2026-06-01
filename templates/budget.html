@@ -17,6 +17,10 @@
       <i class="bi bi-mic" id="voiceIcon"></i>
       <span class="ms-1 d-none d-sm-inline" id="voiceLabel">음성 입력</span>
     </button>
+    <button class="btn btn-outline-secondary" onclick="openRecurringModal()" title="고정지출 관리">
+      <i class="bi bi-arrow-repeat"></i>
+      <span class="ms-1 d-none d-sm-inline">고정지출 관리</span>
+    </button>
     <button class="btn btn-danger" onclick="grid.addRow()">
       <i class="bi bi-plus-lg me-1"></i>행 추가
     </button>
@@ -114,6 +118,81 @@
       </div>
       <div class="modal-footer border-0 pt-0">
         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 고정지출 관리 모달 -->
+<div class="modal fade" id="recurringModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold">🔁 고정지출 템플릿 관리</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="max-height:80vh; overflow-y:auto;">
+
+        <!-- 등록 폼 -->
+        <div class="card mb-3 border-0 bg-light">
+          <div class="card-body">
+            <div class="row g-2">
+              <div class="col-md-3">
+                <input type="text" class="form-control form-control-sm"
+                       id="rc-name" placeholder="지출명 (예: 월세, 넷플릭스)">
+              </div>
+              <div class="col-md-2">
+                <select class="form-select form-select-sm" id="rc-category">
+                  <option value="">카테고리</option>
+                </select>
+              </div>
+              <div class="col-md-2">
+                <input type="number" class="form-control form-control-sm"
+                       id="rc-amount" placeholder="금액">
+              </div>
+              <div class="col-md-1">
+                <input type="number" class="form-control form-control-sm"
+                       id="rc-day" placeholder="일" min="1" max="31" title="매월 몇 일">
+              </div>
+              <div class="col-md-2">
+                <input type="month" class="form-control form-control-sm"
+                       id="rc-start-month" title="적용 시작 월">
+              </div>
+              <div class="col-md-2">
+                <input type="month" class="form-control form-control-sm"
+                       id="rc-end-month" placeholder="종료 월 (빈칸=무기한)">
+              </div>
+            </div>
+            <div class="row g-2 mt-1">
+              <div class="col-md-3">
+                <select class="form-select form-select-sm" id="rc-card">
+                  <option value="">카드 연결 (선택)</option>
+                </select>
+              </div>
+              <div class="col-md-7">
+                <input type="text" class="form-control form-control-sm"
+                       id="rc-memo" placeholder="메모">
+              </div>
+              <div class="col-md-2">
+                <button class="btn btn-primary btn-sm w-100 font-semibold"
+                        onclick="addRecurring()">등록</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 등록된 고정지출 목록 -->
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle">
+            <thead class="table-dark">
+              <tr>
+                <th>지출명</th><th class="text-end">금액</th><th>매월</th>
+                <th>시작</th><th>종료</th><th>상태</th><th class="text-center">관리</th>
+              </tr>
+            </thead>
+            <tbody id="recurring-list-tbody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -553,6 +632,117 @@ async function handleReceiptFiles(files) {
     const fileInput = document.getElementById('receiptFileInput');
     if (fileInput) fileInput.value = '';
   }
+}
+
+// ── 고정지출 관리 ────────────────────────────────────────────
+let _rcModalInstance = null;
+
+async function openRecurringModal() {
+  const catSelect = document.getElementById('rc-category');
+  catSelect.innerHTML = '<option value="">카테고리</option>' + 
+    allCategories.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+
+  const cardSelect = document.getElementById('rc-card');
+  cardSelect.innerHTML = '<option value="">카드 연결 (선택)</option>' +
+    allCards.map(c => `<option value="${c.id}">${c.card_name || '카드' + c.card_num}</option>`).join('');
+
+  const todayStr = new Date().toISOString().slice(0, 7);
+  document.getElementById('rc-start-month').value = todayStr;
+
+  document.getElementById('rc-name').value = '';
+  document.getElementById('rc-amount').value = '';
+  document.getElementById('rc-day').value = '1';
+  document.getElementById('rc-end-month').value = '';
+  document.getElementById('rc-memo').value = '';
+
+  await loadRecurringList();
+  
+  if (!_rcModalInstance) {
+    _rcModalInstance = new bootstrap.Modal(document.getElementById('recurringModal'));
+  }
+  _rcModalInstance.show();
+}
+
+async function loadRecurringList() {
+  const res  = await fetch('/api/recurring-budget');
+  const data = await res.json();
+  const tbody = document.getElementById('recurring-list-tbody');
+  tbody.innerHTML = '';
+  data.forEach(r => {
+    tbody.insertAdjacentHTML('beforeend', `
+      <tr class="${r.is_active ? '' : 'text-muted'}">
+        <td><strong>${r.name}</strong> <span class="badge bg-danger-subtle text-danger ms-1" style="font-size:0.75rem">${r.category || ''}</span></td>
+        <td class="text-end fw-semibold text-danger">${fmt(r.amount)}원</td>
+        <td>매월 ${r.day_of_month}일</td>
+        <td>${r.start_month}</td>
+        <td>${r.end_month || '무기한'}</td>
+        <td>
+          <span class="badge ${r.is_active ? 'bg-success-subtle text-success' : 'bg-secondary-subtle text-secondary'}">
+            ${r.is_active ? '활성' : '비활성'}
+          </span>
+        </td>
+        <td class="text-center">
+          <div class="d-flex justify-content-center gap-1">
+            <button class="btn btn-xs btn-outline-warning py-0 px-1" style="font-size: 0.75rem;"
+                    onclick="toggleRecurring(${r.id}, ${!r.is_active})">
+              ${r.is_active ? '중단' : '재개'}
+            </button>
+            <button class="btn btn-xs btn-outline-danger py-0 px-1" style="font-size: 0.75rem;"
+                    onclick="deleteRecurring(${r.id})">삭제</button>
+          </div>
+        </td>
+      </tr>
+    `);
+  });
+}
+
+async function addRecurring() {
+  const payload = {
+    name:           document.getElementById('rc-name').value.trim(),
+    category:       document.getElementById('rc-category').value,
+    amount:         parseInt(document.getElementById('rc-amount').value || 0),
+    day_of_month:   parseInt(document.getElementById('rc-day').value || 1),
+    start_month:    document.getElementById('rc-start-month').value,
+    end_month:      document.getElementById('rc-end-month').value || null,
+    card_id:        document.getElementById('rc-card').value || null,
+    memo:           document.getElementById('rc-memo').value.trim(),
+    payment_method: document.getElementById('rc-card').value ? '카드' : '기타',
+  };
+  if (!payload.name || !payload.amount || !payload.start_month) {
+    alert('지출명, 금액, 시작 월은 필수입니다.'); return;
+  }
+  await fetch('/api/recurring-budget', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  });
+  loadRecurringList();
+  grid.load();
+}
+
+async function toggleRecurring(rid, is_active) {
+  const res = await fetch('/api/recurring-budget');
+  const data = await res.json();
+  const template = data.find(t => t.id === rid);
+  if (!template) return;
+  
+  template.is_active = is_active;
+  await fetch(`/api/recurring-budget/${rid}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(template)
+  });
+  loadRecurringList();
+  grid.load();
+}
+
+async function deleteRecurring(rid) {
+  if (!confirm('정말로 이 고정지출 템플릿을 삭제하시겠습니까? (이후 자동 생성이 중단됩니다)')) return;
+  await fetch(`/api/recurring-budget/${rid}`, {
+    method: 'DELETE'
+  });
+  loadRecurringList();
+  grid.load();
 }
 </script>
 {% endblock %}

@@ -347,6 +347,89 @@ def api_income_detail(rid):
 
 
 # ── API: 가계부 ──────────────────────────────────────────────
+import calendar as _cal
+
+def _generate_recurring_budget(db, year: int, month: int):
+    """
+    지정한 연월에 대해 활성 템플릿을 조회하고,
+    아직 생성되지 않은 고정지출 항목을 budget 테이블에 INSERT.
+
+    규칙:
+      1. 해당 월이 start_month~end_month 범위 내여야 함
+      2. budget에 같은 (recurring_id, 해당월) 조합이 없어야 함 (중복 방지)
+      3. day_of_month가 해당 월의 말일을 초과하면 말일로 보정
+      4. 생성된 날짜가 오늘 이전인 경우에만 INSERT
+         (해당 날짜가 오지 않은 건 생성하지 않음)
+    """
+    ym_str  = f"{year}-{month:02d}"        # 예: '2025-06'
+    today   = date.today()
+
+    cur = db.cursor()
+    cur.execute("""
+        SELECT * FROM recurring_budget
+        WHERE is_active = TRUE
+          AND start_month <= %s
+          AND (end_month IS NULL OR end_month >= %s)
+    """, (ym_str, ym_str))
+    templates = cur.fetchall()
+    cur.close()
+
+    inserted = 0
+    for t in templates:
+        # 실제 날짜 계산 (말일 초과 보정)
+        max_day   = _cal.monthrange(year, month)[1]
+        actual_day = min(t['day_of_month'], max_day)
+        tx_date   = date(year, month, actual_day)
+
+        # ── 핵심 조건: 해당 날짜가 오늘 이후면 생성하지 않음 ──
+        if tx_date > today:
+            continue
+
+        # 이미 이 템플릿으로 해당 월에 생성된 항목이 있는지 확인
+        cur = db.cursor()
+        cur.execute("""
+            SELECT id FROM budget
+            WHERE recurring_id = %s
+              AND to_char(date::date, 'YYYY-MM') = %s
+        """, (t['id'], ym_str))
+        already_exists = cur.fetchone()
+        cur.close()
+
+        if already_exists:
+            continue  # 이미 생성됨 → 스킵
+
+        # 새 budget 행 INSERT
+        cur = db.cursor()
+        cur.execute("""
+            INSERT INTO budget
+                (date, category, name, type, payment_method,
+                 amount, memo, card_id, recurring_id, is_auto_generated)
+            VALUES (%s, %s, %s, '지출', %s, %s, %s, %s, %s, TRUE)
+            RETURNING id
+        """, (tx_date.isoformat(), t['category'], t['name'],
+              t['payment_method'], t['amount'], t['memo'],
+              t['card_id'], t['id']))
+        budget_id = cur.fetchone()[0]
+        cur.close()
+
+        # 카드 연동 처리 (기존 _sync_card_tx 활용)
+        if t['card_id']:
+            _sync_card_tx(db, budget_id, {
+                'card_id':  t['card_id'],
+                'date':     tx_date.isoformat(),
+                'name':     t['name'],
+                'category': t['category'],
+                'amount':   t['amount'],
+                'memo':     t['memo'],
+            })
+
+        inserted += 1
+
+    if inserted > 0:
+        db.commit()
+    return inserted
+
+
 def _sync_card_tx(db, budget_id, data):
     """budget 저장 시 card_tx 자동 동기화"""
     card_id = data.get('card_id') or None
@@ -384,76 +467,20 @@ def api_budget():
         year  = request.args.get('year')
         month = request.args.get('month')
 
-        # 고정/변동지출 자동 생성 (해당 월 + 누락된 이전 월 보충)
+        # ── [추가] 해당 연월의 고정지출 자동 생성 ──
         if year and month:
             try:
-                req_ym = f"{year}-{month.zfill(2)}"
-                cur = db.cursor()
-                cur.execute("SELECT * FROM budget_recurring WHERE active = TRUE")
-                recurrings = rows_to_list(cur.fetchall())
-                cur.close()
-
-                if recurrings:
-                    rec_ids = [rec['id'] for rec in recurrings]
-                    cur = db.cursor()
-                    # 1. 각 recurring별로 최소 날짜 (MIN(date)) 한번에 가져오기
-                    cur.execute(
-                        "SELECT recurring_id, MIN(date) FROM budget WHERE recurring_id IN %s GROUP BY recurring_id", 
-                        (tuple(rec_ids),)
-                    )
-                    min_dates = {row[0]: row[1] for row in cur.fetchall() if row[0] is not None}
-                    
-                    # 2. 각 recurring별로 이미 존재하는 YYYY-MM 집합 한번에 가져오기
-                    cur.execute(
-                        "SELECT recurring_id, to_char(date::date, 'YYYY-MM') AS ym FROM budget WHERE recurring_id IN %s",
-                        (tuple(rec_ids),)
-                    )
-                    existing_yms = {(row[0], row[1]) for row in cur.fetchall() if row[0] is not None and row[1] is not None}
-                    cur.close()
-
-                    for rec in recurrings:
-                        min_date = min_dates.get(rec['id'])
-                        if min_date:
-                            start_ym = str(min_date)[:7]
-                        else:
-                            start_ym = req_ym
-
-                        # 시작 월부터 요청 월까지 (최대 24개월) 누락 월 보충
-                        sy, sm = int(start_ym[:4]), int(start_ym[5:])
-                        ey, em = int(req_ym[:4]), int(req_ym[5:])
-                        limit  = 24
-                        while (sy < ey or (sy == ey and sm <= em)) and limit > 0:
-                            check_ym  = f"{sy}-{sm:02d}"
-                            date_str  = f"{check_ym}-01"
-                            
-                            # 인메모리 검색으로 쿼리 획기적 제거
-                            if (rec['id'], check_ym) not in existing_yms:
-                                cur = db.cursor()
-                                cur.execute(
-                                    "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id,recurring_id) "
-                                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                                    (date_str, rec['category'], rec['name'], rec['type'],
-                                     rec['payment_method'], rec['amount'], rec['memo'],
-                                     rec['card_id'], rec['id'])
-                                )
-                                cur.close()
-                                existing_yms.add((rec['id'], check_ym))
-                            sm += 1
-                            if sm > 12: sm = 1; sy += 1
-                            limit -= 1
-                db.commit()
+                _generate_recurring_budget(db, int(year), int(month))
             except Exception as e:
-                db.rollback()
-                print("Error in auto recurring check:", e)
+                print("Error in _generate_recurring_budget:", e)
 
         query = """SELECT b.*, c.card_name
                    FROM budget b
                    LEFT JOIN card_info c ON b.card_id = c.id"""
         params = []
         if year and month:
-            query += " WHERE b.date >= %s AND b.date < %s"
-            start_date, end_date = _month_range(year, month)
-            params = [start_date, end_date]
+            query += " WHERE to_char(b.date::date, 'YYYY') = %s AND to_char(b.date::date, 'MM') = %s"
+            params = [year, month.zfill(2)]
         query += " ORDER BY b.date DESC"
         cur = db.cursor()
         cur.execute(query, params)
@@ -464,7 +491,6 @@ def api_budget():
 
     data = request.json
     type_ = data.get('type', '')
-    recurring_id = None
 
     # 카테고리 미설정 시 규칙 자동 적용
     if not data.get('category'):
@@ -472,43 +498,15 @@ def api_budget():
         if auto_cat:
             data['category'] = auto_cat
 
-    # 고정/변동지출이면 반복 마스터 생성 (테이블 미존재 시 무시)
-    if type_ in ('고정지출', '변동지출'):
-        try:
-            cur = db.cursor()
-            cur.execute(
-                "INSERT INTO budget_recurring (name,category,type,payment_method,card_id,amount,memo) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-                (data.get('name'), data.get('category'), type_,
-                 data.get('payment_method'), data.get('card_id') or None,
-                 data['amount'], data.get('memo'))
-            )
-            recurring_id = cur.fetchone()[0]
-            cur.close()
-        except Exception:
-            db.rollback()
-            recurring_id = None
-
     # recurring_id 컬럼 존재 여부에 따라 INSERT 분기
     cur = db.cursor()
-    try:
-        cur.execute(
-            "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id,recurring_id) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (data['date'], data.get('category'), data.get('name'), type_,
-             data.get('payment_method'), data['amount'], data.get('memo'),
-             data.get('card_id') or None, recurring_id)
-        )
-    except Exception:
-        db.rollback()
-        cur = db.cursor()
-        cur.execute(
-            "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (data['date'], data.get('category'), data.get('name'), type_,
-             data.get('payment_method'), data['amount'], data.get('memo'),
-             data.get('card_id') or None)
-        )
+    cur.execute(
+        "INSERT INTO budget (date,category,name,type,payment_method,amount,memo,card_id,is_auto_generated) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,FALSE) RETURNING id",
+        (data['date'], data.get('category'), data.get('name'), type_,
+         data.get('payment_method'), data['amount'], data.get('memo'),
+         data.get('card_id') or None)
+    )
     budget_id = cur.fetchone()[0]
     cur.close()
     _sync_card_tx(db, budget_id, data)
@@ -685,7 +683,7 @@ def api_budget_detail(rid):
             try:
                 cur = db.cursor()
                 cur.execute(
-                    "UPDATE budget_recurring SET name=%s,category=%s,payment_method=%s,card_id=%s,amount=%s,memo=%s WHERE id=%s",
+                    "UPDATE recurring_budget SET name=%s,category=%s,payment_method=%s,card_id=%s,amount=%s,memo=%s WHERE id=%s",
                     (data.get('name'), data.get('category'), data.get('payment_method'),
                      data.get('card_id') or None, data.get('amount', 0), data.get('memo'), recurring_id)
                 )
@@ -741,7 +739,7 @@ def api_budget_detail(rid):
         cur.execute("DELETE FROM budget WHERE recurring_id=%s AND date >= %s", (recurring_id, row_date))
         cur.close()
         cur = db.cursor()
-        cur.execute("UPDATE budget_recurring SET active=FALSE WHERE id=%s", (recurring_id,))
+        cur.execute("UPDATE recurring_budget SET is_active=FALSE WHERE id=%s", (recurring_id,))
         cur.close()
     else:
         cur = db.cursor()
@@ -753,6 +751,61 @@ def api_budget_detail(rid):
 
     db.commit()
     db.close()
+    return jsonify({'ok': True})
+
+
+# ── 고정지출 템플릿 관리 ──────────────────────────────────────
+@app.route('/api/recurring-budget', methods=['GET', 'POST'])
+def api_recurring_budget():
+    db = get_db()
+    if request.method == 'GET':
+        cur = db.cursor()
+        cur.execute("""
+            SELECT r.*, c.card_name
+            FROM recurring_budget r
+            LEFT JOIN card_info c ON r.card_id = c.id
+            ORDER BY r.day_of_month, r.name
+        """)
+        rows = cur.fetchall()
+        cur.close(); db.close()
+        return jsonify(rows_to_list(rows))
+
+    d = request.json or {}
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO recurring_budget
+            (name, category, payment_method, amount, card_id,
+             day_of_month, start_month, end_month, memo)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    """, (d.get('name'), d.get('category'), d.get('payment_method'),
+          d.get('amount', 0), d.get('card_id') or None,
+          d.get('day_of_month', 1), d.get('start_month'),
+          d.get('end_month') or None, d.get('memo')))
+    cur.close(); db.commit(); db.close()
+    return jsonify({'ok': True}), 201
+
+
+@app.route('/api/recurring-budget/<int:rid>', methods=['PUT', 'DELETE'])
+def api_recurring_budget_detail(rid):
+    db = get_db()
+    if request.method == 'DELETE':
+        cur = db.cursor()
+        cur.execute("UPDATE recurring_budget SET is_active=FALSE WHERE id=%s", (rid,))
+        cur.close(); db.commit(); db.close()
+        return jsonify({'ok': True})
+    d = request.json or {}
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE recurring_budget
+        SET name=%s, category=%s, payment_method=%s, amount=%s, card_id=%s,
+            day_of_month=%s, start_month=%s, end_month=%s, memo=%s, is_active=%s
+        WHERE id=%s
+    """, (d.get('name'), d.get('category'), d.get('payment_method'),
+          d.get('amount', 0), d.get('card_id') or None,
+          d.get('day_of_month', 1), d.get('start_month'),
+          d.get('end_month') or None, d.get('memo'),
+          d.get('is_active', True), rid))
+    cur.close(); db.commit(); db.close()
     return jsonify({'ok': True})
 
 
@@ -1608,6 +1661,196 @@ def _get_split_buy_plans_cached():
     cur.close()
     db.close()
     return rows_to_list(rows)
+
+def _calc_invest_plan_steps(target_price, upper_pct, lower_pct,
+                             split_count, total_budget, strategy):
+    """
+    상단 매수가 기준으로 분할매수 차수를 계산.
+
+    예: target=60,000 / upper=0% / lower=20% / 5차
+      1차: 60,000원 (0%)
+      2차: 57,000원 (-5%)
+      3차: 54,000원 (-10%)
+      4차: 51,000원 (-15%)
+      5차: 48,000원 (-20%)
+
+    전략별 배분:
+      equal:           [20%, 20%, 20%, 20%, 20%]
+      inverse_pyramid: 하락할수록 비중↑ (역피라미딩)
+      pyramid:         하락할수록 비중↓ (정피라미딩 / 추세추종)
+    """
+    total_range = upper_pct + lower_pct   # 전체 범위 %
+    step_pct    = total_range / (split_count - 1) if split_count > 1 else 0
+
+    # 각 차수의 기준가 대비 하락률
+    pct_points = [upper_pct - step_pct * i for i in range(split_count)]
+
+    # 배분 가중치 결정
+    if strategy == 'equal':
+        weights = [1.0] * split_count
+
+    elif strategy == 'inverse_pyramid':
+        # 1.0, 1.5, 2.25, 3.375, 5.0625 ... (1.5배씩 증가)
+        raw = [1.0 * (1.5 ** i) for i in range(split_count)]
+        total_w = sum(raw)
+        weights = [w / total_w for w in raw]
+
+    elif strategy == 'pyramid':
+        raw = [1.0 * (1.5 ** i) for i in range(split_count - 1, -1, -1)]
+        total_w = sum(raw)
+        weights = [w / total_w for w in raw]
+
+    else:
+        weights = [1.0 / split_count] * split_count
+
+    steps = []
+    cumulative = 0
+    for i, (pct, weight) in enumerate(zip(pct_points, weights)):
+        trigger_price = round(target_price * (1 + pct / 100))
+        amount        = round(total_budget * weight)
+        shares        = round(amount / trigger_price, 4) if trigger_price > 0 else 0
+        cumulative   += amount
+
+        steps.append({
+            'step_no':       i + 1,
+            'pct_from_target': round(pct, 1),
+            'trigger_price': trigger_price,
+            'weight_pct':    round(weight * 100, 1),
+            'amount':        amount,
+            'shares':        shares,
+            'cumulative':    cumulative,
+            'label':         (f"+{pct:.1f}%" if pct > 0
+                              else f"{pct:.1f}%" if pct < 0
+                              else "상단 매수가"),
+        })
+
+    return steps
+
+
+@app.route('/api/invest-plans', methods=['GET', 'POST'])
+def api_invest_plans():
+    db = get_db()
+    if request.method == 'GET':
+        cur = db.cursor()
+        cur.execute("""
+            SELECT p.*,
+                   s.name AS stock_name, s.ticker AS stock_ticker,
+                   e.name AS etf_name,   e.ticker AS etf_ticker,
+                   s.current_price AS stock_current_price,
+                   e.current_price AS etf_current_price
+            FROM invest_plans p
+            LEFT JOIN stocks s ON p.stock_id = s.id
+            LEFT JOIN etf    e ON p.etf_id   = e.id
+            ORDER BY p.created_at DESC
+        """)
+        rows = cur.fetchall(); cur.close()
+
+        result = []
+        for row in rows:
+            r = dict(row)
+            cur = db.cursor()
+            cur.execute("""
+                SELECT * FROM invest_plan_steps
+                WHERE plan_id = %s ORDER BY step_no
+            """, (row['id'],))
+            r['steps'] = rows_to_list(cur.fetchall())
+            cur.close()
+
+            # 체결된 차수 수 / 총 차수
+            r['executed_count']  = sum(1 for s in r['steps'] if s['is_executed'])
+            r['total_steps']     = len(r['steps'])
+            r['executed_amount'] = sum(s['executed_amount'] or 0
+                                       for s in r['steps'] if s['is_executed'])
+            # 현재가
+            r['current_price'] = (row['stock_current_price']
+                                  or row['etf_current_price'] or 0)
+            result.append(r)
+
+        db.close()
+        return jsonify(result)
+
+    # ── POST: 계획 생성 + steps 자동 계산 ──
+    d = request.json or {}
+    target_price = int(d.get('target_price', 0))
+    upper_pct    = float(d.get('upper_pct',  0))
+    lower_pct    = float(d.get('lower_pct',  20))
+    split_count  = int(d.get('split_count',  5))
+    total_budget = int(d.get('total_budget', 0))
+    strategy     = d.get('strategy', 'inverse_pyramid')
+    _preview_only = d.get('_preview_only', False)
+
+    if not target_price or not total_budget:
+        db.close()
+        return jsonify({'error': '상단 매수가와 총 예산은 필수입니다.'}), 400
+
+    steps_data = _calc_invest_plan_steps(
+        target_price, upper_pct, lower_pct,
+        split_count, total_budget, strategy
+    )
+
+    if _preview_only:
+        db.close()
+        return jsonify({'ok': True, 'steps': steps_data}), 200
+
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO invest_plans
+            (stock_id, etf_id, plan_name, target_price, upper_pct, lower_pct,
+             split_count, total_budget, strategy, memo)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+    """, (d.get('stock_id') or None, d.get('etf_id') or None,
+          d.get('plan_name', ''), target_price, upper_pct, lower_pct,
+          split_count, total_budget, strategy, d.get('memo', '')))
+    plan_id = cur.fetchone()[0]
+    cur.close()
+
+    for step in steps_data:
+        cur = db.cursor()
+        cur.execute("""
+            INSERT INTO invest_plan_steps
+                (plan_id, step_no, trigger_price, target_amount, target_shares, weight_pct)
+            VALUES (%s,%s,%s,%s,%s,%s)
+        """, (plan_id, step['step_no'], step['trigger_price'],
+              step['amount'], step['shares'], step['weight_pct']))
+        cur.close()
+
+    db.commit(); db.close()
+    return jsonify({'ok': True, 'plan_id': plan_id, 'steps': steps_data}), 201
+
+
+@app.route('/api/invest-plan-steps/<int:step_id>/execute', methods=['POST'])
+def api_invest_plan_step_execute(step_id):
+    """특정 차수 매수 체결 기록"""
+    d = request.json or {}
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE invest_plan_steps
+        SET is_executed=TRUE,
+            executed_at=%s, executed_price=%s,
+            executed_shares=%s, executed_amount=%s
+        WHERE id=%s
+    """, (d.get('executed_at', date.today().isoformat()),
+          d.get('executed_price'), d.get('executed_shares'),
+          d.get('executed_amount'), step_id))
+    cur.close(); db.commit(); db.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/invest-plan-steps/<int:step_id>/execute', methods=['DELETE'])
+def api_invest_plan_step_unexecute(step_id):
+    """체결 기록 취소"""
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE invest_plan_steps
+        SET is_executed=FALSE, executed_at=NULL,
+            executed_price=NULL, executed_shares=NULL, executed_amount=NULL
+        WHERE id=%s
+    """, (step_id,))
+    cur.close(); db.commit(); db.close()
+    return jsonify({'ok': True})
+
 
 @app.route('/api/split-buy-plans', methods=['GET', 'POST'])
 def api_split_buy_plans():
@@ -3714,100 +3957,136 @@ def _save_daily_snapshot(db):
 
 @app.route('/api/networth-history')
 def api_networth_history():
+    """
+    순자산 변화 이력 반환.
+
+    period 파라미터:
+      daily   → 최근 90일  (daily_snapshots)
+      weekly  → 최근 52주, 주의 마지막 기록 (daily_snapshots)
+      monthly → 최근 24개월 (asset_snapshots)
+      yearly  → 최근 5년   (asset_snapshots, 연도별 마지막 월)
+    """
     period = request.args.get('period', 'monthly')
-    db = get_db()
-    cur = db.cursor()
-    
+    db     = get_db()
+    cur    = db.cursor()
+
     if period == 'daily':
         cur.execute("""
-            SELECT day::text, net_worth, total,
-                   net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY day), net_worth) AS change,
-                   ROUND(
-                     COALESCE(
-                       (net_worth - LAG(net_worth) OVER (ORDER BY day))::numeric
-                       / NULLIF(LAG(net_worth) OVER (ORDER BY day), 0) * 100,
-                       0
-                     ), 2
-                   ) AS change_pct
+            SELECT
+                day::text                                          AS label,
+                net_worth,
+                net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY day), net_worth)    AS change_amt,
+                ROUND(
+                    COALESCE(
+                        (net_worth - LAG(net_worth) OVER (ORDER BY day))::numeric
+                        / NULLIF(LAG(net_worth) OVER (ORDER BY day), 0) * 100, 0
+                    ), 2
+                )                                                  AS change_pct
             FROM daily_snapshots
             WHERE day >= CURRENT_DATE - INTERVAL '90 days'
             ORDER BY day
         """)
-        rows = cur.fetchall()
-        
+
     elif period == 'weekly':
         cur.execute("""
-            WITH weekly AS (
+            WITH ranked AS (
                 SELECT *,
-                       DATE_TRUNC('week', day) AS week_start,
-                       ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('week', day) ORDER BY day DESC) AS rn
+                       DATE_TRUNC('week', day)::date AS week_start,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY DATE_TRUNC('week', day) ORDER BY day DESC
+                       ) AS rn
                 FROM daily_snapshots
                 WHERE day >= CURRENT_DATE - INTERVAL '52 weeks'
             )
-            SELECT week_start::date::text AS day, net_worth, total,
-                   net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY week_start), net_worth) AS change,
-                   ROUND(
-                     COALESCE(
-                       (net_worth - LAG(net_worth) OVER (ORDER BY week_start))::numeric
-                       / NULLIF(LAG(net_worth) OVER (ORDER BY week_start), 0) * 100,
-                       0
-                     ), 2
-                   ) AS change_pct
-            FROM weekly WHERE rn = 1
+            SELECT
+                week_start::text                                         AS label,
+                net_worth,
+                net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY week_start), net_worth)   AS change_amt,
+                ROUND(
+                    COALESCE(
+                        (net_worth - LAG(net_worth) OVER (ORDER BY week_start))::numeric
+                        / NULLIF(LAG(net_worth) OVER (ORDER BY week_start), 0) * 100, 0
+                    ), 2
+                )                                                         AS change_pct
+            FROM ranked
+            WHERE rn = 1
             ORDER BY week_start
         """)
-        rows = cur.fetchall()
-        
+
     elif period == 'monthly':
         cur.execute("""
-            SELECT month AS day,
-                   (cash + stocks + real_estate + crypto + pension) AS net_worth,
-                   total,
-                   (cash + stocks + real_estate + crypto + pension)
-                     - COALESCE(LAG(cash + stocks + real_estate + crypto + pension) OVER (ORDER BY month), (cash + stocks + real_estate + crypto + pension)) AS change,
-                   ROUND(
-                     COALESCE(
-                       ((cash+stocks+real_estate+crypto+pension)
-                         - LAG(cash+stocks+real_estate+crypto+pension) OVER (ORDER BY month))::numeric
-                       / NULLIF(LAG(cash+stocks+real_estate+crypto+pension) OVER (ORDER BY month), 0) * 100,
-                       0
-                     ), 2
-                   ) AS change_pct
+            SELECT
+                month                                                   AS label,
+                (cash + stocks + real_estate + crypto + pension)        AS net_worth,
+                (cash + stocks + real_estate + crypto + pension)
+                    - COALESCE(LAG(cash+stocks+real_estate+crypto+pension)
+                      OVER (ORDER BY month), cash+stocks+real_estate+crypto+pension)    AS change_amt,
+                ROUND(
+                    COALESCE(
+                        ((cash+stocks+real_estate+crypto+pension)
+                          - LAG(cash+stocks+real_estate+crypto+pension)
+                            OVER (ORDER BY month))::numeric
+                        / NULLIF(
+                            LAG(cash+stocks+real_estate+crypto+pension)
+                              OVER (ORDER BY month), 0) * 100, 0
+                    ), 2
+                )                                                       AS change_pct
             FROM asset_snapshots
             ORDER BY month
             LIMIT 24
         """)
-        rows = cur.fetchall()
-        
+
     elif period == 'yearly':
         cur.execute("""
             WITH yearly AS (
                 SELECT *,
-                       LEFT(month, 4) AS year,
-                       ROW_NUMBER() OVER (PARTITION BY LEFT(month, 4) ORDER BY month DESC) AS rn
+                       LEFT(month, 4) AS yr,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY LEFT(month, 4) ORDER BY month DESC
+                       ) AS rn
                 FROM asset_snapshots
             )
-            SELECT year AS day,
-                   (cash + stocks + real_estate + crypto + pension) AS net_worth,
-                   total,
-                   (cash + stocks + real_estate + crypto + pension)
-                     - COALESCE(LAG(cash + stocks + real_estate + crypto + pension) OVER (ORDER BY year), (cash + stocks + real_estate + crypto + pension)) AS change,
-                   ROUND(
-                     COALESCE(
-                       ((cash+stocks+real_estate+crypto+pension)
-                         - LAG(cash+stocks+real_estate+crypto+pension) OVER (ORDER BY year))::numeric
-                       / NULLIF(LAG(cash+stocks+real_estate+crypto+pension) OVER (ORDER BY year), 0) * 100,
-                       0
-                     ), 2
-                   ) AS change_pct
-            FROM yearly WHERE rn = 1
-            ORDER BY year
+            SELECT
+                yr                                                      AS label,
+                (cash + stocks + real_estate + crypto + pension)        AS net_worth,
+                (cash + stocks + real_estate + crypto + pension)
+                    - COALESCE(LAG(cash+stocks+real_estate+crypto+pension)
+                      OVER (ORDER BY yr), cash+stocks+real_estate+crypto+pension)       AS change_amt,
+                ROUND(
+                    COALESCE(
+                        ((cash+stocks+real_estate+crypto+pension)
+                          - LAG(cash+stocks+real_estate+crypto+pension)
+                            OVER (ORDER BY yr))::numeric
+                        / NULLIF(
+                            LAG(cash+stocks+real_estate+crypto+pension)
+                              OVER (ORDER BY yr), 0) * 100, 0
+                    ), 2
+                )                                                       AS change_pct
+            FROM yearly
+            WHERE rn = 1
+            ORDER BY yr
+            LIMIT 5
         """)
-        rows = cur.fetchall()
-    
+
+    rows = cur.fetchall()
     cur.close()
     db.close()
-    return jsonify(rows_to_list(rows))
+
+    # 전체 기간 요약값 계산
+    valid = [r for r in rows if r['net_worth'] is not None]
+    first_nw = valid[0]['net_worth']  if valid else 0
+    last_nw  = valid[-1]['net_worth'] if valid else 0
+    total_change     = last_nw - first_nw
+    total_change_pct = round(total_change / first_nw * 100, 2) if first_nw else 0
+
+    return jsonify({
+        'rows': rows_to_list(rows),
+        'summary': {
+            'current':     last_nw,
+            'change_amt':  total_change,
+            'change_pct':  total_change_pct,
+        }
+    })
 
 
 @app.route('/api/etf-invest-plan', methods=['POST'])

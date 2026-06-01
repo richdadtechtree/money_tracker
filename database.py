@@ -479,6 +479,53 @@ def init_db():
             tx_date         TEXT NOT NULL,
             memo            TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS recurring_budget (
+            id             SERIAL PRIMARY KEY,
+            name           VARCHAR(200) NOT NULL,
+            category       VARCHAR(100),
+            payment_method VARCHAR(50),
+            amount         BIGINT NOT NULL DEFAULT 0,
+            card_id        INTEGER REFERENCES card_info(id) ON DELETE SET NULL,
+            day_of_month   INTEGER NOT NULL CHECK (day_of_month BETWEEN 1 AND 31),
+            start_month    VARCHAR(7) NOT NULL,
+            end_month      VARCHAR(7),
+            memo           VARCHAR(500),
+            is_active      BOOLEAN DEFAULT TRUE,
+            created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS invest_plans (
+            id              SERIAL PRIMARY KEY,
+            stock_id        INTEGER REFERENCES stocks(id)  ON DELETE CASCADE,
+            etf_id          INTEGER REFERENCES etf(id)     ON DELETE CASCADE,
+            plan_name       VARCHAR(100),
+            target_price    BIGINT  NOT NULL,
+            upper_pct       NUMERIC(5,2) DEFAULT 0,
+            lower_pct       NUMERIC(5,2) DEFAULT 20,
+            split_count     INTEGER DEFAULT 5,
+            total_budget    BIGINT  DEFAULT 0,
+            strategy        VARCHAR(20) DEFAULT 'inverse_pyramid',
+            status          VARCHAR(20) DEFAULT 'active',
+            memo            VARCHAR(300),
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS invest_plan_steps (
+            id          SERIAL PRIMARY KEY,
+            plan_id     INTEGER NOT NULL REFERENCES invest_plans(id) ON DELETE CASCADE,
+            step_no     INTEGER NOT NULL,
+            trigger_price BIGINT NOT NULL,
+            target_amount BIGINT NOT NULL,
+            target_shares NUMERIC(12,4),
+            weight_pct  NUMERIC(5,2),
+            executed_at DATE,
+            executed_price BIGINT,
+            executed_shares NUMERIC(12,4),
+            executed_amount BIGINT,
+            is_executed BOOLEAN DEFAULT FALSE
+        );
     """)
 
     conn.commit()
@@ -627,6 +674,53 @@ def init_db():
         "ALTER TABLE split_buy_plans ADD COLUMN IF NOT EXISTS drop_from REAL DEFAULT 30",
         "ALTER TABLE split_buy_plans ADD COLUMN IF NOT EXISTS drop_to   REAL DEFAULT 70",
         "ALTER TABLE split_buy_plans ADD COLUMN IF NOT EXISTS step_count INTEGER DEFAULT 5",
+        """CREATE TABLE IF NOT EXISTS recurring_budget (
+            id             SERIAL PRIMARY KEY,
+            name           VARCHAR(200) NOT NULL,
+            category       VARCHAR(100),
+            payment_method VARCHAR(50),
+            amount         BIGINT NOT NULL DEFAULT 0,
+            card_id        INTEGER REFERENCES card_info(id) ON DELETE SET NULL,
+            day_of_month   INTEGER NOT NULL CHECK (day_of_month BETWEEN 1 AND 31),
+            start_month    VARCHAR(7) NOT NULL,
+            end_month      VARCHAR(7),
+            memo           VARCHAR(500),
+            is_active      BOOLEAN DEFAULT TRUE,
+            created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""",
+        "ALTER TABLE budget ADD COLUMN IF NOT EXISTS is_auto_generated BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE budget DROP CONSTRAINT IF EXISTS budget_recurring_id_fkey",
+        "ALTER TABLE budget ADD CONSTRAINT fk_budget_recurring_budget FOREIGN KEY (recurring_id) REFERENCES recurring_budget(id) ON DELETE SET NULL",
+        """CREATE TABLE IF NOT EXISTS invest_plans (
+            id              SERIAL PRIMARY KEY,
+            stock_id        INTEGER REFERENCES stocks(id)  ON DELETE CASCADE,
+            etf_id          INTEGER REFERENCES etf(id)     ON DELETE CASCADE,
+            plan_name       VARCHAR(100),
+            target_price    BIGINT  NOT NULL,
+            upper_pct       NUMERIC(5,2) DEFAULT 0,
+            lower_pct       NUMERIC(5,2) DEFAULT 20,
+            split_count     INTEGER DEFAULT 5,
+            total_budget    BIGINT  DEFAULT 0,
+            strategy        VARCHAR(20) DEFAULT 'inverse_pyramid',
+            status          VARCHAR(20) DEFAULT 'active',
+            memo            VARCHAR(300),
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS invest_plan_steps (
+            id          SERIAL PRIMARY KEY,
+            plan_id     INTEGER NOT NULL REFERENCES invest_plans(id) ON DELETE CASCADE,
+            step_no     INTEGER NOT NULL,
+            trigger_price BIGINT NOT NULL,
+            target_amount BIGINT NOT NULL,
+            target_shares NUMERIC(12,4),
+            weight_pct  NUMERIC(5,2),
+            executed_at DATE,
+            executed_price BIGINT,
+            executed_shares NUMERIC(12,4),
+            executed_amount BIGINT,
+            is_executed BOOLEAN DEFAULT FALSE
+        )"""
     ]
     for sql in migrations:
         try:
