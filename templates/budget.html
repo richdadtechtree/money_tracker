@@ -93,6 +93,35 @@
   </div>
 </div>
 
+<!-- 고정지출 → 반복 등록 제안 모달 -->
+<div class="modal fade" id="offerRecurringModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h6 class="modal-title fw-bold">🔁 매월 자동 반복 등록</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body py-2">
+        <p class="mb-2 small"><strong id="offerRcName"></strong>을(를) 매월 <strong id="offerRcDay"></strong>일에 자동 등록하시겠습니까?</p>
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label small mb-1">시작 월</label>
+            <input type="month" class="form-control form-control-sm" id="offerRcStartMonth">
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-1">종료 월 (빈칸=무기한)</label>
+            <input type="month" class="form-control form-control-sm" id="offerRcEndMonth">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer border-0 pt-1">
+        <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+        <button class="btn btn-primary btn-sm" onclick="confirmRecurringSetup()">매월 자동 등록</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- 반복 지출 삭제 확인 모달 -->
 <div class="modal fade" id="recurringDeleteModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
@@ -424,6 +453,11 @@ const grid = new GridTable({
     if (method === 'PUT' && result?.learned && result?.keyword) {
       showLearnedToast(result.keyword, result.category || '', result.rule_id);
     }
+    // 고정지출로 저장됐고 아직 반복 템플릿이 없으면 반복 등록 여부 확인
+    if (result?.id && result?.type === '고정지출' && !result?.recurring_id) {
+      const savedRow = result;
+      setTimeout(() => offerRecurringSetup(savedRow), 300);
+    }
   },
   onBeforeDelete: (id, doDelete) => {
     const row = grid.rows.find(r => String(r.id) === String(id));
@@ -694,6 +728,59 @@ async function loadRecurringList() {
       </tr>
     `);
   });
+}
+
+// ── 고정지출 저장 후 반복 등록 제안 ──
+let _offerRcRow = null;
+let _offerRcModal = null;
+
+function offerRecurringSetup(row) {
+  _offerRcRow = row;
+  const d = new Date(row.date);
+  const day = d.getDate();
+  const ym = row.date ? row.date.slice(0, 7) : new Date().toISOString().slice(0, 7);
+
+  document.getElementById('offerRcName').textContent = row.name || '이 항목';
+  document.getElementById('offerRcDay').textContent  = day;
+  document.getElementById('offerRcStartMonth').value = ym;
+  document.getElementById('offerRcEndMonth').value   = '';
+
+  if (!_offerRcModal) _offerRcModal = new bootstrap.Modal(document.getElementById('offerRecurringModal'));
+  _offerRcModal.show();
+}
+
+async function confirmRecurringSetup() {
+  if (!_offerRcRow) return;
+  const row = _offerRcRow;
+  const d = new Date(row.date);
+  const day = d.getDate();
+  const startMonth = document.getElementById('offerRcStartMonth').value;
+  const endMonth   = document.getElementById('offerRcEndMonth').value || null;
+
+  // 1. recurring_budget 생성
+  const rcRes = await fetch('/api/recurring-budget', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      name: row.name, category: row.category,
+      amount: row.amount, payment_method: row.payment_method,
+      card_id: row.card_id || null, memo: row.memo || '',
+      day_of_month: day, start_month: startMonth, end_month: endMonth
+    })
+  });
+  if (!rcRes.ok) { alert('반복 등록 실패'); return; }
+  const rcData = await rcRes.json();
+
+  // 2. 현재 budget 항목에 recurring_id 연결
+  await fetch(`/api/budget/${row.id}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ...row, recurring_id: rcData.id })
+  });
+
+  _offerRcModal?.hide();
+  showToast(`"${row.name}" 매월 ${day}일 자동 등록이 설정되었습니다.`);
+  grid.load();
 }
 
 async function addRecurring() {

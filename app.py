@@ -387,9 +387,9 @@ def _generate_recurring_budget(db, year: int, month: int):
     inserted = 0
     for t in templates:
         # 실제 날짜 계산 (말일 초과 보정)
-        max_day   = _cal.monthrange(year, month)[1]
+        max_day    = _cal.monthrange(year, month)[1]
         actual_day = min(t['day_of_month'], max_day)
-        tx_date   = date(year, month, actual_day)
+        tx_date    = date(year, month, actual_day)
 
         # ── 핵심 조건: 해당 날짜가 오늘 이후면 생성하지 않음 ──
         if tx_date > today:
@@ -398,15 +398,22 @@ def _generate_recurring_budget(db, year: int, month: int):
         # 이미 이 템플릿으로 해당 월에 생성된 항목이 있는지 확인
         cur = db.cursor()
         cur.execute("""
-            SELECT id FROM budget
+            SELECT id, date::date as entry_date FROM budget
             WHERE recurring_id = %s
               AND to_char(date::date, 'YYYY-MM') = %s
         """, (t['id'], ym_str))
-        already_exists = cur.fetchone()
+        existing = cur.fetchone()
         cur.close()
 
-        if already_exists:
-            continue  # 이미 생성됨 → 스킵
+        if existing:
+            # 날짜가 올바른 날짜와 다르면 수정 (예: 1일로 잘못 생성된 경우)
+            if existing['entry_date'] != tx_date:
+                cur = db.cursor()
+                cur.execute("UPDATE budget SET date=%s WHERE id=%s",
+                            (tx_date.isoformat(), existing['id']))
+                cur.close()
+                inserted += 1  # 수정도 카운트
+            continue  # 이미 생성됨 → 신규 INSERT 스킵
 
         # 새 budget 행 INSERT
         cur = db.cursor()
@@ -522,7 +529,15 @@ def api_budget():
     _sync_card_tx(db, budget_id, data)
     db.commit()
     db.close()
-    return jsonify({'ok': True}), 201
+    return jsonify({'ok': True, 'id': budget_id,
+                    'type': type_, 'name': data.get('name'),
+                    'date': data.get('date'),
+                    'amount': data.get('amount'),
+                    'category': data.get('category'),
+                    'payment_method': data.get('payment_method'),
+                    'card_id': data.get('card_id'),
+                    'memo': data.get('memo'),
+                    'recurring_id': None}), 201
 
 
 @app.route('/api/budget/receipt', methods=['POST'])
@@ -680,12 +695,14 @@ def api_budget_detail(rid):
             row_date     = None
 
         cur = db.cursor()
+        new_recurring_id = data.get('recurring_id') or recurring_id or None
         cur.execute(
-            "UPDATE budget SET date=%s,category=%s,name=%s,type=%s,payment_method=%s,amount=%s,memo=%s,card_id=%s WHERE id=%s",
+            "UPDATE budget SET date=%s,category=%s,name=%s,type=%s,payment_method=%s,amount=%s,memo=%s,card_id=%s,recurring_id=%s WHERE id=%s",
             (data.get('date'), data.get('category'), data.get('name'), type_,
              data.get('payment_method'), data.get('amount', 0), data.get('memo'),
-             data.get('card_id') or None, rid)
+             data.get('card_id') or None, new_recurring_id, rid)
         )
+        recurring_id = new_recurring_id
         cur.close()
 
         # 고정지출: 마스터 + 이후 모든 월 동기화
@@ -721,11 +738,18 @@ def api_budget_detail(rid):
 
         db.commit()
         db.close()
-        return jsonify({'ok': True,
+        return jsonify({'ok': True, 'id': rid,
+                        'type': type_, 'name': new_name,
+                        'date': data.get('date'),
+                        'amount': data.get('amount'),
+                        'category': new_category,
+                        'payment_method': data.get('payment_method'),
+                        'card_id': data.get('card_id'),
+                        'memo': data.get('memo'),
+                        'recurring_id': recurring_id,
                         'learned':   rule_id is not None,
                         'rule_id':   rule_id,
-                        'keyword':   new_name     if rule_id else None,
-                        'category':  new_category if rule_id else None})
+                        'keyword':   new_name     if rule_id else None})
 
     # DELETE
     mode = request.args.get('mode', 'single')  # 'single' | 'forward'
