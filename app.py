@@ -1690,7 +1690,7 @@ def _calc_invest_plan_steps(target_price, upper_pct, lower_pct,
 
     # 배분 가중치 결정
     if strategy == 'equal':
-        weights = [1.0] * split_count
+        weights = [1.0 / split_count] * split_count
 
     elif strategy == 'inverse_pyramid':
         # 1.0, 1.5, 2.25, 3.375, 5.0625 ... (1.5배씩 증가)
