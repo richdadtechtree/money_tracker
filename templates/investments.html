@@ -397,30 +397,25 @@
 
   <!-- 종목별 투자계획 탭 -->
   <div class="tab-pane fade" id="tab-split-plan">
-
-    <!-- 종목 선택 안내 (기본 상태) -->
-    <div id="split-plan-pick" class="text-center py-5 text-muted mt-4">
-      <i class="bi bi-hand-index-thumb fs-2 d-block mb-2 text-secondary"></i>
-      주식 또는 ETF 탭에서 종목을 클릭하면<br>해당 종목의 분할매수 계획이 여기에 표시됩니다.
-    </div>
-
-    <!-- 종목 선택 후 표시되는 영역 -->
-    <div id="split-plan-main" style="display:none">
-
-      <!-- 종목 헤더 + 새 계획 버튼 -->
-      <div class="d-flex justify-content-between align-items-center mt-3 mb-3">
-        <div>
-          <h6 class="mb-0 fw-bold" id="split-plan-title">-</h6>
-          <small class="text-muted" id="split-plan-subtitle"></small>
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-header bg-white border-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
+        <!-- 종목 선택 드롭다운 -->
+        <div class="d-flex align-items-center gap-2">
+          <span class="fw-semibold small text-muted">종목 선택</span>
+          <select class="form-select form-select-sm" id="plan-stock-select" style="min-width:180px" onchange="onPlanStockChange()">
+            <option value="">-- 주식/ETF 선택 --</option>
+          </select>
+          <small class="text-muted" id="plan-current-price-hint"></small>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="showPlanForm()">
-          <i class="bi bi-plus-lg me-1"></i>새 계획
+        <!-- 새 계획 추가 버튼 -->
+        <button class="btn btn-primary btn-sm" onclick="showPlanForm()" id="btn-new-plan" disabled>
+          <i class="bi bi-plus-lg me-1"></i>새 계획 추가
         </button>
       </div>
 
-      <!-- 계획 생성/수정 폼 -->
-      <div id="plan-form-area" class="card border-0 bg-light mb-4" style="display:none">
-        <div class="card-body p-3">
+      <div class="card-body">
+        <!-- 계획 생성/수정 폼 -->
+        <div id="plan-form-area" class="bg-light rounded p-3 mb-3" style="display:none">
           <div class="fw-semibold small mb-2" id="plan-form-title">새 계획 등록</div>
           <div class="row g-2">
             <div class="col-md-2">
@@ -429,7 +424,6 @@
                 <span class="text-muted" data-bs-toggle="tooltip" title="이 가격 이하에서 사겠다는 기준가">ℹ️</span>
               </label>
               <input type="number" class="form-control form-control-sm" id="plan-target-price" placeholder="예: 60000">
-              <div class="form-text" id="plan-current-price-hint"></div>
             </div>
             <div class="col-md-2">
               <label class="form-label small fw-semibold">총 예산 (원)</label>
@@ -485,13 +479,16 @@
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- 저장된 계획 목록 -->
-      <div id="saved-plans-area">
-        <div class="text-center py-4 text-muted">이 종목의 등록된 계획이 없습니다.</div>
-      </div>
+        <!-- 안내 메시지 (종목 미선택) -->
+        <div id="split-plan-pick" class="text-center py-5 text-muted">
+          <i class="bi bi-arrow-up fs-4 d-block mb-2 text-secondary"></i>
+          위에서 종목을 선택하면 해당 종목의 매수 계획이 표시됩니다.
+        </div>
 
+        <!-- 저장된 계획 목록 -->
+        <div id="saved-plans-area" style="display:none"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -1560,22 +1557,82 @@ function formatKRW(val) {
   return fmt(val) + '원';
 }
 
-// 주식/ETF 행 클릭 → 해당 종목의 계획 표시
-function openSplitPlanForStock(type, id, name, currentPrice) {
-  _planCurrentStock = { type, id, name, current_price: currentPrice };
-  // 종목별 투자계획 탭으로 전환
-  const tabEl = document.querySelector('[href="#tab-split-plan"]');
-  if (tabEl) bootstrap.Tab.getOrCreateInstance(tabEl).show();
-  // 헤더 업데이트
+// 종목별 투자계획 탭에 들어올 때 드롭다운 채우기
+document.querySelector('[href="#tab-split-plan"]').addEventListener('shown.bs.tab', () => {
+  populatePlanStockSelect();
+  if (_planCurrentStock) loadSavedPlans();
+});
+
+// 드롭다운 채우기 (주식 + ETF)
+function populatePlanStockSelect() {
+  const sel = document.getElementById('plan-stock-select');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">-- 주식/ETF 선택 --</option>';
+  const addOpts = (items, prefix) => {
+    if (!items || !items.length) return;
+    const og = document.createElement('optgroup');
+    og.label = prefix === 'stock' ? '주식' : 'ETF';
+    items.forEach(s => {
+      const o = document.createElement('option');
+      o.value = `${prefix}:${s.id}`;
+      o.textContent = `${s.name}${s.ticker ? ` (${s.ticker})` : ''}`;
+      if (o.value === prev) o.selected = true;
+      og.appendChild(o);
+    });
+    sel.appendChild(og);
+  };
+  addOpts(allStocks, 'stock');
+  addOpts(allEtfs,   'etf');
+}
+
+// 드롭다운에서 종목 선택
+function onPlanStockChange() {
+  const sel = document.getElementById('plan-stock-select');
+  const val = sel.value;
+  const btn = document.getElementById('btn-new-plan');
+  if (!val) {
+    _planCurrentStock = null;
+    btn.disabled = true;
+    document.getElementById('plan-current-price-hint').textContent = '';
+    document.getElementById('split-plan-pick').style.display = '';
+    document.getElementById('saved-plans-area').style.display = 'none';
+    hidePlanForm();
+    return;
+  }
+  const [type, idStr] = val.split(':');
+  const id = parseInt(idStr);
+  const list = type === 'stock' ? allStocks : allEtfs;
+  const item = list.find(s => s.id === id);
+  if (!item) return;
+  _planCurrentStock = { type, id, name: item.name, current_price: item.current_price };
+  btn.disabled = false;
+  document.getElementById('plan-current-price-hint').textContent =
+    `현재가: ${formatKRW(item.current_price)}`;
   document.getElementById('split-plan-pick').style.display = 'none';
-  document.getElementById('split-plan-main').style.display = '';
-  document.getElementById('split-plan-title').textContent =
-    `${name} 분할매수 계획`;
-  document.getElementById('split-plan-subtitle').textContent =
-    `현재가: ${formatKRW(currentPrice)}`;
-  // 폼 초기화 후 숨기기
+  document.getElementById('saved-plans-area').style.display = '';
   hidePlanForm();
   loadSavedPlans();
+}
+
+// 주식/ETF 행의 [매수계획] 버튼 → 탭 전환 + 드롭다운 자동 선택
+function openSplitPlanForStock(type, id, name, currentPrice) {
+  _planCurrentStock = { type, id, name, current_price: currentPrice };
+  const tabEl = document.querySelector('[href="#tab-split-plan"]');
+  if (tabEl) bootstrap.Tab.getOrCreateInstance(tabEl).show();
+  // 탭 전환 후 드롭다운 선택 (shown.bs.tab 이벤트 후 실행)
+  setTimeout(() => {
+    populatePlanStockSelect();
+    const sel = document.getElementById('plan-stock-select');
+    if (sel) sel.value = `${type}:${id}`;
+    document.getElementById('plan-current-price-hint').textContent =
+      `현재가: ${formatKRW(currentPrice)}`;
+    document.getElementById('btn-new-plan').disabled = false;
+    document.getElementById('split-plan-pick').style.display = 'none';
+    document.getElementById('saved-plans-area').style.display = '';
+    hidePlanForm();
+    loadSavedPlans();
+  }, 50);
 }
 
 function showPlanForm(planData) {
@@ -1586,35 +1643,24 @@ function showPlanForm(planData) {
   document.getElementById('plan-preview').style.display = 'none';
 
   if (planData) {
-    // 수정 모드: 기존 값 채우기
     title.textContent = '계획 수정';
-    document.getElementById('plan-target-price').value  = planData.target_price;
-    document.getElementById('invest-plan-budget').value = planData.total_budget;
-    document.getElementById('plan-lower-pct').value     = planData.lower_pct;
-    document.getElementById('plan-split').value         = planData.split_count;
+    document.getElementById('plan-target-price').value    = planData.target_price;
+    document.getElementById('invest-plan-budget').value   = planData.total_budget;
+    document.getElementById('plan-lower-pct').value       = planData.lower_pct;
+    document.getElementById('plan-split').value           = planData.split_count;
     document.getElementById('invest-plan-strategy').value = planData.strategy || 'inverse_pyramid';
-    document.getElementById('plan-name').value          = planData.plan_name || '';
-    document.getElementById('plan-memo').value          = planData.memo || '';
-    // 현재가 힌트
-    if (_planCurrentStock) {
-      document.getElementById('plan-current-price-hint').textContent =
-        `현재가: ${formatKRW(_planCurrentStock.current_price)}`;
-    }
+    document.getElementById('plan-name').value            = planData.plan_name || '';
+    document.getElementById('plan-memo').value            = planData.memo || '';
   } else {
-    // 신규 모드: 현재가로 초기화
     title.textContent = '새 계획 등록';
-    document.getElementById('plan-target-price').value  =
+    document.getElementById('plan-target-price').value    =
       _planCurrentStock ? Math.round(_planCurrentStock.current_price) : '';
-    document.getElementById('invest-plan-budget').value = '';
-    document.getElementById('plan-lower-pct').value     = 20;
-    document.getElementById('plan-split').value         = 5;
+    document.getElementById('invest-plan-budget').value   = '';
+    document.getElementById('plan-lower-pct').value       = 20;
+    document.getElementById('plan-split').value           = 5;
     document.getElementById('invest-plan-strategy').value = 'inverse_pyramid';
-    document.getElementById('plan-name').value          = '';
-    document.getElementById('plan-memo').value          = '';
-    if (_planCurrentStock) {
-      document.getElementById('plan-current-price-hint').textContent =
-        `현재가: ${formatKRW(_planCurrentStock.current_price)}`;
-    }
+    document.getElementById('plan-name').value            = '';
+    document.getElementById('plan-memo').value            = '';
   }
   form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
