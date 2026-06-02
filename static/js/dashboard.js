@@ -614,7 +614,7 @@ async function loadNetworthChart(period) {
     const canvasEl = document.getElementById('networth-chart');
 
     if (rows.length === 0) {
-      if (noticeEl) { noticeEl.style.display = 'flex'; noticeEl.innerHTML = '<span class="text-muted small">저장된 데이터가 없습니다.</span>'; }
+      if (noticeEl) { noticeEl.style.display = 'flex'; noticeEl.style.flexDirection = 'column'; noticeEl.style.alignItems = 'center'; noticeEl.style.justifyContent = 'center'; noticeEl.innerHTML = '<span class="text-muted small">저장된 데이터가 없습니다.</span>'; }
       if (canvasEl) canvasEl.style.display = 'none';
       if (networthChart) { networthChart.destroy(); networthChart = null; }
       return;
