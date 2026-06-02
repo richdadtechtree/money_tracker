@@ -68,12 +68,7 @@ class GridTable {
       if (tr && tr !== this._tr) this.startEdit(tr);
     });
 
-    // click outside → cancel (이벤트 버블링으로 인한 즉시 취소 방지)
     this._ignoreDocClick = false;
-    document.addEventListener('click', e => {
-      if (this._ignoreDocClick) return;
-      if (this._tr && !this.tableEl.contains(e.target)) this.cancelEdit();
-    });
 
     // 정렬 상태 초기화 및 헤더 클릭 이벤트 바인딩
     this.sortKey = null;
