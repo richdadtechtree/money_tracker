@@ -585,123 +585,114 @@ function formatKRW(val) {
 }
 
 async function loadNetworthChart(period) {
-  const res  = await fetch(`/api/networth-history?period=${period}`);
+  // 요약 수치 업데이트
+  const res  = await fetch('/api/networth-history?period=' + period);
   const data = await res.json();
   const rows = data.rows || [];
+  const s    = data.summary || {};
 
-  // ── 요약 수치 업데이트 (실패해도 차트에 영향 없도록 분리) ──
-  try {
-    const s = data.summary || {};
-    const curEl    = document.getElementById('nw-current');
-    const changeEl = document.getElementById('nw-change-amt');
-    const pctEl    = document.getElementById('nw-change-pct');
-    if (curEl)    curEl.textContent   = formatKRW(s.current);
-    if (changeEl) {
-      changeEl.textContent = (s.change_amt >= 0 ? '+' : '') + formatKRW(s.change_amt);
-      changeEl.style.color = s.change_amt >= 0 ? '#2ecc71' : '#e74c3c';
-    }
-    if (pctEl) {
-      pctEl.textContent = (s.change_pct >= 0 ? '+' : '') + s.change_pct + '%';
-      pctEl.style.color = s.change_pct >= 0 ? '#2ecc71' : '#e74c3c';
-    }
-  } catch (e) {
-    console.warn('순자산 요약 업데이트 실패:', e);
+  const curEl    = document.getElementById('nw-current');
+  const changeEl = document.getElementById('nw-change-amt');
+  const pctEl    = document.getElementById('nw-change-pct');
+  if (curEl)    curEl.textContent  = formatKRW(s.current);
+  if (changeEl) {
+    changeEl.textContent = (s.change_amt >= 0 ? '+' : '') + formatKRW(s.change_amt);
+    changeEl.style.color = s.change_amt >= 0 ? '#2ecc71' : '#e74c3c';
+  }
+  if (pctEl) {
+    pctEl.textContent = (s.change_pct >= 0 ? '+' : '') + (s.change_pct || 0) + '%';
+    pctEl.style.color = s.change_pct >= 0 ? '#2ecc71' : '#e74c3c';
   }
 
-  // ── 차트 렌더링 ──
-  try {
-    const noticeEl = document.getElementById('networth-chart-empty');
-    const canvasEl = document.getElementById('networth-chart');
+  // 데이터 없으면 wrap에 메시지 표시
+  const wrap = document.getElementById('networth-chart-wrap');
+  if (!rows.length) {
+    wrap.innerHTML = '<p class="text-center text-muted py-5">저장된 데이터가 없습니다.</p>';
+    networthChart = null;
+    return;
+  }
 
-    if (rows.length === 0) {
-      if (noticeEl) { noticeEl.style.display = 'flex'; noticeEl.style.flexDirection = 'column'; noticeEl.style.alignItems = 'center'; noticeEl.style.justifyContent = 'center'; noticeEl.innerHTML = '<span class="text-muted small">저장된 데이터가 없습니다.</span>'; }
-      if (canvasEl) canvasEl.style.display = 'none';
-      if (networthChart) { networthChart.destroy(); networthChart = null; }
-      return;
-    }
-    if (noticeEl) noticeEl.style.display = 'none';
-    if (canvasEl) canvasEl.style.display = '';
+  // wrap에 canvas가 없으면 새로 추가
+  if (!document.getElementById('networth-chart')) {
+    wrap.innerHTML = '<canvas id="networth-chart"></canvas>';
+  }
 
-    const labels    = rows.map(r => r.label);
-    const netWorth  = rows.map(r => r.net_worth  || 0);
-    const changePct = rows.map(r => r.change_pct || 0);
-    const periodLabels = { daily: '일간 변동률(%)', weekly: '주간 변동률(%)', monthly: '월간 변동률(%)', yearly: '연간 변동률(%)' };
-    const barLabel  = periodLabels[period] || '변동률(%)';
+  const labels    = rows.map(r => r.label);
+  const netWorth  = rows.map(r => r.net_worth  || 0);
+  const changePct = rows.map(r => r.change_pct || 0);
+  const barLabels = { daily: '일간 변동률(%)', weekly: '주간 변동률(%)', monthly: '월간 변동률(%)', yearly: '연간 변동률(%)' };
 
-    if (networthChart) networthChart.destroy();
-    const ctx = document.getElementById('networth-chart').getContext('2d');
-    networthChart = new Chart(ctx, {
-      data: {
-        labels,
-        datasets: [
-          {
-            type: 'line',
-            label: '순자산',
-            data: netWorth,
-            borderColor: '#3498db',
-            backgroundColor: 'rgba(52,152,219,0.07)',
-            fill: true,
-            tension: 0.3,
-            yAxisID: 'y',
-            pointRadius: period === 'daily' ? 2 : 4,
-            pointHoverRadius: 6,
-            order: 1,
-          },
-          {
-            type: 'bar',
-            label: barLabel,
-            data: changePct,
-            backgroundColor: changePct.map(v => v >= 0 ? 'rgba(46,204,113,0.55)' : 'rgba(231,76,60,0.55)'),
-            borderColor:     changePct.map(v => v >= 0 ? '#2ecc71' : '#e74c3c'),
-            borderWidth: 1,
-            yAxisID: 'y1',
-            order: 2,
+  if (networthChart) { networthChart.destroy(); networthChart = null; }
+
+  networthChart = new Chart(document.getElementById('networth-chart'), {
+    data: {
+      labels,
+      datasets: [
+        {
+          type: 'line',
+          label: '순자산',
+          data: netWorth,
+          borderColor: '#3498db',
+          backgroundColor: 'rgba(52,152,219,0.07)',
+          fill: true,
+          tension: 0.3,
+          yAxisID: 'y',
+          pointRadius: period === 'daily' ? 2 : 4,
+          pointHoverRadius: 6,
+          order: 1,
+        },
+        {
+          type: 'bar',
+          label: barLabels[period] || '변동률(%)',
+          data: changePct,
+          backgroundColor: changePct.map(v => v >= 0 ? 'rgba(46,204,113,0.55)' : 'rgba(231,76,60,0.55)'),
+          borderColor:     changePct.map(v => v >= 0 ? '#2ecc71' : '#e74c3c'),
+          borderWidth: 1,
+          yAxisID: 'y1',
+          order: 2,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              if (ctx.dataset.yAxisID === 'y') return '순자산: ' + formatKRW(ctx.raw);
+              var sign = ctx.raw >= 0 ? '+' : '';
+              return '변동률: ' + sign + Number(ctx.raw).toFixed(2) + '%';
+            }
           }
-        ]
+        }
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { position: 'top' },
-          tooltip: {
-            callbacks: {
-              label: ctx => {
-                if (ctx.dataset.yAxisID === 'y') return '순자산: ' + formatKRW(ctx.raw);
-                const sign = ctx.raw >= 0 ? '+' : '';
-                return '변동률: ' + sign + (ctx.raw != null ? ctx.raw.toFixed(2) : '0') + '%';
-              }
+      scales: {
+        x: {
+          ticks: {
+            maxRotation: 45,
+            callback: function(val, idx) {
+              if (period === 'daily' && idx % 7 !== 0) return '';
+              return labels[idx];
             }
           }
         },
-        scales: {
-          x: {
-            ticks: {
-              maxRotation: 45,
-              callback: (val, idx) => {
-                if (period === 'daily' && idx % 7 !== 0) return '';
-                return labels[idx];
-              }
-            }
-          },
-          y: {
-            type: 'linear', position: 'left',
-            ticks: { callback: v => formatKRW(v) },
-            title: { display: true, text: '순자산 (원)' }
-          },
-          y1: {
-            type: 'linear', position: 'right',
-            grid: { drawOnChartArea: false },
-            ticks: { callback: v => v.toFixed(1) + '%' },
-            title: { display: true, text: '변동률 (%)' }
-          }
+        y: {
+          type: 'linear', position: 'left',
+          ticks: { callback: function(v) { return formatKRW(v); } },
+          title: { display: true, text: '순자산 (원)' }
+        },
+        y1: {
+          type: 'linear', position: 'right',
+          grid: { drawOnChartArea: false },
+          ticks: { callback: function(v) { return v.toFixed(1) + '%'; } },
+          title: { display: true, text: '변동률 (%)' }
         }
       }
-    });
-  } catch (e) {
-    console.error('순자산 차트 렌더링 실패:', e);
-  }
+    }
+  });
 }
 
 // ── 자정 직전 자동 스냅샷 저장 ────────────────────────────
