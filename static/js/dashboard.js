@@ -624,6 +624,7 @@ async function loadNetworthChart(period) {
 
   if (networthChart) { networthChart.destroy(); networthChart = null; }
   document.getElementById('nw-detail-panel').style.display = 'none';
+  var _rows = rows; // closure for click handler
 
   networthChart = new Chart(document.getElementById('networth-chart'), {
     data: {
@@ -658,11 +659,6 @@ async function loadNetworthChart(period) {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
-      onClick: function(evt, elements) {
-        if (!elements.length) return;
-        var idx = elements[0].index;
-        showAssetDetail(rows[idx]);
-      },
       plugins: {
         legend: { position: 'top' },
         tooltip: {
@@ -696,6 +692,13 @@ async function loadNetworthChart(period) {
       }
     }
   });
+
+  // canvas 클릭으로 가장 가까운 x 인덱스 찾아 상세 표시
+  document.getElementById('networth-chart').onclick = function(evt) {
+    var points = networthChart.getElementsAtEventForMode(evt, 'index', { intersect: false }, false);
+    if (!points.length) return;
+    showAssetDetail(_rows[points[0].index]);
+  };
 }
 
 function showAssetDetail(row) {
