@@ -431,7 +431,7 @@
             </div>
             <div class="col-md-1">
               <label class="form-label small fw-semibold">범위 시작 (%)</label>
-              <input type="number" class="form-control form-control-sm" id="plan-range-start" value="0" min="-20" max="0" step="1">
+              <input type="number" class="form-control form-control-sm" id="plan-range-start" value="0" min="0" max="50" step="1">
               <div class="form-text">0 = 상단가부터</div>
             </div>
             <div class="col-md-1">
@@ -1684,7 +1684,7 @@ function showPlanForm(planData) {
     title.textContent = '계획 수정';
     _setNum('plan-target-price',  planData.target_price);
     _setNum('invest-plan-budget', planData.total_budget);
-    document.getElementById('plan-range-start').value     = -Math.abs(planData.upper_pct || 0);
+    document.getElementById('plan-range-start').value     = Math.abs(planData.upper_pct || 0);
     document.getElementById('plan-range-end').value       = planData.lower_pct;
     document.getElementById('plan-split').value           = planData.split_count;
     document.getElementById('invest-plan-strategy').value = planData.strategy || 'equal';

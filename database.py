@@ -730,4 +730,20 @@ def init_db():
         except psycopg2.Error:
             pass  # 이미 존재하면 무시
 
+    # 특정 ETF 기본 메모 설정 (메모가 없는 경우에만)
+    _etf_default_memos = {
+        '122630': '지수가 30%, 40%, 50%, 60%, 70% 빠질 때마다 시드 머니의 20% 매수 (해당 계좌의 돈만 사용. 여유자금 생기면 투입 가능)',
+        '233740': '지수가 30%, 40%, 50%, 60%, 70% 빠질 때마다 시드 머니의 20% 매수 (해당 계좌의 돈만 사용. 여유자금 생기면 투입 가능)',
+    }
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                for ticker, memo_text in _etf_default_memos.items():
+                    cur.execute(
+                        "UPDATE etf SET memo = %s WHERE UPPER(ticker) = UPPER(%s) AND (memo IS NULL OR memo = '')",
+                        (memo_text, ticker)
+                    )
+    except Exception:
+        pass
+
     conn.close()
