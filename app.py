@@ -1734,8 +1734,18 @@ def _calc_invest_plan_steps(target_price, upper_pct, lower_pct,
 def api_invest_plans():
     db = get_db()
     if request.method == 'GET':
+        stock_id = request.args.get('stock_id')
+        etf_id   = request.args.get('etf_id')
         cur = db.cursor()
-        cur.execute("""
+        where = ""
+        params = []
+        if stock_id:
+            where = "WHERE p.stock_id = %s"
+            params = [stock_id]
+        elif etf_id:
+            where = "WHERE p.etf_id = %s"
+            params = [etf_id]
+        cur.execute(f"""
             SELECT p.*,
                    s.name AS stock_name, s.ticker AS stock_ticker,
                    e.name AS etf_name,   e.ticker AS etf_ticker,
@@ -1744,8 +1754,9 @@ def api_invest_plans():
             FROM invest_plans p
             LEFT JOIN stocks s ON p.stock_id = s.id
             LEFT JOIN etf    e ON p.etf_id   = e.id
+            {where}
             ORDER BY p.created_at DESC
-        """)
+        """, params)
         rows = cur.fetchall(); cur.close()
 
         result = []
@@ -1819,6 +1830,73 @@ def api_invest_plans():
 
     db.commit(); db.close()
     return jsonify({'ok': True, 'plan_id': plan_id, 'steps': steps_data}), 201
+
+
+@app.route('/api/invest-plans/<int:plan_id>', methods=['PUT', 'DELETE'])
+def api_invest_plan_detail(plan_id):
+    db = get_db()
+    if request.method == 'DELETE':
+        cur = db.cursor()
+        cur.execute("DELETE FROM invest_plans WHERE id=%s", (plan_id,))
+        cur.close(); db.commit(); db.close()
+        return jsonify({'ok': True})
+
+    # PUT: 계획 수정 (steps 재계산)
+    d = request.json or {}
+    target_price = int(d.get('target_price', 0))
+    upper_pct    = float(d.get('upper_pct',  0))
+    lower_pct    = float(d.get('lower_pct',  20))
+    split_count  = int(d.get('split_count',  5))
+    total_budget = int(d.get('total_budget', 0))
+    strategy     = d.get('strategy', 'inverse_pyramid')
+
+    if not target_price or not total_budget:
+        db.close()
+        return jsonify({'error': '상단 매수가와 총 예산은 필수입니다.'}), 400
+
+    steps_data = _calc_invest_plan_steps(
+        target_price, upper_pct, lower_pct, split_count, total_budget, strategy
+    )
+
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE invest_plans
+        SET stock_id=%s, etf_id=%s, plan_name=%s, target_price=%s,
+            upper_pct=%s, lower_pct=%s, split_count=%s,
+            total_budget=%s, strategy=%s, memo=%s, updated_at=CURRENT_TIMESTAMP
+        WHERE id=%s
+    """, (d.get('stock_id') or None, d.get('etf_id') or None,
+          d.get('plan_name', ''), target_price, upper_pct, lower_pct,
+          split_count, total_budget, strategy, d.get('memo', ''), plan_id))
+    cur.close()
+
+    # 기존 steps 삭제 후 재생성
+    cur = db.cursor()
+    cur.execute("DELETE FROM invest_plan_steps WHERE plan_id=%s", (plan_id,))
+    cur.close()
+
+    for step in steps_data:
+        cur = db.cursor()
+        cur.execute("""
+            INSERT INTO invest_plan_steps
+                (plan_id, step_no, trigger_price, target_amount, target_shares, weight_pct)
+            VALUES (%s,%s,%s,%s,%s,%s)
+        """, (plan_id, step['step_no'], step['trigger_price'],
+              step['amount'], step['shares'], step['weight_pct']))
+        cur.close()
+
+    db.commit(); db.close()
+    return jsonify({'ok': True, 'steps': steps_data})
+
+
+@app.route('/api/invest-plans/<int:plan_id>/steps', methods=['GET'])
+def api_invest_plan_steps(plan_id):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT * FROM invest_plan_steps WHERE plan_id=%s ORDER BY step_no", (plan_id,))
+    rows = rows_to_list(cur.fetchall())
+    cur.close(); db.close()
+    return jsonify(rows)
 
 
 @app.route('/api/invest-plan-steps/<int:step_id>/execute', methods=['POST'])
