@@ -421,7 +421,7 @@
             </div>
             <div class="col-md-2">
               <label class="form-label small fw-semibold">총 예산 (원)</label>
-              <input type="number" class="form-control form-control-sm" id="plan-budget" placeholder="예: 5000000">
+              <input type="number" class="form-control form-control-sm" id="invest-plan-budget" placeholder="예: 5000000">
             </div>
             <div class="col-md-2">
               <label class="form-label small fw-semibold">범위 하단 (%) ↓</label>
@@ -1595,7 +1595,7 @@ document.getElementById('plan-stock-select').addEventListener('change', function
 
 async function previewPlan() {
   const targetPrice = parseInt(document.getElementById('plan-target-price').value || 0);
-  const budget      = parseInt(document.getElementById('plan-budget').value || 0);
+  const budget      = parseInt(document.getElementById('invest-plan-budget').value || 0);
   const lowerPct    = parseFloat(document.getElementById('plan-lower-pct').value || 20);
   const splitCount  = parseInt(document.getElementById('plan-split').value || 5);
   const strategy    = document.getElementById('plan-strategy').value;
@@ -1673,7 +1673,7 @@ function renderPlanPreview(steps, targetPrice, budget) {
 async function savePlan() {
   const stockSelect = document.getElementById('plan-stock-select');
   const targetPrice = parseInt(document.getElementById('plan-target-price').value || 0);
-  const budget      = parseInt(document.getElementById('plan-budget').value || 0);
+  const budget      = parseInt(document.getElementById('invest-plan-budget').value || 0);
   const lowerPct    = parseFloat(document.getElementById('plan-lower-pct').value || 20);
   const splitCount  = parseInt(document.getElementById('plan-split').value || 5);
   const strategy    = document.getElementById('plan-strategy').value;
