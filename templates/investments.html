@@ -429,10 +429,15 @@
               <label class="form-label small fw-semibold">총 예산 (원)</label>
               <input type="text" inputmode="numeric" class="form-control form-control-sm" id="invest-plan-budget" placeholder="예: 5,000,000">
             </div>
-            <div class="col-md-2">
-              <label class="form-label small fw-semibold">범위 하단 (%) ↓</label>
-              <input type="number" class="form-control form-control-sm" id="plan-lower-pct" value="20" min="1" max="80">
-              <div class="form-text">상단가 기준 -X%까지</div>
+            <div class="col-md-1">
+              <label class="form-label small fw-semibold">범위 시작 (%)</label>
+              <input type="number" class="form-control form-control-sm" id="plan-range-start" value="0" min="-20" max="0" step="1">
+              <div class="form-text">0 = 상단가부터</div>
+            </div>
+            <div class="col-md-1">
+              <label class="form-label small fw-semibold">범위 끝 (%)</label>
+              <input type="number" class="form-control form-control-sm" id="plan-range-end" value="20" min="1" max="80" step="1">
+              <div class="form-text">상단가 기준 -X%</div>
             </div>
             <div class="col-md-1">
               <label class="form-label small fw-semibold">분할 횟수</label>
@@ -1679,9 +1684,10 @@ function showPlanForm(planData) {
     title.textContent = '계획 수정';
     _setNum('plan-target-price',  planData.target_price);
     _setNum('invest-plan-budget', planData.total_budget);
-    document.getElementById('plan-lower-pct').value       = planData.lower_pct;
+    document.getElementById('plan-range-start').value     = -Math.abs(planData.upper_pct || 0);
+    document.getElementById('plan-range-end').value       = planData.lower_pct;
     document.getElementById('plan-split').value           = planData.split_count;
-    document.getElementById('invest-plan-strategy').value = planData.strategy || 'inverse_pyramid';
+    document.getElementById('invest-plan-strategy').value = planData.strategy || 'equal';
     document.getElementById('plan-name').value            = planData.plan_name || '';
     document.getElementById('plan-memo').value            = planData.memo || '';
   } else {
@@ -1689,9 +1695,10 @@ function showPlanForm(planData) {
     _setNum('plan-target-price',
       _planCurrentStock ? Math.round(_planCurrentStock.current_price) : 0);
     document.getElementById('invest-plan-budget').value   = '';
-    document.getElementById('plan-lower-pct').value       = 20;
+    document.getElementById('plan-range-start').value     = 0;
+    document.getElementById('plan-range-end').value       = 20;
     document.getElementById('plan-split').value           = 5;
-    document.getElementById('invest-plan-strategy').value = 'inverse_pyramid';
+    document.getElementById('invest-plan-strategy').value = 'equal';
     document.getElementById('plan-name').value            = '';
     document.getElementById('plan-memo').value            = '';
   }
@@ -1709,9 +1716,12 @@ function hidePlanForm() {
 async function previewPlan() {
   const targetPrice = _numInputParse(document.getElementById('plan-target-price'));
   const budget      = _numInputParse(document.getElementById('invest-plan-budget'));
-  const lowerPct    = parseFloat(document.getElementById('plan-lower-pct').value || 20);
+  const rangeStart  = parseFloat(document.getElementById('plan-range-start').value || 0);
+  const rangeEnd    = parseFloat(document.getElementById('plan-range-end').value || 20);
   const splitCount  = parseInt(document.getElementById('plan-split').value || 5);
   const strategy    = document.getElementById('invest-plan-strategy').value;
+  const upperPct    = -rangeStart;   // 0% or negative start → flip sign
+  const lowerPct    = rangeEnd;
 
   if (!targetPrice || !budget) {
     alert('상단 매수가와 총 예산을 입력하세요.'); return;
@@ -1721,7 +1731,7 @@ async function previewPlan() {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
-      target_price: targetPrice, upper_pct: 0,
+      target_price: targetPrice, upper_pct: upperPct,
       lower_pct: lowerPct, split_count: splitCount,
       total_budget: budget, strategy, _preview_only: true
     })
@@ -1767,11 +1777,14 @@ function renderPlanPreview(steps, targetPrice, budget) {
 async function savePlan() {
   const targetPrice = _numInputParse(document.getElementById('plan-target-price'));
   const budget      = _numInputParse(document.getElementById('invest-plan-budget'));
-  const lowerPct    = parseFloat(document.getElementById('plan-lower-pct').value || 20);
+  const rangeStart  = parseFloat(document.getElementById('plan-range-start').value || 0);
+  const rangeEnd    = parseFloat(document.getElementById('plan-range-end').value || 20);
   const splitCount  = parseInt(document.getElementById('plan-split').value || 5);
   const strategy    = document.getElementById('invest-plan-strategy').value;
   const planName    = document.getElementById('plan-name').value.trim();
   const memo        = document.getElementById('plan-memo').value.trim();
+  const upperPct    = -rangeStart;
+  const lowerPct    = rangeEnd;
 
   if (!targetPrice || !budget) {
     alert('상단 매수가와 총 예산을 입력하세요.'); return;
@@ -1782,7 +1795,7 @@ async function savePlan() {
     etf_id:       _planCurrentStock?.type === 'etf'   ? _planCurrentStock.id : null,
     plan_name:    planName,
     target_price: targetPrice,
-    upper_pct:    0,
+    upper_pct:    upperPct,
     lower_pct:    lowerPct,
     split_count:  splitCount,
     total_budget: budget,
@@ -1849,7 +1862,7 @@ async function loadSavedPlans() {
           <div>
             <strong class="text-dark">${plan.plan_name || '분할매수 계획'}</strong>
             <span class="badge bg-info text-dark ms-2">상단가: ${formatKRW(plan.target_price)}</span>
-            <span class="badge bg-warning text-dark ms-1">-${plan.lower_pct}% / ${plan.split_count}차</span>
+            <span class="badge bg-warning text-dark ms-1">${(plan.upper_pct||0) < 0 ? (-plan.upper_pct)+'%~' : ''}~-${plan.lower_pct}% / ${plan.split_count}차</span>
             <span class="badge bg-secondary ms-1">${plan.strategy === 'inverse_pyramid' ? '역피라미딩' : plan.strategy === 'pyramid' ? '정피라미딩' : '균등'}</span>
           </div>
           <div class="d-flex gap-1">
