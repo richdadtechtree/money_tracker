@@ -1966,11 +1966,16 @@ async function loadSavedPlans() {
 
 async function togglePlanStep(stepId, checked, planId) {
   const method = checked ? 'POST' : 'DELETE';
-  const res = await fetch(`/api/invest-plan-steps/${stepId}/execute`, { method });
+  const res = await fetch(`/api/invest-plan-steps/${stepId}/execute`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: method === 'POST' ? JSON.stringify({}) : undefined,
+  });
   if (res.ok) {
     loadSavedPlans();
   } else {
-    showToast('저장 실패', 'danger');
+    const data = await res.json().catch(() => ({}));
+    showToast('저장 실패: ' + (data.error || res.status), 'danger');
   }
 }
 

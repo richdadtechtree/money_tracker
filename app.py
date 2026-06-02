@@ -2073,35 +2073,45 @@ def api_invest_plan_steps(plan_id):
 @app.route('/api/invest-plan-steps/<int:step_id>/execute', methods=['POST'])
 def api_invest_plan_step_execute(step_id):
     """특정 차수 매수 체결 기록"""
-    d = request.json or {}
-    db = get_db()
-    cur = db.cursor()
-    cur.execute("""
-        UPDATE invest_plan_steps
-        SET is_executed=TRUE,
-            executed_at=%s, executed_price=%s,
-            executed_shares=%s, executed_amount=%s
-        WHERE id=%s
-    """, (d.get('executed_at', date.today().isoformat()),
-          d.get('executed_price'), d.get('executed_shares'),
-          d.get('executed_amount'), step_id))
-    cur.close(); db.commit(); db.close()
-    return jsonify({'ok': True})
+    try:
+        d = request.json or {}
+        db = get_db()
+        cur = db.cursor()
+        cur.execute("""
+            UPDATE invest_plan_steps
+            SET is_executed=TRUE,
+                executed_at=%s, executed_price=%s,
+                executed_shares=%s, executed_amount=%s
+            WHERE id=%s
+        """, (d.get('executed_at', date.today().isoformat()),
+              d.get('executed_price'), d.get('executed_shares'),
+              d.get('executed_amount'), step_id))
+        cur.close(); db.commit(); db.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        import traceback
+        print(f"[execute step] {e}\n{traceback.format_exc()}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/invest-plan-steps/<int:step_id>/execute', methods=['DELETE'])
 def api_invest_plan_step_unexecute(step_id):
     """체결 기록 취소"""
-    db = get_db()
-    cur = db.cursor()
-    cur.execute("""
-        UPDATE invest_plan_steps
-        SET is_executed=FALSE, executed_at=NULL,
-            executed_price=NULL, executed_shares=NULL, executed_amount=NULL
-        WHERE id=%s
-    """, (step_id,))
-    cur.close(); db.commit(); db.close()
-    return jsonify({'ok': True})
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute("""
+            UPDATE invest_plan_steps
+            SET is_executed=FALSE, executed_at=NULL,
+                executed_price=NULL, executed_shares=NULL, executed_amount=NULL
+            WHERE id=%s
+        """, (step_id,))
+        cur.close(); db.commit(); db.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        import traceback
+        print(f"[unexecute step] {e}\n{traceback.format_exc()}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/api/split-buy-plans', methods=['GET', 'POST'])
