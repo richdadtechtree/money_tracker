@@ -673,10 +673,7 @@ async function loadNetworthChart(period) {
         x: {
           ticks: {
             maxRotation: 45,
-            callback: function(val, idx) {
-              if (period === 'daily' && idx % 7 !== 0) return '';
-              return labels[idx];
-            }
+            callback: function(val, idx) { return labels[idx]; }
           }
         },
         y: {
