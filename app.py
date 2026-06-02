@@ -11,6 +11,14 @@ except ImportError:
     HAS_YFINANCE = False
 
 try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
+    HAS_SCHEDULER = True
+except ImportError:
+    HAS_SCHEDULER = False
+
+try:
     from pykrx import stock as krx_stock
     HAS_PYKRX = True
 except ImportError:
@@ -127,6 +135,35 @@ with app.app_context():
         _fix_recurring_day_of_month()
     except Exception as _fix_err:
         print(f"[fix_recurring] {_fix_err}")
+
+def _scheduled_snapshot():
+    """매일 23:59:30 — 오늘 순자산을 daily_snapshots에 저장"""
+    try:
+        with app.app_context():
+            db = get_db()
+            _save_daily_snapshot(db)
+            db.commit()
+            db.close()
+            print("[scheduler] 일일 스냅샷 저장 완료")
+    except Exception as e:
+        print(f"[scheduler] 스냅샷 저장 실패: {e}")
+
+def _keep_alive():
+    """10분마다 자기 자신에 HTTP 요청 — Render 슬립 방지"""
+    try:
+        base = os.environ.get('RENDER_EXTERNAL_URL', '')
+        if base:
+            http_req.get(f"{base}/api/ping", timeout=10)
+            print("[scheduler] keep-alive ping 완료")
+    except Exception as e:
+        print(f"[scheduler] keep-alive 실패: {e}")
+
+if HAS_SCHEDULER:
+    _scheduler = BackgroundScheduler(timezone='Asia/Seoul')
+    _scheduler.add_job(_scheduled_snapshot, CronTrigger(hour=23, minute=59, second=30))
+    _scheduler.add_job(_keep_alive, IntervalTrigger(minutes=10))
+    _scheduler.start()
+    print("[scheduler] 시작: 매일 23:59:30 스냅샷 + 10분 keep-alive")
 
 def _clear_summary_cache():
     """수입/지출/자산 데이터 변경 시 모든 캐시 삭제"""
@@ -258,6 +295,10 @@ def api_auth_google():
         return jsonify({'ok': False, 'error': f'구글 서버 인증 통신 중 오류: {str(e)}'}), 500
 
 # ── 페이지 라우터 ────────────────────────────────────────────
+@app.route('/api/ping')
+def api_ping():
+    return jsonify({'ok': True})
+
 @app.route('/')
 def dashboard():
     return render_template('dashboard.html')
