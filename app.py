@@ -1253,7 +1253,7 @@ def api_stocks():
     db = get_db()
     if request.method == 'GET':
         cur = db.cursor()
-        cur.execute("SELECT id, name, ticker, current_price, dividend, memo, category FROM stocks ORDER BY name")
+        cur.execute("SELECT id, name, ticker, current_price, dividend, memo, category, COALESCE(ath,0) as ath FROM stocks ORDER BY name")
         stocks = [dict(r) for r in cur.fetchall()]
         # SQL 기반 qty (대시보드·테크트리와 동일 기준, 음수 0 처리)
         cur.execute("""
@@ -1419,7 +1419,7 @@ def api_etf():
     db = get_db()
     if request.method == 'GET':
         cur = db.cursor()
-        cur.execute("SELECT id, name, ticker, current_price, etf_type, category, memo FROM etf ORDER BY name")
+        cur.execute("SELECT id, name, ticker, current_price, etf_type, category, memo, COALESCE(ath,0) as ath FROM etf ORDER BY name")
         etfs = [dict(r) for r in cur.fetchall()]
         # SQL 기반 qty (대시보드·테크트리와 동일 기준, 음수 0 처리)
         cur.execute("""
@@ -2606,20 +2606,25 @@ def _run_price_update_logic():
     try:
         # ── 주식 ──
         cur = db.cursor()
-        cur.execute("SELECT id, name, ticker FROM stocks WHERE ticker IS NOT NULL AND ticker != ''")
+        cur.execute("SELECT id, name, ticker, COALESCE(ath,0) as ath FROM stocks WHERE ticker IS NOT NULL AND ticker != ''")
         stock_rows = cur.fetchall()
         cur.close()
 
         for row in stock_rows:
-            sid, name, ticker = row['id'], row['name'], row['ticker']
+            sid, name, ticker, existing_ath = row['id'], row['name'], row['ticker'], row['ath']
             try:
                 price = _fetch_stock_price(ticker)
             except Exception as e:
                 price = None
                 results['errors'].append(f"주식 [{name}({ticker})]: {e}")
             if price:
+                new_ath = max(existing_ath or 0, price)
+                if not existing_ath:
+                    fetched = _fetch_all_time_high(ticker)
+                    if fetched:
+                        new_ath = fetched
                 cur = db.cursor()
-                cur.execute("UPDATE stocks SET current_price = %s WHERE id = %s", (price, sid))
+                cur.execute("UPDATE stocks SET current_price=%s, ath=%s WHERE id=%s", (price, new_ath, sid))
                 cur.close()
                 results['stocks'].append({'id': sid, 'name': name, 'ticker': ticker, 'price': price, 'ok': True})
             else:
@@ -2629,20 +2634,25 @@ def _run_price_update_logic():
 
         # ── ETF ──
         cur = db.cursor()
-        cur.execute("SELECT id, name, ticker FROM etf WHERE ticker IS NOT NULL AND ticker != ''")
+        cur.execute("SELECT id, name, ticker, COALESCE(ath,0) as ath FROM etf WHERE ticker IS NOT NULL AND ticker != ''")
         etf_rows = cur.fetchall()
         cur.close()
 
         for row in etf_rows:
-            eid, name, ticker = row['id'], row['name'], row['ticker']
+            eid, name, ticker, existing_ath = row['id'], row['name'], row['ticker'], row['ath']
             try:
                 price = _fetch_stock_price(ticker)
             except Exception as e:
                 price = None
                 results['errors'].append(f"ETF [{name}({ticker})]: {e}")
             if price:
+                new_ath = max(existing_ath or 0, price)
+                if not existing_ath:
+                    fetched = _fetch_all_time_high(ticker)
+                    if fetched:
+                        new_ath = fetched
                 cur = db.cursor()
-                cur.execute("UPDATE etf SET current_price = %s WHERE id = %s", (price, eid))
+                cur.execute("UPDATE etf SET current_price=%s, ath=%s WHERE id=%s", (price, new_ath, eid))
                 cur.close()
                 results['etf'].append({'id': eid, 'name': name, 'ticker': ticker, 'price': price, 'ok': True})
             else:

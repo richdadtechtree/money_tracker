@@ -720,7 +720,9 @@ def init_db():
             executed_shares NUMERIC(12,4),
             executed_amount BIGINT,
             is_executed BOOLEAN DEFAULT FALSE
-        )"""
+        )""",
+        "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS ath REAL DEFAULT 0",
+        "ALTER TABLE etf ADD COLUMN IF NOT EXISTS ath REAL DEFAULT 0",
     ]
     for sql in migrations:
         try:

@@ -1638,11 +1638,14 @@ function onPlanStockChange() {
   const list = type === 'stock' ? allStocks : allEtfs;
   const item = list.find(s => s.id === id);
   if (!item) return;
-  _planCurrentStock = { type, id, name: item.name, current_price: item.current_price, ticker: item.ticker || '' };
+  _planCurrentStock = { type, id, name: item.name, current_price: item.current_price, ticker: item.ticker || '', ath: item.ath || 0 };
   btn.disabled = false;
   const _isFgn = isForeign(item.ticker);
-  document.getElementById('plan-current-price-hint').textContent =
-    `현재가: ${_isFgn ? fmtUsd(item.current_price) : formatKRW(item.current_price)}`;
+  const _athHint = item.ath > 0
+    ? ` | 역대 최고: <strong>${_isFgn ? fmtUsd(item.ath) : formatKRW(item.ath)}</strong>`
+    : '';
+  document.getElementById('plan-current-price-hint').innerHTML =
+    `현재가: <strong>${_isFgn ? fmtUsd(item.current_price) : formatKRW(item.current_price)}</strong>${_athHint}`;
   document.getElementById('split-plan-pick').style.display = 'none';
   document.getElementById('saved-plans-area').style.display = '';
   hidePlanForm();
@@ -1651,7 +1654,9 @@ function onPlanStockChange() {
 
 // 주식/ETF 행의 [매수계획] 버튼 → 탭 전환 + 드롭다운 자동 선택
 function openSplitPlanForStock(type, id, name, currentPrice, ticker) {
-  _planCurrentStock = { type, id, name, current_price: currentPrice, ticker: ticker || '' };
+  const _srcList = type === 'stock' ? allStocks : allEtfs;
+  const _srcItem = _srcList.find(s => s.id === id);
+  _planCurrentStock = { type, id, name, current_price: currentPrice, ticker: ticker || '', ath: _srcItem?.ath || 0 };
   const tabEl = document.querySelector('[href="#tab-split-plan"]');
   if (tabEl) bootstrap.Tab.getOrCreateInstance(tabEl).show();
   // 탭 전환 후 드롭다운 선택 (shown.bs.tab 이벤트 후 실행)
@@ -1659,8 +1664,13 @@ function openSplitPlanForStock(type, id, name, currentPrice, ticker) {
     populatePlanStockSelect();
     const sel = document.getElementById('plan-stock-select');
     if (sel) sel.value = `${type}:${id}`;
-    document.getElementById('plan-current-price-hint').textContent =
-      `현재가: ${isForeign(ticker) ? fmtUsd(currentPrice) : formatKRW(currentPrice)}`;
+    const _ath2 = _planCurrentStock?.ath || 0;
+    const _fgn2 = isForeign(ticker);
+    const _athHint2 = _ath2 > 0
+      ? ` | 역대 최고: <strong>${_fgn2 ? fmtUsd(_ath2) : formatKRW(_ath2)}</strong>`
+      : '';
+    document.getElementById('plan-current-price-hint').innerHTML =
+      `현재가: <strong>${_fgn2 ? fmtUsd(currentPrice) : formatKRW(currentPrice)}</strong>${_athHint2}`;
     document.getElementById('btn-new-plan').disabled = false;
     document.getElementById('split-plan-pick').style.display = 'none';
     document.getElementById('saved-plans-area').style.display = '';
@@ -1679,7 +1689,20 @@ function showPlanForm(planData) {
   const _isForeign = isForeign(_planCurrentStock?.ticker);
   const _labelEl = document.getElementById('plan-target-price-label');
   if (_labelEl) _labelEl.firstChild.textContent = _isForeign ? '상단 매수가 (USD) ' : '상단 매수가 (원) ';
-  document.getElementById('plan-target-price').placeholder = _isForeign ? '예: 79.90' : '예: 60,000';
+  const _tpInput = document.getElementById('plan-target-price');
+  if (_isForeign) {
+    _tpInput.type = 'number';
+    _tpInput.inputMode = 'decimal';
+    _tpInput.step = '0.01';
+    _tpInput.min = '0';
+    _tpInput.placeholder = '예: 79.90';
+  } else {
+    _tpInput.type = 'text';
+    _tpInput.inputMode = 'numeric';
+    _tpInput.removeAttribute('step');
+    _tpInput.removeAttribute('min');
+    _tpInput.placeholder = '예: 60,000';
+  }
 
   const _setNum = (id, v) => {
     const el = document.getElementById(id);
