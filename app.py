@@ -1666,7 +1666,7 @@ def _get_split_buy_plans_cached():
     return rows_to_list(rows)
 
 def _calc_invest_plan_steps(target_price, upper_pct, lower_pct,
-                             split_count, total_budget, strategy):
+                             split_count, total_budget, strategy, usd_krw=None):
     """
     상단 매수가 기준으로 분할매수 차수를 계산.
 
@@ -1706,12 +1706,17 @@ def _calc_invest_plan_steps(target_price, upper_pct, lower_pct,
     else:
         weights = [1.0 / split_count] * split_count
 
+    is_foreign = usd_krw and usd_krw > 1
     steps = []
     cumulative = 0
     for i, (pct, weight) in enumerate(zip(pct_points, weights)):
-        trigger_price = round(target_price * (1 + pct / 100))
+        raw_trigger   = target_price * (1 + pct / 100)
+        trigger_price = round(raw_trigger, 2) if is_foreign else round(raw_trigger)
         amount        = round(total_budget * weight)
-        shares        = round(amount / trigger_price, 4) if trigger_price > 0 else 0
+        if is_foreign:
+            shares = round(amount / (trigger_price * usd_krw), 4) if trigger_price > 0 else 0
+        else:
+            shares = round(amount / trigger_price, 4) if trigger_price > 0 else 0
         cumulative   += amount
 
         steps.append({
@@ -1785,12 +1790,13 @@ def api_invest_plans():
 
     # ── POST: 계획 생성 + steps 자동 계산 ──
     d = request.json or {}
-    target_price = int(d.get('target_price', 0))
+    target_price = float(d.get('target_price', 0))
     upper_pct    = float(d.get('upper_pct',  0))
     lower_pct    = float(d.get('lower_pct',  20))
     split_count  = int(d.get('split_count',  5))
     total_budget = int(d.get('total_budget', 0))
     strategy     = d.get('strategy', 'inverse_pyramid')
+    usd_krw      = float(d['usd_krw']) if d.get('usd_krw') else None
     _preview_only = d.get('_preview_only', False)
 
     if not target_price or not total_budget:
@@ -1799,7 +1805,7 @@ def api_invest_plans():
 
     steps_data = _calc_invest_plan_steps(
         target_price, upper_pct, lower_pct,
-        split_count, total_budget, strategy
+        split_count, total_budget, strategy, usd_krw
     )
 
     if _preview_only:
@@ -1843,19 +1849,20 @@ def api_invest_plan_detail(plan_id):
 
     # PUT: 계획 수정 (steps 재계산)
     d = request.json or {}
-    target_price = int(d.get('target_price', 0))
+    target_price = float(d.get('target_price', 0))
     upper_pct    = float(d.get('upper_pct',  0))
     lower_pct    = float(d.get('lower_pct',  20))
     split_count  = int(d.get('split_count',  5))
     total_budget = int(d.get('total_budget', 0))
     strategy     = d.get('strategy', 'inverse_pyramid')
+    usd_krw      = float(d['usd_krw']) if d.get('usd_krw') else None
 
     if not target_price or not total_budget:
         db.close()
         return jsonify({'error': '상단 매수가와 총 예산은 필수입니다.'}), 400
 
     steps_data = _calc_invest_plan_steps(
-        target_price, upper_pct, lower_pct, split_count, total_budget, strategy
+        target_price, upper_pct, lower_pct, split_count, total_budget, strategy, usd_krw
     )
 
     cur = db.cursor()

@@ -419,7 +419,7 @@
           <div class="fw-semibold small mb-2" id="plan-form-title">새 계획 등록</div>
           <div class="row g-2">
             <div class="col-md-2">
-              <label class="form-label small fw-semibold">
+              <label class="form-label small fw-semibold" id="plan-target-price-label">
                 상단 매수가 (원)
                 <span class="text-muted" data-bs-toggle="tooltip" title="이 가격 이하에서 사겠다는 기준가">ℹ️</span>
               </label>
@@ -712,7 +712,7 @@ const stockGrid = new GridTable({
     { key: 'memo',    type: 'text' },
     { key: '_plan', type: 'computed', align: 'center', noEdit: true,
       compute: r => `<button class="btn btn-xs btn-outline-primary py-0 px-1"
-        onclick="event.stopPropagation();openSplitPlanForStock('stock',${r.id},${JSON.stringify(r.name)},${r.current_price||0})">
+        onclick="event.stopPropagation();openSplitPlanForStock('stock',${r.id},${JSON.stringify(r.name)},${r.current_price||0},${JSON.stringify(r.ticker||'')})">
         매수계획</button>` },
   ],
   apiUrl: '/api/stocks',
@@ -810,7 +810,7 @@ const etfGrid = new GridTable({
     { key: 'memo',    type: 'text' },
     { key: '_plan', type: 'computed', align: 'center', noEdit: true,
       compute: r => `<button class="btn btn-xs btn-outline-primary py-0 px-1"
-        onclick="event.stopPropagation();openSplitPlanForStock('etf',${r.id},${JSON.stringify(r.name)},${r.current_price||0})">
+        onclick="event.stopPropagation();openSplitPlanForStock('etf',${r.id},${JSON.stringify(r.name)},${r.current_price||0},${JSON.stringify(r.ticker||'')})">
         매수계획</button>` },
   ],
   apiUrl: '/api/etf',
@@ -1638,10 +1638,11 @@ function onPlanStockChange() {
   const list = type === 'stock' ? allStocks : allEtfs;
   const item = list.find(s => s.id === id);
   if (!item) return;
-  _planCurrentStock = { type, id, name: item.name, current_price: item.current_price };
+  _planCurrentStock = { type, id, name: item.name, current_price: item.current_price, ticker: item.ticker || '' };
   btn.disabled = false;
+  const _isFgn = isForeign(item.ticker);
   document.getElementById('plan-current-price-hint').textContent =
-    `현재가: ${formatKRW(item.current_price)}`;
+    `현재가: ${_isFgn ? fmtUsd(item.current_price) : formatKRW(item.current_price)}`;
   document.getElementById('split-plan-pick').style.display = 'none';
   document.getElementById('saved-plans-area').style.display = '';
   hidePlanForm();
@@ -1649,8 +1650,8 @@ function onPlanStockChange() {
 }
 
 // 주식/ETF 행의 [매수계획] 버튼 → 탭 전환 + 드롭다운 자동 선택
-function openSplitPlanForStock(type, id, name, currentPrice) {
-  _planCurrentStock = { type, id, name, current_price: currentPrice };
+function openSplitPlanForStock(type, id, name, currentPrice, ticker) {
+  _planCurrentStock = { type, id, name, current_price: currentPrice, ticker: ticker || '' };
   const tabEl = document.querySelector('[href="#tab-split-plan"]');
   if (tabEl) bootstrap.Tab.getOrCreateInstance(tabEl).show();
   // 탭 전환 후 드롭다운 선택 (shown.bs.tab 이벤트 후 실행)
@@ -1659,7 +1660,7 @@ function openSplitPlanForStock(type, id, name, currentPrice) {
     const sel = document.getElementById('plan-stock-select');
     if (sel) sel.value = `${type}:${id}`;
     document.getElementById('plan-current-price-hint').textContent =
-      `현재가: ${formatKRW(currentPrice)}`;
+      `현재가: ${isForeign(ticker) ? fmtUsd(currentPrice) : formatKRW(currentPrice)}`;
     document.getElementById('btn-new-plan').disabled = false;
     document.getElementById('split-plan-pick').style.display = 'none';
     document.getElementById('saved-plans-area').style.display = '';
@@ -1675,9 +1676,19 @@ function showPlanForm(planData) {
   form.style.display = 'block';
   document.getElementById('plan-preview').style.display = 'none';
 
+  const _isForeign = isForeign(_planCurrentStock?.ticker);
+  const _labelEl = document.getElementById('plan-target-price-label');
+  if (_labelEl) _labelEl.firstChild.textContent = _isForeign ? '상단 매수가 (USD) ' : '상단 매수가 (원) ';
+  document.getElementById('plan-target-price').placeholder = _isForeign ? '예: 79.90' : '예: 60,000';
+
   const _setNum = (id, v) => {
     const el = document.getElementById(id);
-    if (el) { el.value = v ? parseInt(v).toLocaleString('ko-KR') : ''; }
+    if (!el) return;
+    if (_isForeign && id === 'plan-target-price') {
+      el.value = v ? parseFloat(v).toFixed(2) : '';
+    } else {
+      el.value = v ? parseInt(v).toLocaleString('ko-KR') : '';
+    }
   };
 
   if (planData) {
@@ -1693,7 +1704,7 @@ function showPlanForm(planData) {
   } else {
     title.textContent = '새 계획 등록';
     _setNum('plan-target-price',
-      _planCurrentStock ? Math.round(_planCurrentStock.current_price) : 0);
+      _planCurrentStock ? _planCurrentStock.current_price : 0);
     document.getElementById('invest-plan-budget').value   = '';
     document.getElementById('plan-range-start').value     = 0;
     document.getElementById('plan-range-end').value       = 20;
@@ -1714,40 +1725,46 @@ function hidePlanForm() {
 }
 
 async function previewPlan() {
-  const targetPrice = _numInputParse(document.getElementById('plan-target-price'));
+  const _isFgn     = isForeign(_planCurrentStock?.ticker);
+  const targetPriceEl = document.getElementById('plan-target-price');
+  const targetPrice = _isFgn
+    ? parseFloat(targetPriceEl.value.replace(/,/g,'')) || 0
+    : _numInputParse(targetPriceEl);
   const budget      = _numInputParse(document.getElementById('invest-plan-budget'));
   const rangeStart  = parseFloat(document.getElementById('plan-range-start').value || 0);
   const rangeEnd    = parseFloat(document.getElementById('plan-range-end').value || 20);
   const splitCount  = parseInt(document.getElementById('plan-split').value || 5);
   const strategy    = document.getElementById('invest-plan-strategy').value;
-  const upperPct    = -rangeStart;   // 0% or negative start → flip sign
+  const upperPct    = -rangeStart;
   const lowerPct    = rangeEnd;
 
   if (!targetPrice || !budget) {
     alert('상단 매수가와 총 예산을 입력하세요.'); return;
   }
 
+  const payload = {
+    target_price: targetPrice, upper_pct: upperPct,
+    lower_pct: lowerPct, split_count: splitCount,
+    total_budget: budget, strategy, _preview_only: true
+  };
+  if (_isFgn) payload.usd_krw = usdKrw;
+
   const res = await fetch('/api/invest-plans', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      target_price: targetPrice, upper_pct: upperPct,
-      lower_pct: lowerPct, split_count: splitCount,
-      total_budget: budget, strategy, _preview_only: true
-    })
+    body: JSON.stringify(payload)
   });
   const data = await res.json();
-  renderPlanPreview(data.steps, targetPrice, budget);
+  renderPlanPreview(data.steps, targetPrice, budget, _isFgn);
 }
 
-function renderPlanPreview(steps, targetPrice, budget) {
+function renderPlanPreview(steps, targetPrice, budget, isFgn) {
   const totalShares = steps.reduce((acc, s) => acc + s.shares, 0);
-  const avgPrice    = Math.round(budget / totalShares);
+  const fmtPrice = v => isFgn ? fmtUsd(v) : formatKRW(v);
   document.getElementById('plan-preview-summary').innerHTML = `
     <span class="badge bg-primary">총 예산: ${formatKRW(budget)}</span>
-    <span class="badge bg-secondary">상단 매수가: ${formatKRW(targetPrice)}</span>
-    <span class="badge bg-success">평균단가: ${formatKRW(avgPrice)}</span>
-    <span class="badge bg-info text-dark">예상 주수: ${totalShares.toFixed(2)}주</span>
+    <span class="badge bg-secondary">상단 매수가: ${fmtPrice(targetPrice)}</span>
+    <span class="badge bg-info text-dark">예상 주수: ${totalShares.toFixed(isFgn ? 4 : 2)}주</span>
   `;
 
   const currentPrice = _planCurrentStock?.current_price || 0;
@@ -1762,7 +1779,7 @@ function renderPlanPreview(steps, targetPrice, budget) {
       <tr>
         <td class="text-center fw-bold">${s.step_no}차</td>
         <td class="text-center ${s.pct_from_target < 0 ? 'text-success' : ''}">${s.label}</td>
-        <td class="text-end fw-bold">${formatKRW(s.trigger_price)}</td>
+        <td class="text-end fw-bold">${fmtPrice(s.trigger_price)}</td>
         <td class="text-center ${vsClass}">${vsPct !== '-' ? vsPct + '%' : '-'}</td>
         <td class="text-center">${s.weight_pct}%</td>
         <td class="text-end">${formatKRW(s.amount)}</td>
@@ -1775,7 +1792,11 @@ function renderPlanPreview(steps, targetPrice, budget) {
 }
 
 async function savePlan() {
-  const targetPrice = _numInputParse(document.getElementById('plan-target-price'));
+  const _isFgn    = isForeign(_planCurrentStock?.ticker);
+  const tpEl      = document.getElementById('plan-target-price');
+  const targetPrice = _isFgn
+    ? parseFloat(tpEl.value.replace(/,/g,'')) || 0
+    : _numInputParse(tpEl);
   const budget      = _numInputParse(document.getElementById('invest-plan-budget'));
   const rangeStart  = parseFloat(document.getElementById('plan-range-start').value || 0);
   const rangeEnd    = parseFloat(document.getElementById('plan-range-end').value || 20);
@@ -1802,6 +1823,7 @@ async function savePlan() {
     strategy,
     memo
   };
+  if (_isFgn) payload.usd_krw = usdKrw;
 
   const isEdit = _editingPlanId != null;
   const url    = isEdit ? `/api/invest-plans/${_editingPlanId}` : '/api/invest-plans';
@@ -1839,6 +1861,9 @@ async function loadSavedPlans() {
     return;
   }
 
+  const _planIsFgn = isForeign(_planCurrentStock?.ticker);
+  const _fmtTrigger = v => _planIsFgn ? fmtUsd(v) : formatKRW(v);
+
   plans.forEach(plan => {
     const stepsHtml = plan.steps.map(s => {
       const pct = plan.target_price
@@ -1849,7 +1874,7 @@ async function loadSavedPlans() {
       return `
       <tr>
         <td class="text-center">${s.step_no}차</td>
-        <td class="text-end">${formatKRW(s.trigger_price)} <small class="${pctClass}">(${pctLabel})</small></td>
+        <td class="text-end">${_fmtTrigger(s.trigger_price)} <small class="${pctClass}">(${pctLabel})</small></td>
         <td class="text-end">${formatKRW(s.target_amount)}</td>
         <td class="text-end">${s.target_shares}주</td>
       </tr>
@@ -1861,7 +1886,7 @@ async function loadSavedPlans() {
         <div class="card-header d-flex justify-content-between align-items-center bg-white border-0 pt-3 pb-2">
           <div>
             <strong class="text-dark">${plan.plan_name || '분할매수 계획'}</strong>
-            <span class="badge bg-info text-dark ms-2">상단가: ${formatKRW(plan.target_price)}</span>
+            <span class="badge bg-info text-dark ms-2">상단가: ${_fmtTrigger(plan.target_price)}</span>
             <span class="badge bg-warning text-dark ms-1">${(plan.upper_pct||0) < 0 ? (-plan.upper_pct)+'%~' : ''}~-${plan.lower_pct}% / ${plan.split_count}차</span>
             <span class="badge bg-secondary ms-1">${plan.strategy === 'inverse_pyramid' ? '역피라미딩' : plan.strategy === 'pyramid' ? '정피라미딩' : '균등'}</span>
           </div>
