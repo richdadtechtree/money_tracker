@@ -423,11 +423,11 @@
                 상단 매수가 (원)
                 <span class="text-muted" data-bs-toggle="tooltip" title="이 가격 이하에서 사겠다는 기준가">ℹ️</span>
               </label>
-              <input type="number" class="form-control form-control-sm" id="plan-target-price" placeholder="예: 60000">
+              <input type="text" inputmode="numeric" class="form-control form-control-sm" id="plan-target-price" placeholder="예: 60,000">
             </div>
             <div class="col-md-2">
               <label class="form-label small fw-semibold">총 예산 (원)</label>
-              <input type="number" class="form-control form-control-sm" id="invest-plan-budget" placeholder="예: 5000000">
+              <input type="text" inputmode="numeric" class="form-control form-control-sm" id="invest-plan-budget" placeholder="예: 5,000,000">
             </div>
             <div class="col-md-2">
               <label class="form-label small fw-semibold">범위 하단 (%) ↓</label>
@@ -1557,8 +1557,36 @@ function formatKRW(val) {
   return fmt(val) + '원';
 }
 
+// 숫자 입력란 콤마 포맷 유틸
+function _numInputFormat(el) {
+  const raw = el.value.replace(/[^0-9]/g, '');
+  el.value  = raw ? parseInt(raw, 10).toLocaleString('ko-KR') : '';
+}
+function _numInputParse(el) {
+  return parseInt((el ? el.value : '').replace(/[^0-9]/g, '') || '0', 10);
+}
+function _initNumInput(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', () => {
+    const pos = el.selectionStart;
+    const before = el.value.length;
+    _numInputFormat(el);
+    const after = el.value.length;
+    // 커서 위치 보정
+    el.setSelectionRange(pos + (after - before), pos + (after - before));
+  });
+  el.addEventListener('blur', () => _numInputFormat(el));
+}
+
 // 종목별 투자계획 탭에 들어올 때 드롭다운 채우기
+let _numInputsInited = false;
 document.querySelector('[href="#tab-split-plan"]').addEventListener('shown.bs.tab', () => {
+  if (!_numInputsInited) {
+    _initNumInput('plan-target-price');
+    _initNumInput('invest-plan-budget');
+    _numInputsInited = true;
+  }
   populatePlanStockSelect();
   if (_planCurrentStock) loadSavedPlans();
 });
@@ -1642,10 +1670,15 @@ function showPlanForm(planData) {
   form.style.display = 'block';
   document.getElementById('plan-preview').style.display = 'none';
 
+  const _setNum = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) { el.value = v ? parseInt(v).toLocaleString('ko-KR') : ''; }
+  };
+
   if (planData) {
     title.textContent = '계획 수정';
-    document.getElementById('plan-target-price').value    = planData.target_price;
-    document.getElementById('invest-plan-budget').value   = planData.total_budget;
+    _setNum('plan-target-price',  planData.target_price);
+    _setNum('invest-plan-budget', planData.total_budget);
     document.getElementById('plan-lower-pct').value       = planData.lower_pct;
     document.getElementById('plan-split').value           = planData.split_count;
     document.getElementById('invest-plan-strategy').value = planData.strategy || 'inverse_pyramid';
@@ -1653,8 +1686,8 @@ function showPlanForm(planData) {
     document.getElementById('plan-memo').value            = planData.memo || '';
   } else {
     title.textContent = '새 계획 등록';
-    document.getElementById('plan-target-price').value    =
-      _planCurrentStock ? Math.round(_planCurrentStock.current_price) : '';
+    _setNum('plan-target-price',
+      _planCurrentStock ? Math.round(_planCurrentStock.current_price) : 0);
     document.getElementById('invest-plan-budget').value   = '';
     document.getElementById('plan-lower-pct').value       = 20;
     document.getElementById('plan-split').value           = 5;
@@ -1674,8 +1707,8 @@ function hidePlanForm() {
 }
 
 async function previewPlan() {
-  const targetPrice = parseInt(document.getElementById('plan-target-price').value || 0);
-  const budget      = parseInt(document.getElementById('invest-plan-budget').value || 0);
+  const targetPrice = _numInputParse(document.getElementById('plan-target-price'));
+  const budget      = _numInputParse(document.getElementById('invest-plan-budget'));
   const lowerPct    = parseFloat(document.getElementById('plan-lower-pct').value || 20);
   const splitCount  = parseInt(document.getElementById('plan-split').value || 5);
   const strategy    = document.getElementById('invest-plan-strategy').value;
@@ -1732,8 +1765,8 @@ function renderPlanPreview(steps, targetPrice, budget) {
 }
 
 async function savePlan() {
-  const targetPrice = parseInt(document.getElementById('plan-target-price').value || 0);
-  const budget      = parseInt(document.getElementById('invest-plan-budget').value || 0);
+  const targetPrice = _numInputParse(document.getElementById('plan-target-price'));
+  const budget      = _numInputParse(document.getElementById('invest-plan-budget'));
   const lowerPct    = parseFloat(document.getElementById('plan-lower-pct').value || 20);
   const splitCount  = parseInt(document.getElementById('plan-split').value || 5);
   const strategy    = document.getElementById('invest-plan-strategy').value;
