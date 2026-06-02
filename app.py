@@ -46,6 +46,64 @@ with app.app_context():
     except Exception as _init_err:
         print(f"[init_db] {_init_err}")
 
+def _fix_recurring_day_of_month():
+    """
+    recurring_budget.day_of_month=1(기본값)인 템플릿에 대해
+    과거 연결된 budget 항목의 실제 날짜로 day_of_month를 수정하고,
+    당월 auto-generated 항목의 날짜도 함께 수정.
+    """
+    try:
+        db = get_db()
+        cur = db.cursor()
+        # 과거 budget 항목의 실제 일자로 day_of_month 갱신
+        # (day_of_month=1인 템플릿 중, 과거에 1일이 아닌 날짜로 등록된 항목이 있는 것만)
+        cur.execute("""
+            UPDATE recurring_budget rb
+            SET day_of_month = EXTRACT(DAY FROM b.date::date)::INTEGER
+            FROM (
+                SELECT DISTINCT ON (recurring_id) recurring_id, date
+                FROM budget
+                WHERE recurring_id IS NOT NULL
+                  AND EXTRACT(DAY FROM date::date) <> 1
+                ORDER BY recurring_id, date DESC
+            ) b
+            WHERE rb.id = b.recurring_id
+              AND rb.day_of_month = 1
+        """)
+        updated_rc = cur.rowcount
+
+        # 당월 auto-generated 항목 날짜 수정
+        cur.execute("""
+            UPDATE budget b
+            SET date = (
+                DATE_TRUNC('month', b.date::date) +
+                MAKE_INTERVAL(days => LEAST(
+                    rb.day_of_month,
+                    EXTRACT(DAY FROM (DATE_TRUNC('month', b.date::date) + INTERVAL '1 month - 1 day'))::INTEGER
+                ) - 1)
+            )::date
+            FROM recurring_budget rb
+            WHERE b.recurring_id = rb.id
+              AND b.is_auto_generated = TRUE
+              AND EXTRACT(DAY FROM b.date::date) <> rb.day_of_month
+        """)
+        updated_b = cur.rowcount
+
+        db.commit()
+        cur.close()
+        db.close()
+        if updated_rc or updated_b:
+            print(f"[fix_recurring] 템플릿 {updated_rc}건 day_of_month 수정, 항목 {updated_b}건 날짜 수정")
+    except Exception as e:
+        import traceback
+        print(f"[fix_recurring] {e}\n{traceback.format_exc()}")
+
+with app.app_context():
+    try:
+        _fix_recurring_day_of_month()
+    except Exception as _fix_err:
+        print(f"[fix_recurring] {_fix_err}")
+
 def _clear_summary_cache():
     """수입/지출/자산 데이터 변경 시 모든 캐시 삭제"""
     try:
