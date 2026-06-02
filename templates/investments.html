@@ -1588,8 +1588,7 @@ function _initNumInput(id) {
 let _numInputsInited = false;
 document.querySelector('[href="#tab-split-plan"]').addEventListener('shown.bs.tab', () => {
   if (!_numInputsInited) {
-    _initNumInput('plan-target-price');
-    _initNumInput('invest-plan-budget');
+    _initNumInput('invest-plan-budget');  // target-price는 showPlanForm에서 종목 유형에 따라 처리
     _numInputsInited = true;
   }
   populatePlanStockSelect();
@@ -1690,18 +1689,23 @@ function showPlanForm(planData) {
   const _labelEl = document.getElementById('plan-target-price-label');
   if (_labelEl) _labelEl.firstChild.textContent = _isForeign ? '상단 매수가 (USD) ' : '상단 매수가 (원) ';
   const _tpInput = document.getElementById('plan-target-price');
+
+  // 기존 콤마 포맷 리스너 제거 후 종목 유형에 맞게 재설정
+  const _newTp = _tpInput.cloneNode(true);
+  _tpInput.parentNode.replaceChild(_newTp, _tpInput);
   if (_isForeign) {
-    _tpInput.type = 'number';
-    _tpInput.inputMode = 'decimal';
-    _tpInput.step = '0.01';
-    _tpInput.min = '0';
-    _tpInput.placeholder = '예: 79.90';
+    _newTp.type = 'number';
+    _newTp.inputMode = 'decimal';
+    _newTp.step = '0.01';
+    _newTp.min = '0';
+    _newTp.placeholder = '예: 79.90';
   } else {
-    _tpInput.type = 'text';
-    _tpInput.inputMode = 'numeric';
-    _tpInput.removeAttribute('step');
-    _tpInput.removeAttribute('min');
-    _tpInput.placeholder = '예: 60,000';
+    _newTp.type = 'text';
+    _newTp.inputMode = 'numeric';
+    _newTp.removeAttribute('step');
+    _newTp.removeAttribute('min');
+    _newTp.placeholder = '예: 60,000';
+    _initNumInput(_newTp.id);  // 국내 종목은 콤마 포맷 리스너 재부착
   }
 
   const _setNum = (id, v) => {
