@@ -39,6 +39,13 @@ cache = Cache(app, config={
     'CACHE_DEFAULT_TIMEOUT': 120  # 기본 2분
 })
 
+# gunicorn 등 production 서버에서도 DB 초기화/마이그레이션 실행
+with app.app_context():
+    try:
+        init_db()
+    except Exception as _init_err:
+        print(f"[init_db] {_init_err}")
+
 def _clear_summary_cache():
     """수입/지출/자산 데이터 변경 시 모든 캐시 삭제"""
     try:
