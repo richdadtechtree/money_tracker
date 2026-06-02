@@ -585,26 +585,34 @@ function formatKRW(val) {
 }
 
 async function loadNetworthChart(period) {
+  const res  = await fetch(`/api/networth-history?period=${period}`);
+  const data = await res.json();
+  const rows = data.rows || [];
+
+  // ── 요약 수치 업데이트 (실패해도 차트에 영향 없도록 분리) ──
   try {
-    const res  = await fetch(`/api/networth-history?period=${period}`);
-    const data = await res.json();
-    const rows = data.rows || [];
-    console.log(`[networth-chart] period=${period} rows=${rows.length}`, rows);
-
-    // ── 요약 수치 업데이트 ──
     const s = data.summary || {};
-    document.getElementById('nw-current').textContent    = formatKRW(s.current);
-
+    const curEl    = document.getElementById('nw-current');
     const changeEl = document.getElementById('nw-change-amt');
-    changeEl.textContent  = (s.change_amt >= 0 ? '+' : '') + formatKRW(s.change_amt);
-    changeEl.style.color  = s.change_amt >= 0 ? '#2ecc71' : '#e74c3c';
+    const pctEl    = document.getElementById('nw-change-pct');
+    if (curEl)    curEl.textContent   = formatKRW(s.current);
+    if (changeEl) {
+      changeEl.textContent = (s.change_amt >= 0 ? '+' : '') + formatKRW(s.change_amt);
+      changeEl.style.color = s.change_amt >= 0 ? '#2ecc71' : '#e74c3c';
+    }
+    if (pctEl) {
+      pctEl.textContent = (s.change_pct >= 0 ? '+' : '') + s.change_pct + '%';
+      pctEl.style.color = s.change_pct >= 0 ? '#2ecc71' : '#e74c3c';
+    }
+  } catch (e) {
+    console.warn('순자산 요약 업데이트 실패:', e);
+  }
 
-    const pctEl = document.getElementById('nw-change-pct');
-    pctEl.textContent = (s.change_pct >= 0 ? '+' : '') + s.change_pct + '%';
-    pctEl.style.color = s.change_pct >= 0 ? '#2ecc71' : '#e74c3c';
-
+  // ── 차트 렌더링 ──
+  try {
     const noticeEl = document.getElementById('networth-chart-empty');
     const canvasEl = document.getElementById('networth-chart');
+
     if (rows.length === 0) {
       if (noticeEl) { noticeEl.style.display = 'flex'; noticeEl.innerHTML = '<span class="text-muted small">저장된 데이터가 없습니다.</span>'; }
       if (canvasEl) canvasEl.style.display = 'none';
@@ -620,9 +628,6 @@ async function loadNetworthChart(period) {
     const periodLabels = { daily: '일간 변동률(%)', weekly: '주간 변동률(%)', monthly: '월간 변동률(%)', yearly: '연간 변동률(%)' };
     const barLabel  = periodLabels[period] || '변동률(%)';
 
-    console.log('[networth-chart] labels:', labels, 'netWorth:', netWorth);
-
-    // ── Chart.js 이중 Y축 ──
     if (networthChart) networthChart.destroy();
     const ctx = document.getElementById('networth-chart').getContext('2d');
     networthChart = new Chart(ctx, {
@@ -630,7 +635,6 @@ async function loadNetworthChart(period) {
         labels,
         datasets: [
           {
-            // 선그래프: 순자산 잔액
             type: 'line',
             label: '순자산',
             data: netWorth,
@@ -644,16 +648,11 @@ async function loadNetworthChart(period) {
             order: 1,
           },
           {
-            // 막대그래프: 변동률(%)
             type: 'bar',
             label: barLabel,
             data: changePct,
-            backgroundColor: changePct.map(v =>
-              v >= 0 ? 'rgba(46,204,113,0.55)' : 'rgba(231,76,60,0.55)'
-            ),
-            borderColor: changePct.map(v =>
-              v >= 0 ? '#2ecc71' : '#e74c3c'
-            ),
+            backgroundColor: changePct.map(v => v >= 0 ? 'rgba(46,204,113,0.55)' : 'rgba(231,76,60,0.55)'),
+            borderColor:     changePct.map(v => v >= 0 ? '#2ecc71' : '#e74c3c'),
             borderWidth: 1,
             yAxisID: 'y1',
             order: 2,
@@ -669,10 +668,9 @@ async function loadNetworthChart(period) {
           tooltip: {
             callbacks: {
               label: ctx => {
-                if (ctx.dataset.yAxisID === 'y')
-                  return `순자산: ${formatKRW(ctx.raw)}`;
+                if (ctx.dataset.yAxisID === 'y') return '순자산: ' + formatKRW(ctx.raw);
                 const sign = ctx.raw >= 0 ? '+' : '';
-                return `변동률: ${sign}${ctx.raw?.toFixed(2)}%`;
+                return '변동률: ' + sign + (ctx.raw != null ? ctx.raw.toFixed(2) : '0') + '%';
               }
             }
           }
@@ -681,7 +679,6 @@ async function loadNetworthChart(period) {
           x: {
             ticks: {
               maxRotation: 45,
-              // 일간은 레이블 많으므로 n개마다 1개만 표시
               callback: (val, idx) => {
                 if (period === 'daily' && idx % 7 !== 0) return '';
                 return labels[idx];
@@ -703,7 +700,7 @@ async function loadNetworthChart(period) {
       }
     });
   } catch (e) {
-    console.error('순자산 차트 로딩 실패:', e);
+    console.error('순자산 차트 렌더링 실패:', e);
   }
 }
 
