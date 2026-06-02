@@ -453,8 +453,18 @@ def _generate_recurring_budget(db, year: int, month: int):
       4. 생성된 날짜가 오늘 이전인 경우에만 INSERT
          (해당 날짜가 오지 않은 건 생성하지 않음)
     """
-    ym_str  = f"{year}-{month:02d}"        # 예: '2025-06'
+    ym_str  = f"{year}-{month:02d}"
     today   = date.today()
+
+    # 이미 생성된 항목 중 날짜가 오늘 이후인 것은 삭제 (잘못 선생성된 경우 정리)
+    cur = db.cursor()
+    cur.execute("""
+        DELETE FROM budget
+        WHERE is_auto_generated = TRUE
+          AND to_char(date::date, 'YYYY-MM') = %s
+          AND date::date > %s
+    """, (ym_str, today))
+    cur.close()
 
     cur = db.cursor()
     cur.execute("""
