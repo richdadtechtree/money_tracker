@@ -1594,14 +1594,16 @@ document.getElementById('plan-stock-select').addEventListener('change', function
 });
 
 async function previewPlan() {
-  const targetPrice = parseInt(document.getElementById('plan-target-price').value || 0);
-  const budget      = parseInt(document.getElementById('invest-plan-budget').value || 0);
+  const targetPriceEl = document.getElementById('plan-target-price');
+  const budgetEl      = document.getElementById('invest-plan-budget');
+  const targetPrice = parseInt((targetPriceEl ? targetPriceEl.value : '') || 0);
+  const budget      = parseInt((budgetEl      ? budgetEl.value      : '') || 0);
   const lowerPct    = parseFloat(document.getElementById('plan-lower-pct').value || 20);
   const splitCount  = parseInt(document.getElementById('plan-split').value || 5);
   const strategy    = document.getElementById('plan-strategy').value;
 
   if (!targetPrice || !budget) {
-    alert('상단 매수가와 총 예산을 입력하세요.'); return;
+    alert(`상단 매수가(${targetPrice})와 총 예산(${budget})을 입력하세요.`); return;
   }
 
   const res  = await fetch('/api/invest-plans', {
@@ -1671,9 +1673,11 @@ function renderPlanPreview(steps, targetPrice, budget) {
 }
 
 async function savePlan() {
-  const stockSelect = document.getElementById('plan-stock-select');
-  const targetPrice = parseInt(document.getElementById('plan-target-price').value || 0);
-  const budget      = parseInt(document.getElementById('invest-plan-budget').value || 0);
+  const stockSelect   = document.getElementById('plan-stock-select');
+  const targetPriceEl = document.getElementById('plan-target-price');
+  const budgetEl      = document.getElementById('invest-plan-budget');
+  const targetPrice = parseInt((targetPriceEl ? targetPriceEl.value : '') || 0);
+  const budget      = parseInt((budgetEl      ? budgetEl.value      : '') || 0);
   const lowerPct    = parseFloat(document.getElementById('plan-lower-pct').value || 20);
   const splitCount  = parseInt(document.getElementById('plan-split').value || 5);
   const strategy    = document.getElementById('plan-strategy').value;
@@ -1684,7 +1688,7 @@ async function savePlan() {
     alert('종목을 선택하세요.'); return;
   }
   if (!targetPrice || !budget) {
-    alert('상단 매수가와 총 예산을 입력하세요.'); return;
+    alert(`상단 매수가(${targetPrice})와 총 예산(${budget})을 입력하세요.\n(plan-target-price: ${targetPriceEl ? targetPriceEl.value : 'NOT FOUND'}, invest-plan-budget: ${budgetEl ? budgetEl.value : 'NOT FOUND'})`); return;
   }
 
   const parts = stockSelect.value.split(':');
@@ -1893,11 +1897,7 @@ async function updateAllPrices() {
     await stockGrid.load();
     await etfGrid.load();
     await cryptoGrid.load();
-    if (currentPlanId) {
-      await selectPlan(currentPlanId);
-    } else {
-      await loadPlanList();
-    }
+    await loadSavedPlans();
 
     // 결과 토스트
     const ok_s  = res.stocks ? res.stocks.filter(x => x.ok).length : 0;
