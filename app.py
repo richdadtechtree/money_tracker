@@ -48,15 +48,17 @@ with app.app_context():
 
 def _fix_recurring_day_of_month():
     """
-    recurring_budget.day_of_month=1(기본값)인 템플릿에 대해
-    과거 연결된 budget 항목의 실제 날짜로 day_of_month를 수정하고,
-    당월 auto-generated 항목의 날짜도 함께 수정.
+    recurring_budget.day_of_month=1 인 템플릿의 day_of_month 를 실제 날짜로 수정.
+
+    전략 1: recurring_id 로 직접 연결된 과거 항목 중 1일이 아닌 날짜가 있으면 사용
+    전략 2: 이름(trim·소문자) 이 같은 '고정지출' 항목 중 가장 최근 비-1일 날짜를 사용
+    이후: auto-generated 항목 날짜도 템플릿 day_of_month 에 맞게 수정
     """
     try:
         db = get_db()
         cur = db.cursor()
-        # 과거 budget 항목의 실제 일자로 day_of_month 갱신
-        # (day_of_month=1인 템플릿 중, 과거에 1일이 아닌 날짜로 등록된 항목이 있는 것만)
+
+        # ── 전략 1: recurring_id 직접 연결 ──
         cur.execute("""
             UPDATE recurring_budget rb
             SET day_of_month = EXTRACT(DAY FROM b.date::date)::INTEGER
@@ -70,16 +72,35 @@ def _fix_recurring_day_of_month():
             WHERE rb.id = b.recurring_id
               AND rb.day_of_month = 1
         """)
-        updated_rc = cur.rowcount
+        updated_rc1 = cur.rowcount
 
-        # 당월 auto-generated 항목 날짜 수정
+        # ── 전략 2: 이름 매칭 (고정지출 유형, 1일이 아닌 항목) ──
+        cur.execute("""
+            UPDATE recurring_budget rb
+            SET day_of_month = EXTRACT(DAY FROM b.date::date)::INTEGER
+            FROM (
+                SELECT DISTINCT ON (TRIM(LOWER(name)))
+                    TRIM(LOWER(name)) AS norm_name, date
+                FROM budget
+                WHERE type = '고정지출'
+                  AND EXTRACT(DAY FROM date::date) <> 1
+                ORDER BY TRIM(LOWER(name)), date DESC
+            ) b
+            WHERE TRIM(LOWER(rb.name)) = b.norm_name
+              AND rb.day_of_month = 1
+              AND rb.is_active = TRUE
+        """)
+        updated_rc2 = cur.rowcount
+
+        # ── auto-generated 항목 날짜 수정 ──
         cur.execute("""
             UPDATE budget b
             SET date = (
                 DATE_TRUNC('month', b.date::date) +
                 MAKE_INTERVAL(days => LEAST(
                     rb.day_of_month,
-                    EXTRACT(DAY FROM (DATE_TRUNC('month', b.date::date) + INTERVAL '1 month - 1 day'))::INTEGER
+                    EXTRACT(DAY FROM (DATE_TRUNC('month', b.date::date)
+                                      + INTERVAL '1 month - 1 day'))::INTEGER
                 ) - 1)
             )::date
             FROM recurring_budget rb
@@ -92,8 +113,11 @@ def _fix_recurring_day_of_month():
         db.commit()
         cur.close()
         db.close()
-        if updated_rc or updated_b:
-            print(f"[fix_recurring] 템플릿 {updated_rc}건 day_of_month 수정, 항목 {updated_b}건 날짜 수정")
+        total_rc = updated_rc1 + updated_rc2
+        if total_rc or updated_b:
+            print(f"[fix_recurring] 템플릿 {total_rc}건 day_of_month 수정 "
+                  f"(직접연결 {updated_rc1}, 이름매칭 {updated_rc2}), "
+                  f"항목 {updated_b}건 날짜 수정")
     except Exception as e:
         import traceback
         print(f"[fix_recurring] {e}\n{traceback.format_exc()}")
