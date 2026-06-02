@@ -589,6 +589,7 @@ async function loadNetworthChart(period) {
     const res  = await fetch(`/api/networth-history?period=${period}`);
     const data = await res.json();
     const rows = data.rows || [];
+    console.log(`[networth-chart] period=${period} rows=${rows.length}`, rows);
 
     // ── 요약 수치 업데이트 ──
     const s = data.summary || {};
@@ -602,11 +603,10 @@ async function loadNetworthChart(period) {
     pctEl.textContent = (s.change_pct >= 0 ? '+' : '') + s.change_pct + '%';
     pctEl.style.color = s.change_pct >= 0 ? '#2ecc71' : '#e74c3c';
 
-    // 데이터 부족 시 empty state 표시
     const noticeEl = document.getElementById('networth-chart-empty');
     const canvasEl = document.getElementById('networth-chart');
-    if (rows.length < 2) {
-      if (noticeEl) { noticeEl.style.display = 'flex'; noticeEl.innerHTML = '<span class="text-muted small">데이터가 부족합니다. 대시보드를 며칠 이상 사용하면 그래프가 표시됩니다.</span>'; }
+    if (rows.length === 0) {
+      if (noticeEl) { noticeEl.style.display = 'flex'; noticeEl.innerHTML = '<span class="text-muted small">저장된 데이터가 없습니다.</span>'; }
       if (canvasEl) canvasEl.style.display = 'none';
       if (networthChart) { networthChart.destroy(); networthChart = null; }
       return;
