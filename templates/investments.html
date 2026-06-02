@@ -1888,18 +1888,28 @@ async function loadSavedPlans() {
   const _fmtTrigger = v => _planIsFgn ? fmtUsd(v) : formatKRW(v);
 
   plans.forEach(plan => {
+    const executedCount = plan.steps.filter(s => s.is_executed).length;
+    const progressPct = plan.steps.length ? Math.round(executedCount / plan.steps.length * 100) : 0;
+
     const stepsHtml = plan.steps.map(s => {
       const pct = plan.target_price
         ? ((s.trigger_price - plan.target_price) / plan.target_price * 100).toFixed(1)
         : 0;
       const pctLabel = pct >= 0 ? `+${pct}%` : `${pct}%`;
       const pctClass = pct >= 0 ? 'text-secondary' : 'text-success';
+      const done = s.is_executed;
+      const rowClass = done ? 'table-success text-muted' : '';
+      const strikeClass = done ? 'text-decoration-line-through text-muted' : '';
       return `
-      <tr>
-        <td class="text-center">${s.step_no}차</td>
-        <td class="text-end">${_fmtTrigger(s.trigger_price)} <small class="${pctClass}">(${pctLabel})</small></td>
-        <td class="text-end">${formatKRW(s.target_amount)}</td>
-        <td class="text-end">${s.target_shares}주</td>
+      <tr class="${rowClass}">
+        <td class="text-center">
+          <input type="checkbox" class="form-check-input" ${done ? 'checked' : ''}
+            onchange="togglePlanStep(${s.id}, this.checked, ${plan.id})">
+        </td>
+        <td class="text-center ${done ? 'text-success fw-semibold' : ''}">${s.step_no}차</td>
+        <td class="text-end ${strikeClass}">${_fmtTrigger(s.trigger_price)} <small class="${pctClass}">(${pctLabel})</small></td>
+        <td class="text-end ${strikeClass}">${formatKRW(s.target_amount)}</td>
+        <td class="text-end ${strikeClass}">${s.target_shares}주</td>
       </tr>
     `;
     }).join('');
@@ -1912,6 +1922,7 @@ async function loadSavedPlans() {
             <span class="badge bg-info text-dark ms-2">상단가: ${_fmtTrigger(plan.target_price)}</span>
             <span class="badge bg-warning text-dark ms-1">${(plan.upper_pct||0) < 0 ? (-plan.upper_pct)+'%~' : ''}~-${plan.lower_pct}% / ${plan.split_count}차</span>
             <span class="badge bg-secondary ms-1">${plan.strategy === 'inverse_pyramid' ? '역피라미딩' : plan.strategy === 'pyramid' ? '정피라미딩' : '균등'}</span>
+            ${executedCount > 0 ? `<span class="badge bg-success ms-1">${executedCount}/${plan.steps.length}차 매수완료</span>` : ''}
           </div>
           <div class="d-flex gap-1">
             <button class="btn btn-outline-primary btn-sm py-0 px-2"
@@ -1921,16 +1932,23 @@ async function loadSavedPlans() {
           </div>
         </div>
         <div class="card-body p-3">
-          <div class="d-flex gap-2 mb-2 flex-wrap small text-muted">
+          <div class="d-flex gap-2 mb-2 flex-wrap small text-muted align-items-center">
             <span>총 예산: <strong class="text-dark">${formatKRW(plan.total_budget)}</strong></span>
             <span>|</span>
             <span>예산/주수: <strong class="text-dark">${formatKRW(Math.round(plan.total_budget / plan.steps.reduce((a,s)=>a+s.target_shares,0)))}</strong> 평균단가</span>
             ${plan.memo ? `<span class="text-muted">| ${plan.memo}</span>` : ''}
+            ${executedCount > 0 ? `
+            <span class="ms-auto">
+              <div class="progress" style="width:100px;height:8px">
+                <div class="progress-bar bg-success" style="width:${progressPct}%"></div>
+              </div>
+            </span>` : ''}
           </div>
           <div class="table-responsive">
             <table class="table table-sm table-hover mb-0">
               <thead class="table-light">
-                <tr><th class="text-center">차수</th><th class="text-end">트리거 가격</th>
+                <tr><th class="text-center" style="width:36px"></th><th class="text-center">차수</th>
+                    <th class="text-end">트리거 가격</th>
                     <th class="text-end">투자금</th><th class="text-end">예정 주수</th></tr>
               </thead>
               <tbody>${stepsHtml}</tbody>
@@ -1940,6 +1958,16 @@ async function loadSavedPlans() {
       </div>
     `);
   });
+}
+
+async function togglePlanStep(stepId, checked, planId) {
+  const method = checked ? 'POST' : 'DELETE';
+  const res = await fetch(`/api/invest-plan-steps/${stepId}/execute`, { method });
+  if (res.ok) {
+    loadSavedPlans();
+  } else {
+    showToast('저장 실패', 'danger');
+  }
 }
 
 async function deletePlan(planId) {
