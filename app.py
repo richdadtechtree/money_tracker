@@ -4962,6 +4962,17 @@ def _api_dashboard_inner():
 
     try:
         _save_daily_snapshot(db)
+        cur = db.cursor()
+        cur.execute("""
+        INSERT INTO asset_snapshots (month, cash, stocks, real_estate, crypto, pension, total, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+        ON CONFLICT(month) DO UPDATE SET
+        cash=excluded.cash, stocks=excluded.stocks, real_estate=excluded.real_estate,
+        crypto=excluded.crypto, pension=excluded.pension, total=excluded.total,
+        updated_at=excluded.updated_at
+        """, (ym, cash_val, stocks_val + etf_val, re_val, crypto_val, pension_val,
+        cash_val + stocks_val + etf_val + re_val + crypto_val + pension_val))
+        cur.close()
         db.commit()
     except Exception as snapshot_err:
         db.rollback()
