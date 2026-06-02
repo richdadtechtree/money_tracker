@@ -1827,14 +1827,21 @@ async function loadSavedPlans() {
   }
 
   plans.forEach(plan => {
-    const stepsHtml = plan.steps.map(s => `
+    const stepsHtml = plan.steps.map(s => {
+      const pct = plan.target_price
+        ? ((s.trigger_price - plan.target_price) / plan.target_price * 100).toFixed(1)
+        : 0;
+      const pctLabel = pct >= 0 ? `+${pct}%` : `${pct}%`;
+      const pctClass = pct >= 0 ? 'text-secondary' : 'text-success';
+      return `
       <tr>
         <td class="text-center">${s.step_no}차</td>
-        <td class="text-end">${formatKRW(s.trigger_price)}</td>
+        <td class="text-end">${formatKRW(s.trigger_price)} <small class="${pctClass}">(${pctLabel})</small></td>
         <td class="text-end">${formatKRW(s.target_amount)}</td>
         <td class="text-end">${s.target_shares}주</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
 
     area.insertAdjacentHTML('beforeend', `
       <div class="card mb-3 border-0 shadow-sm">
