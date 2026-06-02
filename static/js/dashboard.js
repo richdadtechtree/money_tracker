@@ -642,7 +642,7 @@ async function loadNetworthChart(period) {
           {
             // 막대그래프: 변동률(%)
             type: 'bar',
-            label: '변동률(%)',
+            label: { daily: '일간 변동률(%)', weekly: '주간 변동률(%)', monthly: '월간 변동률(%)', yearly: '연간 변동률(%)' }[period] || '변동률(%)',
             data: changePct,
             backgroundColor: changePct.map(v =>
               v >= 0 ? 'rgba(46,204,113,0.55)' : 'rgba(231,76,60,0.55)'

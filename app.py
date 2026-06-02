@@ -4179,13 +4179,12 @@ def _save_daily_snapshot(db):
 @app.route('/api/networth-history')
 def api_networth_history():
     """
-    순자산 변화 이력 반환.
+    순자산 변화 이력 반환. 모든 기간 daily_snapshots 기반.
 
-    period 파라미터:
-      daily   → 최근 90일  (daily_snapshots)
-      weekly  → 최근 52주, 주의 마지막 기록 (daily_snapshots)
-      monthly → 최근 24개월 (asset_snapshots)
-      yearly  → 최근 5년   (asset_snapshots, 연도별 마지막 월)
+    daily   → 최근 90일 (1행=1일)
+    weekly  → 최근 52주, 주별 마지막 행
+    monthly → 최근 24개월, 월별 마지막 행
+    yearly  → 최근 10년, 연별 마지막 행
     """
     period = request.args.get('period', 'monthly')
     db     = get_db()
@@ -4193,135 +4192,114 @@ def api_networth_history():
 
     if period == 'daily':
         cur.execute("""
+            WITH base AS (
+                SELECT day, net_worth
+                FROM daily_snapshots
+                WHERE day >= CURRENT_DATE - INTERVAL '90 days'
+                ORDER BY day
+            )
             SELECT
-                day::text                                          AS label,
+                day::text AS label,
                 net_worth,
-                net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY day), net_worth)    AS change_amt,
-                ROUND(
-                    COALESCE(
-                        (net_worth - LAG(net_worth) OVER (ORDER BY day))::numeric
-                        / NULLIF(LAG(net_worth) OVER (ORDER BY day), 0) * 100, 0
-                    ), 2
-                )                                                  AS change_pct
-            FROM daily_snapshots
-            WHERE day >= CURRENT_DATE - INTERVAL '90 days'
+                net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY day), net_worth) AS change_amt,
+                ROUND(COALESCE(
+                    (net_worth - LAG(net_worth) OVER (ORDER BY day))::numeric
+                    / NULLIF(LAG(net_worth) OVER (ORDER BY day), 0) * 100, 0
+                ), 2) AS change_pct
+            FROM base
             ORDER BY day
         """)
 
     elif period == 'weekly':
         cur.execute("""
-            WITH ranked AS (
-                SELECT *,
-                       DATE_TRUNC('week', day)::date AS week_start,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY DATE_TRUNC('week', day) ORDER BY day DESC
-                       ) AS rn
+            WITH weekly AS (
+                SELECT
+                    DATE_TRUNC('week', day)::date AS week_start,
+                    net_worth,
+                    ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('week', day) ORDER BY day DESC) AS rn
                 FROM daily_snapshots
                 WHERE day >= CURRENT_DATE - INTERVAL '52 weeks'
             )
             SELECT
-                week_start::text                                         AS label,
+                week_start::text AS label,
                 net_worth,
-                net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY week_start), net_worth)   AS change_amt,
-                ROUND(
-                    COALESCE(
-                        (net_worth - LAG(net_worth) OVER (ORDER BY week_start))::numeric
-                        / NULLIF(LAG(net_worth) OVER (ORDER BY week_start), 0) * 100, 0
-                    ), 2
-                )                                                         AS change_pct
-            FROM ranked
+                net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY week_start), net_worth) AS change_amt,
+                ROUND(COALESCE(
+                    (net_worth - LAG(net_worth) OVER (ORDER BY week_start))::numeric
+                    / NULLIF(LAG(net_worth) OVER (ORDER BY week_start), 0) * 100, 0
+                ), 2) AS change_pct
+            FROM weekly
             WHERE rn = 1
             ORDER BY week_start
         """)
 
     elif period == 'monthly':
         cur.execute("""
+            WITH monthly AS (
+                SELECT
+                    TO_CHAR(day, 'YYYY-MM') AS ym,
+                    net_worth,
+                    ROW_NUMBER() OVER (PARTITION BY TO_CHAR(day, 'YYYY-MM') ORDER BY day DESC) AS rn
+                FROM daily_snapshots
+                WHERE day >= CURRENT_DATE - INTERVAL '24 months'
+            )
             SELECT
-                month                                                   AS label,
-                (cash + stocks + real_estate + crypto + pension)        AS net_worth,
-                (cash + stocks + real_estate + crypto + pension)
-                    - COALESCE(LAG(cash+stocks+real_estate+crypto+pension)
-                      OVER (ORDER BY month), cash+stocks+real_estate+crypto+pension)    AS change_amt,
-                ROUND(
-                    COALESCE(
-                        ((cash+stocks+real_estate+crypto+pension)
-                          - LAG(cash+stocks+real_estate+crypto+pension)
-                            OVER (ORDER BY month))::numeric
-                        / NULLIF(
-                            LAG(cash+stocks+real_estate+crypto+pension)
-                              OVER (ORDER BY month), 0) * 100, 0
-                    ), 2
-                )                                                       AS change_pct
-            FROM asset_snapshots
-            ORDER BY month
-            LIMIT 24
+                ym AS label,
+                net_worth,
+                net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY ym), net_worth) AS change_amt,
+                ROUND(COALESCE(
+                    (net_worth - LAG(net_worth) OVER (ORDER BY ym))::numeric
+                    / NULLIF(LAG(net_worth) OVER (ORDER BY ym), 0) * 100, 0
+                ), 2) AS change_pct
+            FROM monthly
+            WHERE rn = 1
+            ORDER BY ym
         """)
 
     elif period == 'yearly':
         cur.execute("""
             WITH yearly AS (
-                SELECT *,
-                       LEFT(month, 4) AS yr,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY LEFT(month, 4) ORDER BY month DESC
-                       ) AS rn
-                FROM asset_snapshots
+                SELECT
+                    TO_CHAR(day, 'YYYY') AS yr,
+                    net_worth,
+                    ROW_NUMBER() OVER (PARTITION BY TO_CHAR(day, 'YYYY') ORDER BY day DESC) AS rn
+                FROM daily_snapshots
+                WHERE day >= CURRENT_DATE - INTERVAL '10 years'
             )
             SELECT
-                yr                                                      AS label,
-                (cash + stocks + real_estate + crypto + pension)        AS net_worth,
-                (cash + stocks + real_estate + crypto + pension)
-                    - COALESCE(LAG(cash+stocks+real_estate+crypto+pension)
-                      OVER (ORDER BY yr), cash+stocks+real_estate+crypto+pension)       AS change_amt,
-                ROUND(
-                    COALESCE(
-                        ((cash+stocks+real_estate+crypto+pension)
-                          - LAG(cash+stocks+real_estate+crypto+pension)
-                            OVER (ORDER BY yr))::numeric
-                        / NULLIF(
-                            LAG(cash+stocks+real_estate+crypto+pension)
-                              OVER (ORDER BY yr), 0) * 100, 0
-                    ), 2
-                )                                                       AS change_pct
+                yr AS label,
+                net_worth,
+                net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY yr), net_worth) AS change_amt,
+                ROUND(COALESCE(
+                    (net_worth - LAG(net_worth) OVER (ORDER BY yr))::numeric
+                    / NULLIF(LAG(net_worth) OVER (ORDER BY yr), 0) * 100, 0
+                ), 2) AS change_pct
             FROM yearly
             WHERE rn = 1
             ORDER BY yr
-            LIMIT 5
         """)
+
+    else:
+        cur.close()
+        db.close()
+        return jsonify({'rows': [], 'summary': {'current': 0, 'change_amt': 0, 'change_pct': 0}})
 
     rows = cur.fetchall()
     cur.close()
-
-    # monthly/yearly: 오늘 순자산이 마지막 row에 없으면 daily_snapshots에서 보완
-    if period in ('monthly', 'yearly'):
-        cur = db.cursor()
-        cur.execute("""
-            SELECT net_worth FROM daily_snapshots
-            ORDER BY day DESC LIMIT 1
-        """)
-        today_snap = cur.fetchone()
-        cur.close()
-        today_nw = float(today_snap['net_worth']) if today_snap else None
-    else:
-        today_nw = None
-
     db.close()
 
-    # 전체 기간 요약값 계산
     valid = [r for r in rows if r['net_worth'] is not None]
-    first_nw = float(valid[0]['net_worth'])  if valid else 0
-    last_nw  = float(valid[-1]['net_worth']) if valid else 0
-    # summary의 current는 항상 오늘 실제 순자산 우선
-    current_nw = today_nw if today_nw is not None else last_nw
+    first_nw   = float(valid[0]['net_worth'])  if valid else 0
+    current_nw = float(valid[-1]['net_worth']) if valid else 0
     total_change     = current_nw - first_nw
     total_change_pct = round(total_change / first_nw * 100, 2) if first_nw else 0
 
     return jsonify({
         'rows': rows_to_list(rows),
         'summary': {
-            'current':     current_nw,
-            'change_amt':  total_change,
-            'change_pct':  total_change_pct,
+            'current':    current_nw,
+            'change_amt': total_change,
+            'change_pct': total_change_pct,
         }
     })
 
