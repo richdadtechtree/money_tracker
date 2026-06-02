@@ -703,9 +703,31 @@ async function loadNetworthChart(period) {
   }
 }
 
+// ── 자정 직전 자동 스냅샷 저장 ────────────────────────────
+function scheduleMidnightSnapshot() {
+  const now = new Date();
+  const target = new Date(now);
+  target.setHours(23, 59, 30, 0);
+  if (now >= target) {
+    // 이미 23:59:30 지남 → 내일 자정 직전으로
+    target.setDate(target.getDate() + 1);
+  }
+  const msUntil = target - now;
+  setTimeout(async () => {
+    try {
+      await fetch('/api/dashboard');
+      console.log('자정 스냅샷 저장 완료');
+    } catch (e) {
+      console.warn('자정 스냅샷 저장 실패:', e);
+    }
+    scheduleMidnightSnapshot(); // 다음 날 재예약
+  }, msUntil);
+}
+
 // 페이지 로드 시 실행
 initPrivacyMode();
 loadDashboard();
 initNetworthChart();
 loadNetworthChart('monthly');
+scheduleMidnightSnapshot();
 
