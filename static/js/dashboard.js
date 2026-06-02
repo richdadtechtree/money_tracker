@@ -614,9 +614,13 @@ async function loadNetworthChart(period) {
     if (noticeEl) noticeEl.style.display = 'none';
     if (canvasEl) canvasEl.style.display = '';
 
-    const labels   = rows.map(r => r.label);
-    const netWorth = rows.map(r => r.net_worth  || 0);
-    const changePct= rows.map(r => r.change_pct || 0);
+    const labels    = rows.map(r => r.label);
+    const netWorth  = rows.map(r => r.net_worth  || 0);
+    const changePct = rows.map(r => r.change_pct || 0);
+    const periodLabels = { daily: '일간 변동률(%)', weekly: '주간 변동률(%)', monthly: '월간 변동률(%)', yearly: '연간 변동률(%)' };
+    const barLabel  = periodLabels[period] || '변동률(%)';
+
+    console.log('[networth-chart] labels:', labels, 'netWorth:', netWorth);
 
     // ── Chart.js 이중 Y축 ──
     if (networthChart) networthChart.destroy();
@@ -642,7 +646,7 @@ async function loadNetworthChart(period) {
           {
             // 막대그래프: 변동률(%)
             type: 'bar',
-            label: { daily: '일간 변동률(%)', weekly: '주간 변동률(%)', monthly: '월간 변동률(%)', yearly: '연간 변동률(%)' }[period] || '변동률(%)',
+            label: barLabel,
             data: changePct,
             backgroundColor: changePct.map(v =>
               v >= 0 ? 'rgba(46,204,113,0.55)' : 'rgba(231,76,60,0.55)'
