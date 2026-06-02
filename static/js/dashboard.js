@@ -602,9 +602,13 @@ async function loadNetworthChart(period) {
     pctEl.textContent = (s.change_pct >= 0 ? '+' : '') + s.change_pct + '%';
     pctEl.style.color = s.change_pct >= 0 ? '#2ecc71' : '#e74c3c';
 
-    // 일간 데이터 부족 시 안내
+    // 데이터 부족 시 안내
     const noticeEl = document.getElementById('networth-chart-empty');
-    if (period === 'daily' && rows.length < 3) {
+    if (rows.length < 2) {
+      if (noticeEl) noticeEl.style.display = 'flex';
+      if (networthChart) { networthChart.destroy(); networthChart = null; }
+      return;
+    } else if (period === 'daily' && rows.length < 3) {
       if (noticeEl) noticeEl.style.display = 'flex';
     } else {
       if (noticeEl) noticeEl.style.display = 'none';

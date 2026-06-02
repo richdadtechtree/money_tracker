@@ -234,12 +234,15 @@ def _month_range(year_str, month_str):
     return start, end
 
 def rows_to_list(rows):
+    import decimal
     res = []
     for r in rows:
         d = dict(r)
         for k, v in d.items():
             if isinstance(v, (date, datetime)):
                 d[k] = v.isoformat()
+            elif isinstance(v, decimal.Decimal):
+                d[k] = float(v)
         res.append(d)
     return res
 
