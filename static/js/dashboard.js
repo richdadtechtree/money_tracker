@@ -588,27 +588,31 @@ async function loadNetworthChart(period) {
   try {
     const res  = await fetch(`/api/networth-history?period=${period}`);
     const data = await res.json();
-    const rows = data.rows;
+    const rows = data.rows || [];
 
     // ── 요약 수치 업데이트 ──
-    const s = data.summary;
+    const s = data.summary || {};
     document.getElementById('nw-current').textContent    = formatKRW(s.current);
-    
+
     const changeEl = document.getElementById('nw-change-amt');
     changeEl.textContent  = (s.change_amt >= 0 ? '+' : '') + formatKRW(s.change_amt);
     changeEl.style.color  = s.change_amt >= 0 ? '#2ecc71' : '#e74c3c';
-    
+
     const pctEl = document.getElementById('nw-change-pct');
     pctEl.textContent = (s.change_pct >= 0 ? '+' : '') + s.change_pct + '%';
     pctEl.style.color = s.change_pct >= 0 ? '#2ecc71' : '#e74c3c';
 
-    // 일간 데이터 부족 시 안내
+    // 데이터 부족 시 empty state 표시
     const noticeEl = document.getElementById('networth-chart-empty');
-    if (period === 'daily' && rows.length < 3) {
-      if (noticeEl) noticeEl.style.display = 'flex';
-    } else {
-      if (noticeEl) noticeEl.style.display = 'none';
+    const canvasEl = document.getElementById('networth-chart');
+    if (rows.length < 2) {
+      if (noticeEl) { noticeEl.style.display = 'flex'; noticeEl.innerHTML = '<span class="text-muted small">데이터가 부족합니다. 대시보드를 며칠 이상 사용하면 그래프가 표시됩니다.</span>'; }
+      if (canvasEl) canvasEl.style.display = 'none';
+      if (networthChart) { networthChart.destroy(); networthChart = null; }
+      return;
     }
+    if (noticeEl) noticeEl.style.display = 'none';
+    if (canvasEl) canvasEl.style.display = '';
 
     const labels   = rows.map(r => r.label);
     const netWorth = rows.map(r => r.net_worth  || 0);

@@ -4291,19 +4291,35 @@ def api_networth_history():
 
     rows = cur.fetchall()
     cur.close()
+
+    # monthly/yearly: 오늘 순자산이 마지막 row에 없으면 daily_snapshots에서 보완
+    if period in ('monthly', 'yearly'):
+        cur = db.cursor()
+        cur.execute("""
+            SELECT net_worth FROM daily_snapshots
+            ORDER BY day DESC LIMIT 1
+        """)
+        today_snap = cur.fetchone()
+        cur.close()
+        today_nw = float(today_snap['net_worth']) if today_snap else None
+    else:
+        today_nw = None
+
     db.close()
 
     # 전체 기간 요약값 계산
     valid = [r for r in rows if r['net_worth'] is not None]
-    first_nw = valid[0]['net_worth']  if valid else 0
-    last_nw  = valid[-1]['net_worth'] if valid else 0
-    total_change     = last_nw - first_nw
+    first_nw = float(valid[0]['net_worth'])  if valid else 0
+    last_nw  = float(valid[-1]['net_worth']) if valid else 0
+    # summary의 current는 항상 오늘 실제 순자산 우선
+    current_nw = today_nw if today_nw is not None else last_nw
+    total_change     = current_nw - first_nw
     total_change_pct = round(total_change / first_nw * 100, 2) if first_nw else 0
 
     return jsonify({
         'rows': rows_to_list(rows),
         'summary': {
-            'current':     last_nw,
+            'current':     current_nw,
             'change_amt':  total_change,
             'change_pct':  total_change_pct,
         }
