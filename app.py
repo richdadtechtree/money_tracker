@@ -4231,22 +4231,30 @@ def api_networth_history():
     db     = get_db()
     cur    = db.cursor()
 
+    asset_cols = "cash, stocks, real_estate, crypto, pension"
+    asset_lag  = "LAG(cash) OVER (ORDER BY {o}), LAG(stocks) OVER (ORDER BY {o}), LAG(real_estate) OVER (ORDER BY {o}), LAG(crypto) OVER (ORDER BY {o}), LAG(pension) OVER (ORDER BY {o})"
+
     if period == 'daily':
         cur.execute("""
             WITH base AS (
-                SELECT day, net_worth
+                SELECT day, net_worth, cash, stocks, real_estate, crypto, pension
                 FROM daily_snapshots
                 WHERE day >= CURRENT_DATE - INTERVAL '90 days'
-                ORDER BY day
             )
             SELECT
                 day::text AS label,
                 net_worth,
+                cash, stocks, real_estate, crypto, pension,
                 net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY day), net_worth) AS change_amt,
                 ROUND(COALESCE(
                     (net_worth - LAG(net_worth) OVER (ORDER BY day))::numeric
                     / NULLIF(LAG(net_worth) OVER (ORDER BY day), 0) * 100, 0
-                ), 2) AS change_pct
+                ), 2) AS change_pct,
+                COALESCE(LAG(cash)        OVER (ORDER BY day), cash)        AS prev_cash,
+                COALESCE(LAG(stocks)      OVER (ORDER BY day), stocks)      AS prev_stocks,
+                COALESCE(LAG(real_estate) OVER (ORDER BY day), real_estate) AS prev_real_estate,
+                COALESCE(LAG(crypto)      OVER (ORDER BY day), crypto)      AS prev_crypto,
+                COALESCE(LAG(pension)     OVER (ORDER BY day), pension)     AS prev_pension
             FROM base
             ORDER BY day
         """)
@@ -4256,19 +4264,24 @@ def api_networth_history():
             WITH weekly AS (
                 SELECT
                     DATE_TRUNC('week', day)::date AS week_start,
-                    net_worth,
+                    net_worth, cash, stocks, real_estate, crypto, pension,
                     ROW_NUMBER() OVER (PARTITION BY DATE_TRUNC('week', day) ORDER BY day DESC) AS rn
                 FROM daily_snapshots
                 WHERE day >= CURRENT_DATE - INTERVAL '52 weeks'
             )
             SELECT
                 week_start::text AS label,
-                net_worth,
+                net_worth, cash, stocks, real_estate, crypto, pension,
                 net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY week_start), net_worth) AS change_amt,
                 ROUND(COALESCE(
                     (net_worth - LAG(net_worth) OVER (ORDER BY week_start))::numeric
                     / NULLIF(LAG(net_worth) OVER (ORDER BY week_start), 0) * 100, 0
-                ), 2) AS change_pct
+                ), 2) AS change_pct,
+                COALESCE(LAG(cash)        OVER (ORDER BY week_start), cash)        AS prev_cash,
+                COALESCE(LAG(stocks)      OVER (ORDER BY week_start), stocks)      AS prev_stocks,
+                COALESCE(LAG(real_estate) OVER (ORDER BY week_start), real_estate) AS prev_real_estate,
+                COALESCE(LAG(crypto)      OVER (ORDER BY week_start), crypto)      AS prev_crypto,
+                COALESCE(LAG(pension)     OVER (ORDER BY week_start), pension)     AS prev_pension
             FROM weekly
             WHERE rn = 1
             ORDER BY week_start
@@ -4279,19 +4292,24 @@ def api_networth_history():
             WITH monthly AS (
                 SELECT
                     TO_CHAR(day, 'YYYY-MM') AS ym,
-                    net_worth,
+                    net_worth, cash, stocks, real_estate, crypto, pension,
                     ROW_NUMBER() OVER (PARTITION BY TO_CHAR(day, 'YYYY-MM') ORDER BY day DESC) AS rn
                 FROM daily_snapshots
                 WHERE day >= CURRENT_DATE - INTERVAL '24 months'
             )
             SELECT
                 ym AS label,
-                net_worth,
+                net_worth, cash, stocks, real_estate, crypto, pension,
                 net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY ym), net_worth) AS change_amt,
                 ROUND(COALESCE(
                     (net_worth - LAG(net_worth) OVER (ORDER BY ym))::numeric
                     / NULLIF(LAG(net_worth) OVER (ORDER BY ym), 0) * 100, 0
-                ), 2) AS change_pct
+                ), 2) AS change_pct,
+                COALESCE(LAG(cash)        OVER (ORDER BY ym), cash)        AS prev_cash,
+                COALESCE(LAG(stocks)      OVER (ORDER BY ym), stocks)      AS prev_stocks,
+                COALESCE(LAG(real_estate) OVER (ORDER BY ym), real_estate) AS prev_real_estate,
+                COALESCE(LAG(crypto)      OVER (ORDER BY ym), crypto)      AS prev_crypto,
+                COALESCE(LAG(pension)     OVER (ORDER BY ym), pension)     AS prev_pension
             FROM monthly
             WHERE rn = 1
             ORDER BY ym
@@ -4302,19 +4320,24 @@ def api_networth_history():
             WITH yearly AS (
                 SELECT
                     TO_CHAR(day, 'YYYY') AS yr,
-                    net_worth,
+                    net_worth, cash, stocks, real_estate, crypto, pension,
                     ROW_NUMBER() OVER (PARTITION BY TO_CHAR(day, 'YYYY') ORDER BY day DESC) AS rn
                 FROM daily_snapshots
                 WHERE day >= CURRENT_DATE - INTERVAL '10 years'
             )
             SELECT
                 yr AS label,
-                net_worth,
+                net_worth, cash, stocks, real_estate, crypto, pension,
                 net_worth - COALESCE(LAG(net_worth) OVER (ORDER BY yr), net_worth) AS change_amt,
                 ROUND(COALESCE(
                     (net_worth - LAG(net_worth) OVER (ORDER BY yr))::numeric
                     / NULLIF(LAG(net_worth) OVER (ORDER BY yr), 0) * 100, 0
-                ), 2) AS change_pct
+                ), 2) AS change_pct,
+                COALESCE(LAG(cash)        OVER (ORDER BY yr), cash)        AS prev_cash,
+                COALESCE(LAG(stocks)      OVER (ORDER BY yr), stocks)      AS prev_stocks,
+                COALESCE(LAG(real_estate) OVER (ORDER BY yr), real_estate) AS prev_real_estate,
+                COALESCE(LAG(crypto)      OVER (ORDER BY yr), crypto)      AS prev_crypto,
+                COALESCE(LAG(pension)     OVER (ORDER BY yr), pension)     AS prev_pension
             FROM yearly
             WHERE rn = 1
             ORDER BY yr

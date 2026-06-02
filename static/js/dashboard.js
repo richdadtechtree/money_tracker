@@ -623,6 +623,7 @@ async function loadNetworthChart(period) {
   const barLabels = { daily: '일간 변동률(%)', weekly: '주간 변동률(%)', monthly: '월간 변동률(%)', yearly: '연간 변동률(%)' };
 
   if (networthChart) { networthChart.destroy(); networthChart = null; }
+  document.getElementById('nw-detail-panel').style.display = 'none';
 
   networthChart = new Chart(document.getElementById('networth-chart'), {
     data: {
@@ -657,6 +658,11 @@ async function loadNetworthChart(period) {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
+      onClick: function(evt, elements) {
+        if (!elements.length) return;
+        var idx = elements[0].index;
+        showAssetDetail(rows[idx]);
+      },
       plugins: {
         legend: { position: 'top' },
         tooltip: {
@@ -690,6 +696,39 @@ async function loadNetworthChart(period) {
       }
     }
   });
+}
+
+function showAssetDetail(row) {
+  var panel = document.getElementById('nw-detail-panel');
+  var labelEl = document.getElementById('nw-detail-label');
+  var rowsEl  = document.getElementById('nw-detail-rows');
+
+  labelEl.textContent = row.label + ' 자산 변동 내역';
+
+  var assets = [
+    { name: '주식·ETF', key: 'stocks',       icon: '📈' },
+    { name: '현금',     key: 'cash',          icon: '💵' },
+    { name: '부동산',   key: 'real_estate',   icon: '🏠' },
+    { name: '코인',     key: 'crypto',        icon: '🪙' },
+    { name: '연금',     key: 'pension',       icon: '🏦' },
+  ];
+
+  rowsEl.innerHTML = assets.map(function(a) {
+    var cur  = row[a.key] || 0;
+    var prev = row['prev_' + a.key] || 0;
+    var diff = cur - prev;
+    var color = diff > 0 ? '#2ecc71' : diff < 0 ? '#e74c3c' : '#aaa';
+    var sign  = diff > 0 ? '+' : '';
+    return '<div class="col-6 col-md-4 col-lg-2">' +
+      '<div class="border rounded p-2 text-center" style="font-size:0.82rem">' +
+        '<div class="mb-1">' + a.icon + ' ' + a.name + '</div>' +
+        '<div class="fw-semibold">' + formatKRW(cur) + '</div>' +
+        '<div style="color:' + color + ';font-size:0.78rem">' + sign + formatKRW(diff) + '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  panel.style.display = '';
 }
 
 // ── 자정 직전 자동 스냅샷 저장 ────────────────────────────
