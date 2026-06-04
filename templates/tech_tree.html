@@ -157,8 +157,11 @@
             <div class="layer layer-cash" title="현금" onclick="openDetailModal('cash', '현금 상세')"></div>
           </div>
           <!-- 부채 오버레이: 탱크 하단에서 부채만큼 빨간 사선으로 표시 -->
-          <div class="tank-debt-overlay" id="tankDebtOverlay" style="height:0%"></div>
-          <div class="tank-percentage" id="tankPercentLabel">0%</div>
+          <div class="tank-debt-overlay" id="tankDebtOverlay" style="height:0%" title="부채 (대출잔액)" data-bs-toggle="tooltip" data-bs-placement="top"></div>
+          <div class="tank-percentage" id="tankPercentLabel">
+            <div class="tank-pct-total" id="tankPctTotal">0%</div>
+            <div class="tank-pct-net" id="tankPctNet">순자산 0%</div>
+          </div>
           
           <!-- [신규] 물탱크 툴팁 엘리먼트 -->
           <div class="milestone-tooltip" id="milestoneTooltip">
@@ -395,15 +398,17 @@
 .tank-percentage {
   position: absolute; top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 2.2rem; font-weight: 900; color: #fff;
+  color: #fff;
   text-shadow: 0 2px 10px rgba(0,0,0,0.55);
   background: rgba(0,0,0,0.18);
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-  padding: 6px 22px; border-radius: 40px;
+  padding: 8px 22px; border-radius: 40px;
   border: 1px solid rgba(255,255,255,0.25);
   z-index: 20; pointer-events: none;
-  letter-spacing: 0.02em;
+  text-align: center; line-height: 1.2;
 }
+.tank-pct-total { font-size: 2.2rem; font-weight: 900; letter-spacing: 0.02em; }
+.tank-pct-net   { font-size: 0.78rem; font-weight: 600; opacity: 0.85; margin-top: 1px; }
 .flow-path-anim { stroke-dasharray: 15, 10; animation: flow-dash 30s linear infinite; }
 @keyframes flow-dash { to { stroke-dashoffset: -1000; } }
 .clickable-node { cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
@@ -610,7 +615,9 @@
 @media (max-width: 576px) {
   .tt-target-input { max-width: 100%; }
   .tank-container  { height: 270px; border-radius: 24px 24px 70px 70px; }
-  .tank-percentage { font-size: 1.5rem; padding: 4px 16px; }
+  .tank-percentage { padding: 5px 16px; }
+  .tank-pct-total  { font-size: 1.5rem; }
+  .tank-pct-net    { font-size: 0.7rem; }
   #assetHistoryChart { max-height: 220px !important; }
   .card-header .btn-group .btn { font-size: 0.72rem; padding: 0.2rem 0.45rem; }
 }
@@ -692,14 +699,20 @@ async function loadTechTree() {
   document.getElementById('valCrypto').textContent = fmt(assets.crypto) + '원';
   document.getElementById('valPension').textContent = fmt(assets.pension) + '원';
   document.getElementById('valLoan2').textContent = fmt(loanTotal) + '원';
-  // 탱크 채움 = 총자산 기준, % 레이블 = 순자산 기준, 부채 오버레이 = 하단에 사선으로 표시
+  // 탱크 채움 = 총자산 기준, 총자산 % + 순자산 % 함께 표시
   const percentVal = Math.min((total / target_amount) * 100, 100);
   document.getElementById('tankWater').style.height = percentVal.toFixed(1) + '%';
+  document.getElementById('tankPctTotal').textContent = percentVal.toFixed(1) + '%';
   const netPercentVal = Math.min((netWorth / target_amount) * 100, 100);
-  document.getElementById('tankPercentLabel').textContent = netPercentVal.toFixed(1) + '%';
+  document.getElementById('tankPctNet').textContent = '순자산 ' + netPercentVal.toFixed(1) + '%';
   // 부채 오버레이: 총자산 탱크 하단에서 부채만큼 올라옴 (최대 탱크 채움 높이)
   const debtPct = target_amount > 0 ? Math.min((loanTotal / target_amount) * 100, percentVal) : 0;
   document.getElementById('tankDebtOverlay').style.height = debtPct + '%';
+  // Bootstrap 툴팁 초기화
+  const debtEl = document.getElementById('tankDebtOverlay');
+  if (debtEl && typeof bootstrap !== 'undefined') {
+    new bootstrap.Tooltip(debtEl, { trigger: 'hover' });
+  }
   if (total > 0) {
     const setL = (id, v) => document.querySelector('.layer-' + id).style.height = (v / total * 100) + '%';
     setL('cash', assets.cash); setL('stocks', assets.stocks); setL('re', assets.real_estate); setL('crypto', assets.crypto); setL('pension', assets.pension);
