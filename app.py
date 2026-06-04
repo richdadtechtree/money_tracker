@@ -5236,6 +5236,7 @@ def _api_tech_tree_data_inner():
             SELECT COALESCE(SUM(amount), 0) AS val FROM card_tx WHERE date >= %s AND date < %s AND budget_id IS NULL
         ),
         loan_repayment AS (SELECT COALESCE(SUM(monthly_payment), 0) AS val FROM loans),
+        loan_total AS (SELECT COALESCE(SUM(remaining), 0) AS val FROM loans),
         
         s_buy AS (
             SELECT COALESCE(SUM(price*quantity), 0) AS val FROM stock_tx 
@@ -5265,6 +5266,7 @@ def _api_tech_tree_data_inner():
         (SELECT val FROM expense_total) AS expense_total,
         (SELECT val FROM card_total) AS card_total,
         (SELECT val FROM loan_repayment) AS loan_repayment,
+        (SELECT val FROM loan_total) AS loan_total,
         (SELECT val FROM s_buy) AS s_buy,
         (SELECT val FROM s_sell) AS s_sell,
         (SELECT val FROM c_buy) AS c_buy,
@@ -5413,7 +5415,8 @@ def _api_tech_tree_data_inner():
             'stocks': int(stocks_val or 0) + int(etf_val or 0),
             'real_estate': int(re_val or 0),
             'crypto': int(crypto_val or 0),
-            'pension': int(pension_val or 0)
+            'pension': int(pension_val or 0),
+            'loan_total': int(float(row['loan_total'] or 0)),
         },
         'income': {
             'labor': int(labor_inc or 0),
