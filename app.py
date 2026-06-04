@@ -1544,10 +1544,17 @@ def api_stock_tx():
     data = request.json
     cur = db.cursor()
     cur.execute(
-    "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+    "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
     (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
     data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'))
     )
+    new_id = cur.fetchone()[0]
+    if data.get('tx_type') == '매수':
+        cur.execute("SELECT name, ticker FROM stocks WHERE id=%s", (data.get('stock_id'),))
+        s = cur.fetchone()
+        sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
+        amt = -round(float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0)))
+        _upsert_cash_adj(cur, 'stock_tx', new_id, amt, f"{sname} 매수", data.get('tx_date'))
     cur.close()
     db.commit()
     db.close()
@@ -1565,11 +1572,20 @@ def api_stock_tx_detail(rid):
         (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
         data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), rid)
         )
+        if data.get('tx_type') == '매수':
+            cur.execute("SELECT name, ticker FROM stocks WHERE id=%s", (data.get('stock_id'),))
+            s = cur.fetchone()
+            sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
+            amt = -round(float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0)))
+            _upsert_cash_adj(cur, 'stock_tx', rid, amt, f"{sname} 매수", data.get('tx_date'))
+        else:
+            _remove_cash_adj(cur, 'stock_tx', rid)
         cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
     cur = db.cursor()
+    _remove_cash_adj(cur, 'stock_tx', rid)
     cur.execute("DELETE FROM stock_tx WHERE id = %s", (rid,))
     cur.close()
     db.commit()
@@ -1683,10 +1699,17 @@ def api_etf_tx():
     data = request.json
     cur = db.cursor()
     cur.execute(
-    "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+    "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
     (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
     data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'))
     )
+    new_id = cur.fetchone()[0]
+    if data.get('tx_type') == 'buy':
+        cur.execute("SELECT name, ticker FROM etf WHERE id=%s", (data.get('etf_id'),))
+        e = cur.fetchone()
+        ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')
+        amt = -round(float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0)))
+        _upsert_cash_adj(cur, 'etf_tx', new_id, amt, f"{ename} ETF 매수", data.get('tx_date'))
     cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True}), 201
@@ -1697,6 +1720,7 @@ def api_etf_tx_detail(rid):
     db = get_db()
     if request.method == 'DELETE':
         cur = db.cursor()
+        _remove_cash_adj(cur, 'etf_tx', rid)
         cur.execute("DELETE FROM etf_tx WHERE id = %s", (rid,))
         cur.close()
         db.commit(); db.close()
@@ -1708,6 +1732,14 @@ def api_etf_tx_detail(rid):
     (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
     data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), rid)
     )
+    if data.get('tx_type') == 'buy':
+        cur.execute("SELECT name, ticker FROM etf WHERE id=%s", (data.get('etf_id'),))
+        e = cur.fetchone()
+        ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')
+        amt = -round(float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0)))
+        _upsert_cash_adj(cur, 'etf_tx', rid, amt, f"{ename} ETF 매수", data.get('tx_date'))
+    else:
+        _remove_cash_adj(cur, 'etf_tx', rid)
     cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True})
@@ -3595,6 +3627,19 @@ def api_re_payments():
             (d.get('actual_date'), d.get('real_estate_id'))
         )
 
+    # 매수 실지급 → 현금 자동 조정 생성
+    if d.get('direction') == 'buy' and d.get('actual_date'):
+        re_id = d.get('real_estate_id')
+        if re_id:
+            cur.execute("SELECT name FROM real_estate WHERE id=%s", (re_id,))
+            r = cur.fetchone()
+            rname = r['name'] if r else '부동산'
+        else:
+            rname = '부동산'
+        ptype = d.get('payment_type', '')
+        amt = -int(d.get('amount', 0))
+        _upsert_cash_adj(cur, 're_payment', new_id, amt, f"{rname} {ptype}", d.get('actual_date'))
+
     cur.close()
     db.commit(); db.close()
     return jsonify({'id': new_id}), 201
@@ -3605,6 +3650,7 @@ def api_re_payment_detail(pid):
     db = get_db()
     if request.method == 'DELETE':
         cur = db.cursor()
+        _remove_cash_adj(cur, 're_payment', pid)
         cur.execute("DELETE FROM real_estate_payments WHERE id=%s", (pid,))
         cur.close()
         db.commit(); db.close()
@@ -3629,6 +3675,20 @@ def api_re_payment_detail(pid):
                 "UPDATE real_estate SET purchase_date = %s WHERE id = %s",
                 (d.get('actual_date'), row[0])
             )
+
+    # 매수 실지급 → 현금 자동 조정 갱신
+    if d.get('direction') == 'buy' and d.get('actual_date'):
+        cur.execute(
+            "SELECT r.name FROM real_estate_payments p "
+            "LEFT JOIN real_estate r ON r.id=p.real_estate_id WHERE p.id=%s", (pid,)
+        )
+        row = cur.fetchone()
+        rname = row['name'] if row and row.get('name') else '부동산'
+        ptype = d.get('payment_type', '')
+        amt = -int(d.get('amount', 0))
+        _upsert_cash_adj(cur, 're_payment', pid, amt, f"{rname} {ptype}", d.get('actual_date'))
+    else:
+        _remove_cash_adj(cur, 're_payment', pid)
 
     cur.close()
     db.commit(); db.close()
@@ -3801,6 +3861,25 @@ def api_goals_detail(rid):
     return jsonify({'ok': True})
 
 
+# ── 현금 자동 조정 헬퍼 ─────────────────────────────────────
+def _upsert_cash_adj(cur, source_type, source_id, amount, description, adj_date=None):
+    if adj_date is None:
+        adj_date = date.today().isoformat()
+    cur.execute("""
+        INSERT INTO cash_auto_adjustments (adj_date, source_type, source_id, amount, description)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (source_type, source_id) DO UPDATE
+            SET adj_date=EXCLUDED.adj_date, amount=EXCLUDED.amount,
+                description=EXCLUDED.description, applied=FALSE
+    """, (adj_date, source_type, source_id, amount, description))
+
+def _remove_cash_adj(cur, source_type, source_id):
+    cur.execute(
+        "DELETE FROM cash_auto_adjustments WHERE source_type=%s AND source_id=%s",
+        (source_type, source_id)
+    )
+
+
 # ── API: 현금/예금 ───────────────────────────────────────────
 @app.route('/api/cash-deposits', methods=['GET', 'POST'])
 def api_cash_deposits():
@@ -3837,6 +3916,8 @@ def api_cash_deposits_detail(rid):
         "UPDATE cash_deposits SET name=%s, amount=%s, memo=%s, updated_date=%s WHERE id=%s",
         (data.get('name'), data.get('amount', 0), data.get('memo'), today, rid)
         )
+        # 수기 수정 시 자동 조정 전체 초기화
+        cur.execute("DELETE FROM cash_auto_adjustments WHERE applied=FALSE")
         cur.close()
         db.commit()
         db.close()
@@ -3847,6 +3928,70 @@ def api_cash_deposits_detail(rid):
     db.commit()
     db.close()
     return jsonify({'ok': True})
+
+# ── API: 현금 자동 조정 ──────────────────────────────────────
+@app.route('/api/cash-auto-adjustments', methods=['GET', 'DELETE'])
+def api_cash_auto_adj():
+    db = get_db()
+    if request.method == 'DELETE':
+        cur = db.cursor()
+        cur.execute("DELETE FROM cash_auto_adjustments WHERE applied=FALSE")
+        cur.close()
+        db.commit(); db.close()
+        return jsonify({'ok': True})
+
+    cur = db.cursor()
+    cur.execute("""
+        SELECT * FROM cash_auto_adjustments
+        WHERE applied=FALSE
+        ORDER BY adj_date DESC, id DESC
+    """)
+    rows = cur.fetchall()
+    cur.close(); db.close()
+    return jsonify(rows_to_list(rows))
+
+
+@app.route('/api/cash-auto-adjustments/<int:aid>', methods=['DELETE'])
+def api_cash_auto_adj_item(aid):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("DELETE FROM cash_auto_adjustments WHERE id=%s", (aid,))
+    cur.close()
+    db.commit(); db.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/cash-auto-adjustments/apply', methods=['POST'])
+def api_cash_auto_adj_apply():
+    """자동 조정을 현금 잔액에 반영 (잔액이 가장 큰 계좌에 적용)"""
+    db = get_db()
+    cur = db.cursor()
+
+    cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_auto_adjustments WHERE applied=FALSE")
+    total_adj = int(cur.fetchone()[0])
+
+    if total_adj == 0:
+        cur.close(); db.close()
+        return jsonify({'ok': True, 'message': '반영할 조정 없음'})
+
+    cur.execute("SELECT id, name, amount FROM cash_deposits ORDER BY amount DESC LIMIT 1")
+    account = cur.fetchone()
+    if not account:
+        cur.close(); db.close()
+        return jsonify({'error': '현금 계좌가 없습니다.'}), 400
+
+    new_amount = int(account['amount']) + total_adj
+    today = date.today().isoformat()
+    cur.execute(
+        "UPDATE cash_deposits SET amount=%s, updated_date=%s WHERE id=%s",
+        (new_amount, today, account['id'])
+    )
+    cur.execute("UPDATE cash_auto_adjustments SET applied=TRUE WHERE applied=FALSE")
+
+    cur.close()
+    db.commit(); db.close()
+    return jsonify({'ok': True, 'account': account['name'], 'adjusted': total_adj, 'new_amount': new_amount})
+
 
 # ── API: 구분별 실현손익 ─────────────────────────────────────
 @app.route('/api/stock-category-pnl')

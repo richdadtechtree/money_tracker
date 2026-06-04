@@ -256,6 +256,18 @@ def init_db():
             updated_date    TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS cash_auto_adjustments (
+            id          SERIAL PRIMARY KEY,
+            adj_date    DATE NOT NULL,
+            source_type TEXT NOT NULL,
+            source_id   INTEGER NOT NULL,
+            amount      BIGINT NOT NULL,
+            description TEXT,
+            applied     BOOLEAN DEFAULT FALSE,
+            created_at  TIMESTAMP DEFAULT NOW(),
+            UNIQUE(source_type, source_id)
+        );
+
         CREATE TABLE IF NOT EXISTS card_mappings (
             id       SERIAL PRIMARY KEY,
             card_id  INTEGER UNIQUE REFERENCES card_info(id),
