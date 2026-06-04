@@ -253,12 +253,6 @@
         <h5 class="fw-bold mb-0"><i class="bi bi-graph-up me-2 text-info"></i>자산별 성장 추이 <span class="d-none d-sm-inline">(최근 12개월)</span></h5>
         <div class="d-flex gap-2 flex-wrap">
           <div class="btn-group btn-group-sm shadow-sm">
-            <input type="radio" class="btn-check" name="chartSource" id="srcAll" checked onchange="redrawChart()">
-            <label class="btn btn-outline-secondary px-2" for="srcAll" title="스냅샷 + 역산 추정값 혼합">역산 포함</label>
-            <input type="radio" class="btn-check" name="chartSource" id="srcSnap" onchange="redrawChart()">
-            <label class="btn btn-outline-secondary px-2" for="srcSnap" title="방문 시 저장된 스냅샷만 사용">스냅샷만</label>
-          </div>
-          <div class="btn-group btn-group-sm shadow-sm">
             <input type="radio" class="btn-check" name="chartMode" id="modeValue" checked onchange="redrawChart()">
             <label class="btn btn-outline-primary px-2" for="modeValue">금액기준</label>
             <input type="radio" class="btn-check" name="chartMode" id="modePercent" onchange="redrawChart()">
@@ -802,7 +796,7 @@ function redrawChart() {
   if (!rawHistoryData) { loadHistoryChart(); return; }
   if (!Array.isArray(rawHistoryData)) { setChartState('error'); return; }
 
-  const snapOnly  = document.getElementById('srcSnap').checked;
+  const snapOnly  = true;
   const isPercent = document.getElementById('modePercent').checked;
 
   // 스냅샷만 모드: 스냅샷 없는 달은 직전 스냅샷 값으로 채움
