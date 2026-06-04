@@ -5593,7 +5593,12 @@ def _api_tech_tree_yearly_stats_inner():
     pension_val = float(cur.fetchone()[0] or 0)
     cur.close()
 
-    current_total = int(cash_val + stocks_val + etf_val + re_val + crypto_val + pension_val)
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(remaining),0) FROM loans")
+    loan_total = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    current_total = int(cash_val + stocks_val + etf_val + re_val + crypto_val + pension_val - loan_total)
     current_percent = round((current_total / target_amount) * 100, 1) if target_amount > 0 else 0
     
     # 3. 스냅샷 데이터 조회하여 연도별 마지막 스냅샷 추출
