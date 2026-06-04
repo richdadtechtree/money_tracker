@@ -5012,6 +5012,23 @@ def _api_dashboard_inner():
     crypto_cost = cur.fetchone()['c']
     cur.close()
 
+    # 부동산 매입원가 vs 현재 시세
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(purchase_price),0) as c, COALESCE(SUM(current_price),0) as v FROM real_estate")
+    re_inv_row = cur.fetchone()
+    re_cost_inv   = float(re_inv_row['c'] or 0)
+    re_price_now  = float(re_inv_row['v'] or 0)
+    cur.close()
+
+    # 연금 원금(역산) vs 누적액
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(accumulated),0) as val, COALESCE(SUM(accumulated * return_rate / 100.0),0) as profit FROM pension")
+    p_row = cur.fetchone()
+    pension_total_v    = float(p_row['val']    or 0)
+    pension_profit_sum = float(p_row['profit'] or 0)
+    pension_cost_inv   = pension_total_v - pension_profit_sum
+    cur.close()
+
     try:
         _save_daily_snapshot(db)
         cur = db.cursor()
@@ -5052,9 +5069,11 @@ def _api_dashboard_inner():
         'loans':          rows_to_list(loans_list),
         'goals':          goals_list,
         'investment_returns': {
-            'stocks':  {'cost': stocks_cost, 'value': stocks_val},
-            'etf':     {'cost': etf_cost,    'value': etf_val},
-            'crypto':  {'cost': crypto_cost, 'value': crypto_val},
+            'stocks':      {'cost': stocks_cost,   'value': stocks_val},
+            'etf':         {'cost': etf_cost,       'value': etf_val},
+            'crypto':      {'cost': crypto_cost,    'value': crypto_val},
+            'real_estate': {'cost': re_cost_inv,    'value': re_price_now},
+            'pension':     {'cost': pension_cost_inv, 'value': pension_total_v},
         },
         'payment_adjustments': {
             'sell_received': sell_received,

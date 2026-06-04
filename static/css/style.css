@@ -518,8 +518,12 @@ body {
   .table th,
   .table td   { padding: 7px 8px !important; }
 
-  /* 캔버스 최대 높이 */
-  canvas { max-height: 220px; }
+  /* 캔버스 최대 높이 (순자산 차트 제외) */
+  canvas:not(#networth-chart) { max-height: 220px; }
+
+  /* 순자산 차트 래퍼 높이 (JS에서도 제어) */
+  #networth-chart-wrap { height: 250px !important; }
+  #networth-chart { max-height: none !important; }
 
   /* 대시보드 KPI 카드 */
   .summary-card .card-body { padding: 12px 14px !important; }
@@ -565,6 +569,14 @@ body {
 
   /* 카드 헤더 flex-wrap */
   .card-header.d-flex { flex-wrap: wrap !important; gap: 6px !important; }
+
+  /* 순자산 요약 지표 */
+  #networth-summary .text-muted.small { font-size: 0.68rem !important; }
+  #networth-summary .fw-bold { font-size: 0.82rem !important; }
+
+  /* 순자산 기간 탭 가로 스크롤 */
+  #period-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  #period-tabs .btn { flex-shrink: 0; }
 
   /* 필터 select 크기 */
   .form-select-sm { font-size: 0.78rem !important; }

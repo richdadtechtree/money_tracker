@@ -238,10 +238,12 @@ function renderReturnsChart(returns) {
     cost:  (returns.stocks?.cost  || 0) + (returns.etf?.cost  || 0),
     value: (returns.stocks?.value || 0) + (returns.etf?.value || 0),
   };
-  const labels = ['주식+ETF', '코인'];
+  const labels = ['주식+ETF', '코인', '부동산', '연금저축'];
   const pcts = [
     calcReturn(stocksEtfCombined),
     calcReturn(returns.crypto),
+    calcReturn(returns.real_estate),
+    calcReturn(returns.pension),
   ];
 
   _charts['chartReturns'] = new Chart(document.getElementById('chartReturns'), {
@@ -584,6 +586,18 @@ function formatKRW(val) {
   return fmt(val) + '원';
 }
 
+function formatKRWMobile(val) {
+  if (val === null || val === undefined) return '-';
+  const sign = val < 0 ? '-' : '';
+  const abs = Math.abs(val);
+  if (abs >= 100000000) {
+    const v = abs / 100000000;
+    return sign + (v % 1 === 0 ? v : v.toFixed(1)) + '억';
+  }
+  if (abs >= 10000) return sign + Math.round(abs / 10000) + '만';
+  return sign + fmt(abs);
+}
+
 async function loadNetworthChart(period) {
   // 요약 수치 업데이트
   const res  = await fetch('/api/networth-history?period=' + period);
@@ -617,6 +631,9 @@ async function loadNetworthChart(period) {
     wrap.innerHTML = '<canvas id="networth-chart"></canvas>';
   }
 
+  const isMobile  = window.innerWidth < 768;
+  wrap.style.height = isMobile ? '250px' : '300px';
+
   const labels    = rows.map(r => r.label);
   const netWorth  = rows.map(r => r.net_worth  || 0);
   const changePct = rows.map(r => r.change_pct || 0);
@@ -639,7 +656,7 @@ async function loadNetworthChart(period) {
           fill: true,
           tension: 0.3,
           yAxisID: 'y',
-          pointRadius: period === 'daily' ? 2 : 4,
+          pointRadius: period === 'daily' ? 2 : (isMobile ? 3 : 4),
           pointHoverRadius: 6,
           order: 1,
         },
@@ -660,7 +677,14 @@ async function loadNetworthChart(period) {
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { position: 'top' },
+        legend: {
+          position: 'top',
+          labels: {
+            font: { size: isMobile ? 11 : 12 },
+            boxWidth: isMobile ? 10 : 12,
+            padding: isMobile ? 8 : 10,
+          }
+        },
         tooltip: {
           callbacks: {
             label: function(ctx) {
@@ -674,20 +698,33 @@ async function loadNetworthChart(period) {
       scales: {
         x: {
           ticks: {
-            maxRotation: 45,
+            maxRotation: isMobile ? 30 : 45,
+            maxTicksLimit: isMobile ? 6 : undefined,
+            font: { size: isMobile ? 9 : 11 },
             callback: function(val, idx) { return labels[idx]; }
           }
         },
         y: {
           type: 'linear', position: 'left',
-          ticks: { callback: function(v) { return formatKRW(v); } },
-          title: { display: true, text: '순자산 (원)' }
+          ticks: {
+            callback: function(v) { return isMobile ? formatKRWMobile(v) : formatKRW(v); },
+            font: { size: isMobile ? 9 : 11 },
+            maxTicksLimit: isMobile ? 5 : 8,
+          },
+          title: { display: !isMobile, text: '순자산 (원)' },
+          afterFit: function(scale) {
+            scale.width = isMobile ? 52 : 90;
+          }
         },
         y1: {
           type: 'linear', position: 'right',
           grid: { drawOnChartArea: false },
-          ticks: { callback: function(v) { return v.toFixed(1) + '%'; } },
-          title: { display: true, text: '변동률 (%)' }
+          ticks: {
+            callback: function(v) { return v.toFixed(1) + '%'; },
+            font: { size: isMobile ? 9 : 11 },
+            maxTicksLimit: isMobile ? 5 : 8,
+          },
+          title: { display: !isMobile, text: '변동률 (%)' }
         }
       }
     }
