@@ -630,13 +630,13 @@ async function loadTechTree() {
   document.getElementById('valCrypto').textContent = fmt(assets.crypto) + '원';
   document.getElementById('valPension').textContent = fmt(assets.pension) + '원';
   document.getElementById('valLoan2').textContent = fmt(loanTotal) + '원';
-  // 탱크 채움 = 순자산 기준, 부채 오버레이는 탱크 아래에 별도 표시
+  // 탱크 채움 = 총자산 기준, % 레이블 = 순자산 기준, 부채 오버레이 = 하단에 사선으로 표시
+  const percentVal = Math.min((total / target_amount) * 100, 100);
+  document.getElementById('tankWater').style.height = percentVal.toFixed(1) + '%';
   const netPercentVal = Math.min((netWorth / target_amount) * 100, 100);
-  const percent = netPercentVal.toFixed(1);
-  document.getElementById('tankWater').style.height = percent + '%';
-  document.getElementById('tankPercentLabel').textContent = percent + '%';
-  // 부채 오버레이: 순자산 탱크 바로 아래(탱크 외부 하단)에 별도 높이로 표시
-  const debtPct = target_amount > 0 ? Math.min((loanTotal / target_amount) * 100, 100) : 0;
+  document.getElementById('tankPercentLabel').textContent = netPercentVal.toFixed(1) + '%';
+  // 부채 오버레이: 총자산 탱크 하단에서 부채만큼 올라옴 (최대 탱크 채움 높이)
+  const debtPct = target_amount > 0 ? Math.min((loanTotal / target_amount) * 100, percentVal) : 0;
   document.getElementById('tankDebtOverlay').style.height = debtPct + '%';
   if (total > 0) {
     const setL = (id, v) => document.querySelector('.layer-' + id).style.height = (v / total * 100) + '%';
