@@ -238,10 +238,12 @@ function renderReturnsChart(returns) {
     cost:  (returns.stocks?.cost  || 0) + (returns.etf?.cost  || 0),
     value: (returns.stocks?.value || 0) + (returns.etf?.value || 0),
   };
-  const labels = ['주식+ETF', '코인'];
+  const labels = ['주식+ETF', '코인', '부동산', '연금저축'];
   const pcts = [
     calcReturn(stocksEtfCombined),
     calcReturn(returns.crypto),
+    calcReturn(returns.real_estate),
+    calcReturn(returns.pension),
   ];
 
   _charts['chartReturns'] = new Chart(document.getElementById('chartReturns'), {
