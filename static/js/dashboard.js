@@ -709,7 +709,10 @@ async function loadNetworthChart(period) {
             font: { size: isMobile ? 9 : 11 },
             maxTicksLimit: isMobile ? 5 : 8,
           },
-          title: { display: !isMobile, text: '순자산 (원)' }
+          title: { display: !isMobile, text: '순자산 (원)' },
+          afterFit: function(scale) {
+            scale.width = isMobile ? 52 : 90;
+          }
         },
         y1: {
           type: 'linear', position: 'right',
