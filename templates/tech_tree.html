@@ -72,47 +72,58 @@
     <div class="card border-0 shadow-sm h-100">
       <div class="card-body p-4" style="overflow: hidden;">
         <div class="flow-wrapper">
-        <div class="flow-container position-relative" style="width: 810px; height: 550px; background: #fafbfc; border-radius: 20px; border: 1px solid #edf2f7;">
+        <div class="flow-container position-relative" style="width: 810px; height: 550px;">
           <!-- [1] 근로소득 & 기타 노드 -->
-          <div class="node labor-node shadow clickable-node" style="top: 20%; left: 3%;" onclick="openDetailModal('labor', '근로소득 & 기타 상세')">
-            <div class="node-header bg-primary text-white">근로소득 & 기타 (Active) <i class="bi bi-search float-end small"></i></div>
-            <div class="node-body">
-              <div class="small text-muted mb-1">급여 / 사업소득 / 기타</div>
-              <div class="fw-bold fs-5 text-primary" id="laborIncomeVal">0원</div>
+          <div class="node labor-node fn-node clickable-node" style="top: 20%; left: 3%;" onclick="openDetailModal('labor', '근로소득 & 기타 상세')">
+            <div class="fn-header fn-header-labor">
+              <i class="bi bi-briefcase-fill me-2"></i>근로소득 & 기타
+              <span class="fn-badge">Active</span>
+            </div>
+            <div class="fn-body">
+              <div class="fn-sub">급여 · 사업소득 · 기타</div>
+              <div class="fw-bold fs-5 fn-val-blue" id="laborIncomeVal">0원</div>
             </div>
           </div>
           <!-- [2] 지출 노드 -->
-          <div class="node expense-node shadow clickable-node" style="top: 5%; left: 45%;" onclick="openDetailModal('expense', '지출 상세')">
-            <div class="node-header bg-danger text-white">지출 (Expense) <i class="bi bi-search float-end small"></i></div>
-            <div class="node-body position-relative">
-              <div class="small text-muted mb-1">총 지출액 (대출 포함)</div>
-              <div class="fw-bold fs-5 text-danger" id="expenseTotalVal">0원</div>
-              <div class="mt-2 pt-2 border-top border-danger border-opacity-10">
-                <div class="d-flex justify-content-between align-items-center">
-                  <span class="small text-danger fw-bold">고정비(빨대)</span>
-                  <span class="small fw-bold text-danger" id="strawTotalVal">0원</span>
-                </div>
+          <div class="node expense-node fn-node clickable-node" style="top: 5%; left: 45%;" onclick="openDetailModal('expense', '지출 상세')">
+            <div class="fn-header fn-header-expense">
+              <i class="bi bi-arrow-up-right-circle-fill me-2"></i>지출
+              <span class="fn-badge">Expense</span>
+            </div>
+            <div class="fn-body">
+              <div class="fn-sub">총 지출액 (대출 포함)</div>
+              <div class="fw-bold fs-5 fn-val-red" id="expenseTotalVal">0원</div>
+              <div class="fn-divider"></div>
+              <div class="d-flex justify-content-between align-items-center">
+                <span class="fn-sub"><i class="bi bi-cup-straw me-1"></i>고정비(빨대)</span>
+                <span class="fn-chip-red" id="strawTotalVal">0원</span>
               </div>
             </div>
           </div>
           <!-- [3] 자생소득 노드 -->
-          <div class="node passive-node shadow clickable-node" style="top: 70%; left: 3%;" onclick="openDetailModal('passive', '자생소득 상세')">
-            <div class="node-header bg-success text-white">자생소득 (Passive) <i class="bi bi-search float-end small"></i></div>
-            <div class="node-body">
-              <div class="small text-muted mb-1">배당 / 이자 / 임대 / 주식 실현손익</div>
-              <div class="fw-bold fs-5 text-success" id="passiveIncomeVal">0원</div>
+          <div class="node passive-node fn-node clickable-node" style="top: 70%; left: 3%;" onclick="openDetailModal('passive', '자생소득 상세')">
+            <div class="fn-header fn-header-passive">
+              <i class="bi bi-graph-up-arrow me-2"></i>자생소득
+              <span class="fn-badge">Passive</span>
+            </div>
+            <div class="fn-body">
+              <div class="fn-sub">배당 · 이자 · 임대 · 실현손익</div>
+              <div class="fw-bold fs-5 fn-val-green" id="passiveIncomeVal">0원</div>
               <div class="small mt-1" id="stockPnlLine" style="display:none">
-                <span class="text-muted">주식 실현손익</span>
+                <span class="fn-sub">주식 실현손익</span>
                 <span class="fw-semibold ms-1" id="stockPnlVal">-</span>
               </div>
             </div>
           </div>
           <!-- [4] 저축/탱크 진입 노드 -->
-          <div class="node saving-node shadow-sm border-primary" style="top: 40%; left: 75%; border: 2px dashed #0d6efd;">
-            <div class="node-header bg-light text-dark fw-bold text-center">자산 축적 (Tank In)</div>
-            <div class="node-body text-center">
-              <div class="fw-bold fs-4 text-info" id="netSavingsVal">0원</div>
-              <div class="small text-muted mt-1">(소득 - 지출)</div>
+          <div class="node saving-node fn-node fn-node-tank" style="top: 40%; left: 75%;">
+            <div class="fn-header fn-header-tank">
+              <i class="bi bi-database-fill-add me-2"></i>자산 축적
+              <span class="fn-badge">Tank In</span>
+            </div>
+            <div class="fn-body text-center">
+              <div class="fw-bold fs-4 fn-val-cyan" id="netSavingsVal">0원</div>
+              <div class="fn-sub mt-1">소득 − 지출</div>
             </div>
           </div>
           <!-- 연결선 (SVG) — 좌표는 JS redrawFlowSVG()가 동적으로 계산 -->
@@ -331,9 +342,60 @@
 
 <style>
 .flow-wrapper { width: 100%; overflow: hidden; position: relative; }
-.flow-container { transform-origin: top left; }
-.node { position: absolute; width: 200px; background: white; border-radius: 16px; overflow: hidden; z-index: 10; border: 1px solid #e2e8f0; }
-.node-header { padding: 10px 15px; font-weight: bold; font-size: 0.85rem; }
+.flow-container {
+  transform-origin: top left;
+  background: linear-gradient(145deg, #f0f5ff 0%, #e8f0fe 50%, #edf5ff 100%);
+  border-radius: 24px;
+  border: 1px solid rgba(99,140,220,0.18);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 4px 20px rgba(0,0,0,0.06);
+}
+/* ── Flow Node 공통 ── */
+.fn-node {
+  position: absolute; width: 210px;
+  background: rgba(255,255,255,0.82);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-radius: 18px !important;
+  border: 1px solid rgba(255,255,255,0.9) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.10), 0 1px 2px rgba(0,0,0,0.04) !important;
+  overflow: hidden; z-index: 10;
+}
+.fn-header {
+  display: flex; align-items: center;
+  padding: 10px 14px; font-weight: 700; font-size: 0.82rem;
+  color: #fff; letter-spacing: 0.01em;
+}
+.fn-badge {
+  margin-left: auto; font-size: 0.68rem; font-weight: 600;
+  background: rgba(255,255,255,0.22); border-radius: 20px;
+  padding: 1px 8px; letter-spacing: 0.03em;
+}
+.fn-header-labor  { background: linear-gradient(135deg, #1a56db 0%, #4f86f7 100%); }
+.fn-header-expense{ background: linear-gradient(135deg, #c92a2a 0%, #f03e3e 100%); }
+.fn-header-passive{ background: linear-gradient(135deg, #087f5b 0%, #20c997 100%); }
+.fn-header-tank   { background: linear-gradient(135deg, #0c3a6b 0%, #1971c2 100%); }
+.fn-body { padding: 14px; }
+.fn-sub  { font-size: 0.72rem; color: #94a3b8; margin-bottom: 6px; }
+.fn-divider { border-top: 1px solid #f1f5f9; margin: 10px 0; }
+.fn-val-blue  { color: #1a56db; }
+.fn-val-red   { color: #e03131; }
+.fn-val-green { color: #087f5b; }
+.fn-val-cyan  { color: #0284c7; }
+.fn-chip-red {
+  font-size: 0.78rem; font-weight: 700; color: #c92a2a;
+  background: #fff1f1; border-radius: 8px; padding: 2px 8px;
+}
+/* Tank In 노드 특별 강조 */
+.fn-node-tank {
+  background: rgba(15,36,74,0.92) !important;
+  border: 1px solid rgba(56,189,248,0.4) !important;
+  box-shadow: 0 0 24px rgba(56,189,248,0.2), 0 8px 32px rgba(0,0,0,0.2) !important;
+}
+.fn-node-tank .fn-sub  { color: #64748b; }
+.fn-val-cyan { color: #38bdf8 !important; text-shadow: 0 0 12px rgba(56,189,248,0.4); }
+.clickable-node { cursor: pointer; transition: transform 0.18s, box-shadow 0.18s; }
+.clickable-node:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 16px 40px rgba(0,0,0,0.14) !important; }
+/* 하위 호환 (node-header, node-body) */
+.node-header { padding: 10px 14px; font-weight: bold; font-size: 0.85rem; }
 .node-body { padding: 12px; }
 /* ── 물탱크 컨테이너 ── */
 .tank-container {
