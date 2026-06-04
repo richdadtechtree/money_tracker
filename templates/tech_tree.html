@@ -341,7 +341,7 @@
 .layer-pension { background: #0c3a6b; }
 .bg-cash    { background: #74c0fc; } .bg-stocks { background: #339af0; } .bg-re { background: #1c7ed6; } .bg-crypto { background: #1864ab; } .bg-pension { background: #0c3a6b; }
 .asset-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-.tank-percentage { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 2rem; font-weight: 900; color: #495057; text-shadow: 0 0 10px white; z-index: 20; pointer-events: none; }
+.tank-percentage { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 2rem; font-weight: 900; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,0.7), 0 0 16px rgba(0,0,0,0.5); z-index: 20; pointer-events: none; }
 .flow-path-anim { stroke-dasharray: 15, 10; animation: flow-dash 30s linear infinite; }
 @keyframes flow-dash { to { stroke-dashoffset: -1000; } }
 .clickable-node { cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
@@ -623,13 +623,13 @@ async function loadTechTree() {
   const netWorth = total - loanTotal;
   document.getElementById('currentTotalAssets').textContent = fmt(total) + '원';
   document.getElementById('valLoan').textContent  = '-' + fmt(loanTotal) + '원';
-  document.getElementById('valLoan2').textContent = fmt(loanTotal);
   document.getElementById('valNetWorth').textContent = fmt(netWorth) + '원';
-  document.getElementById('valCash').textContent = fmt(assets.cash);
-  document.getElementById('valStocks').textContent = fmt(assets.stocks);
-  document.getElementById('valRE').textContent = fmt(assets.real_estate);
-  document.getElementById('valCrypto').textContent = fmt(assets.crypto);
-  document.getElementById('valPension').textContent = fmt(assets.pension);
+  document.getElementById('valCash').textContent = fmt(assets.cash) + '원';
+  document.getElementById('valStocks').textContent = fmt(assets.stocks) + '원';
+  document.getElementById('valRE').textContent = fmt(assets.real_estate) + '원';
+  document.getElementById('valCrypto').textContent = fmt(assets.crypto) + '원';
+  document.getElementById('valPension').textContent = fmt(assets.pension) + '원';
+  document.getElementById('valLoan2').textContent = fmt(loanTotal) + '원';
   // 탱크 채움 = 순자산 기준, 부채 오버레이는 탱크 아래에 별도 표시
   const netPercentVal = Math.min((netWorth / target_amount) * 100, 100);
   const percent = netPercentVal.toFixed(1);
