@@ -3,13 +3,25 @@
  */
 
 const COLORS = {
-  stocks:     '#dc2626',  // red (crimson)
-  etf:        '#f43f5e',  // rose red
+  stocks:     '#6366f1',  // indigo
+  etf:        '#818cf8',  // indigo light
   crypto:     '#f59e0b',  // amber
   realestate: '#10b981',  // emerald
   pension:    '#8b5cf6',  // violet
-  cash:       '#14b8a6',  // teal
+  cash:       '#06b6d4',  // cyan
 };
+
+// ── Chart.js 전역 기본값 ─────────────────────────────────────
+Chart.defaults.font.family = "'Pretendard', -apple-system, sans-serif";
+Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(15,23,42,0.88)';
+Chart.defaults.plugins.tooltip.titleColor = '#f8fafc';
+Chart.defaults.plugins.tooltip.bodyColor  = '#cbd5e1';
+Chart.defaults.plugins.tooltip.borderColor = 'rgba(255,255,255,0.08)';
+Chart.defaults.plugins.tooltip.borderWidth = 1;
+Chart.defaults.plugins.tooltip.padding = 10;
+Chart.defaults.plugins.tooltip.cornerRadius = 10;
+Chart.defaults.plugins.legend.labels.usePointStyle = true;
+Chart.defaults.plugins.legend.labels.pointStyleWidth = 10;
 
 // 차트 인스턴스 저장 (재생성 시 destroy 필요)
 const _charts = {};
@@ -210,14 +222,20 @@ function renderIncomeExpenseBar(incomeCats, expenseCats) {
         {
           label: '수입',
           data: labels.map(l => incMap[l] || 0),
-          backgroundColor: 'rgba(25,135,84,0.75)',
-          borderRadius: 4,
+          backgroundColor: 'rgba(16,185,129,0.82)',
+          borderColor: 'rgba(16,185,129,1)',
+          borderWidth: 1,
+          borderRadius: 7,
+          borderSkipped: false,
         },
         {
           label: '지출',
           data: labels.map(l => expMap[l] || 0),
-          backgroundColor: 'rgba(220,53,69,0.75)',
-          borderRadius: 4,
+          backgroundColor: 'rgba(244,63,94,0.82)',
+          borderColor: 'rgba(244,63,94,1)',
+          borderWidth: 1,
+          borderRadius: 7,
+          borderSkipped: false,
         }
       ]
     },
@@ -225,7 +243,11 @@ function renderIncomeExpenseBar(incomeCats, expenseCats) {
       responsive: true,
       plugins: { legend: { position: 'top' } },
       scales: {
-        y: { ticks: { callback: v => (v / 10000).toFixed(0) + '만' } }
+        x: { grid: { color: 'rgba(0,0,0,0.04)' } },
+        y: {
+          grid: { color: 'rgba(0,0,0,0.06)' },
+          ticks: { callback: v => (v / 10000).toFixed(0) + '만' }
+        }
       }
     }
   });
@@ -246,6 +268,7 @@ function renderReturnsChart(returns) {
     calcReturn(returns.pension),
   ];
 
+  const barColors = [COLORS.stocks, COLORS.crypto, COLORS.realestate, COLORS.pension];
   _charts['chartReturns'] = new Chart(document.getElementById('chartReturns'), {
     type: 'bar',
     data: {
@@ -253,17 +276,26 @@ function renderReturnsChart(returns) {
       datasets: [{
         label: '수익률 (%)',
         data: pcts,
-        backgroundColor: pcts.map(v => v >= 0 ? 'rgba(220,53,69,0.75)' : 'rgba(13,110,253,0.75)'),
-        borderRadius: 4,
+        backgroundColor: barColors.map((c, i) => pcts[i] >= 0 ? c + 'cc' : 'rgba(244,63,94,0.72)'),
+        borderColor:     barColors.map((c, i) => pcts[i] >= 0 ? c : 'rgba(244,63,94,1)'),
+        borderWidth: 1.5,
+        borderRadius: 8,
+        borderSkipped: false,
       }]
     },
     options: {
       responsive: true,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: ctx => ` ${ctx.raw >= 0 ? '+' : ''}${ctx.raw}%` }
+        }
+      },
       scales: {
+        x: { grid: { display: false } },
         y: {
+          grid: { color: 'rgba(0,0,0,0.06)' },
           ticks: { callback: v => v + '%' },
-          grid: { color: '#f0f0f0' }
         }
       }
     }
@@ -303,8 +335,11 @@ function renderReturnsMonthly(data) {
       datasets: [{
         label: '실현손익 (원)',
         data: pnls,
-        backgroundColor: pnls.map(v => v > 0 ? 'rgba(220,53,69,0.75)' : v < 0 ? 'rgba(13,110,253,0.75)' : 'rgba(160,160,160,0.3)'),
-        borderRadius: 4,
+        backgroundColor: pnls.map(v => v > 0 ? 'rgba(16,185,129,0.82)' : v < 0 ? 'rgba(244,63,94,0.82)' : 'rgba(148,163,184,0.45)'),
+        borderColor:     pnls.map(v => v > 0 ? 'rgba(16,185,129,1)'    : v < 0 ? 'rgba(244,63,94,1)'    : 'rgba(148,163,184,0.7)'),
+        borderWidth: 1.5,
+        borderRadius: 8,
+        borderSkipped: false,
       }]
     },
     options: {
@@ -313,15 +348,15 @@ function renderReturnsMonthly(data) {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: ctx => ` 실현손익: ${fmt(ctx.raw)}원`
+            label: ctx => ` 실현손익: ${ctx.raw >= 0 ? '+' : ''}${fmt(ctx.raw)}원`
           }
         }
       },
       scales: {
         x: { grid: { display: false } },
         y: {
+          grid: { color: 'rgba(0,0,0,0.06)' },
           ticks: { callback: v => (v / 10000).toFixed(0) + '만' },
-          grid:  { color: '#f0f0f0' },
         },
       },
     }
@@ -344,8 +379,11 @@ function renderLoansChart(loans) {
       datasets: [{
         label: '잔액',
         data: loans.map(l => l.remaining),
-        backgroundColor: 'rgba(255,165,0,0.75)',
-        borderRadius: 4,
+        backgroundColor: 'rgba(139,92,246,0.78)',
+        borderColor: 'rgba(139,92,246,1)',
+        borderWidth: 1.5,
+        borderRadius: 8,
+        borderSkipped: false,
       }]
     },
     options: {
@@ -353,7 +391,11 @@ function renderLoansChart(loans) {
       responsive: true,
       plugins: { legend: { display: false } },
       scales: {
-        x: { ticks: { callback: v => (v / 10000000).toFixed(0) + '천만' } }
+        x: {
+          grid: { color: 'rgba(0,0,0,0.06)' },
+          ticks: { callback: v => (v / 100000000).toFixed(1) + '억' }
+        },
+        y: { grid: { display: false } }
       }
     }
   });
@@ -611,11 +653,11 @@ async function loadNetworthChart(period) {
   if (curEl)    curEl.textContent  = formatKRW(s.current);
   if (changeEl) {
     changeEl.textContent = (s.change_amt >= 0 ? '+' : '') + formatKRW(s.change_amt);
-    changeEl.style.color = s.change_amt >= 0 ? '#2ecc71' : '#e74c3c';
+    changeEl.style.color = s.change_amt >= 0 ? '#10b981' : '#f43f5e';
   }
   if (pctEl) {
     pctEl.textContent = (s.change_pct >= 0 ? '+' : '') + (s.change_pct || 0) + '%';
-    pctEl.style.color = s.change_pct >= 0 ? '#2ecc71' : '#e74c3c';
+    pctEl.style.color = s.change_pct >= 0 ? '#10b981' : '#f43f5e';
   }
 
   // 데이터 없으면 wrap에 메시지 표시
@@ -651,22 +693,27 @@ async function loadNetworthChart(period) {
           type: 'line',
           label: '순자산',
           data: netWorth,
-          borderColor: '#3498db',
-          backgroundColor: 'rgba(52,152,219,0.07)',
+          borderColor: '#6366f1',
+          backgroundColor: 'rgba(99,102,241,0.08)',
           fill: true,
-          tension: 0.3,
+          tension: 0.35,
           yAxisID: 'y',
           pointRadius: period === 'daily' ? 2 : (isMobile ? 3 : 4),
+          pointBackgroundColor: '#6366f1',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 1.5,
           pointHoverRadius: 6,
+          borderWidth: 2.5,
           order: 1,
         },
         {
           type: 'bar',
           label: barLabels[period] || '변동률(%)',
           data: changePct,
-          backgroundColor: changePct.map(v => v >= 0 ? 'rgba(46,204,113,0.55)' : 'rgba(231,76,60,0.55)'),
-          borderColor:     changePct.map(v => v >= 0 ? '#2ecc71' : '#e74c3c'),
+          backgroundColor: changePct.map(v => v >= 0 ? 'rgba(16,185,129,0.65)' : 'rgba(244,63,94,0.65)'),
+          borderColor:     changePct.map(v => v >= 0 ? 'rgba(16,185,129,1)'    : 'rgba(244,63,94,1)'),
           borderWidth: 1,
+          borderRadius: 5,
           yAxisID: 'y1',
           order: 2,
         }
@@ -757,7 +804,7 @@ function showAssetDetail(row) {
     var cur  = row[a.key] || 0;
     var prev = row['prev_' + a.key] || 0;
     var diff = cur - prev;
-    var color = diff > 0 ? '#2ecc71' : diff < 0 ? '#e74c3c' : '#aaa';
+    var color = diff > 0 ? '#10b981' : diff < 0 ? '#f43f5e' : '#94a3b8';
     var sign  = diff > 0 ? '+' : '';
     return '<div class="col-6 col-md-4 col-lg-2">' +
       '<div class="border rounded p-2 text-center" style="font-size:0.82rem">' +
