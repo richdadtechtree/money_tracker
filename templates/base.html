@@ -28,6 +28,7 @@
     #app-welcome-popup.show {
       opacity: 1;
       pointer-events: auto;
+      cursor: pointer;
     }
     #app-welcome-popup .popup-card {
       background: rgba(255, 255, 255, 0.9);
@@ -193,6 +194,7 @@
 <div id="app-welcome-popup">
   <div class="popup-card">
     <div id="popup-content-area"></div>
+    <div class="text-center mt-3" style="font-size:0.75rem;opacity:0.45;">화면을 탭하면 닫힙니다</div>
   </div>
 </div>
 
@@ -305,10 +307,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         contentEl.innerHTML = html;
         popupEl.classList.add('show');
         sessionStorage.setItem('welcome_popup_shown', 'true');
-        
-        setTimeout(() => {
+
+        popupEl.addEventListener('click', function closePopup() {
           popupEl.classList.remove('show');
-        }, 2000);
+          popupEl.removeEventListener('click', closePopup);
+        }, { once: true });
       }
     } catch (e) {
       console.error('Failed to trigger welcome popup:', e);
