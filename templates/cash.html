@@ -43,7 +43,7 @@
 
 <!-- 자동 조정 현황 -->
 <div class="card border-0 shadow-sm mt-4">
-  <div class="card-header bg-white border-0 pt-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div class="card-header border-0 pt-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
     <h5 class="fw-semibold mb-0">
       <i class="bi bi-lightning-charge-fill me-2 text-warning"></i>자동 조정
       <span class="badge bg-warning text-dark ms-2 fs-xs" id="adjBadge" style="display:none"></span>
@@ -58,11 +58,11 @@
     </div>
   </div>
   <div class="card-body">
-    <div class="alert alert-light border py-2 mb-3 small">
-      <i class="bi bi-info-circle me-1 text-info"></i>
+    <p class="adj-hint small mb-3">
+      <i class="bi bi-info-circle me-1"></i>
       주식·ETF <strong>매수</strong> 또는 부동산 <strong>납입 확정</strong> 시 자동 기록됩니다.
       현금 잔액을 <strong>직접 수정하면</strong> 자동 조정이 초기화됩니다.
-    </div>
+    </p>
     <div id="adjList" class="text-center text-muted py-3">조회 중...</div>
     <div id="adjSummary" style="display:none" class="border-top pt-3 mt-2">
       <div class="row g-2 text-center">
@@ -332,5 +332,24 @@ function applyOCR(amount) {
 }
 .grid-editing td { background-color: #fff9db !important; }
 tr.table-primary td { transition: background-color 0.2s; }
+
+/* 자동 조정 안내 힌트 — 다크/라이트 모두 대응 */
+.adj-hint {
+    color: var(--text-secondary, #64748b);
+    border-left: 3px solid var(--bs-warning);
+    padding-left: 0.75rem;
+    margin-bottom: 0;
+}
+body.dark-mode .adj-hint {
+    color: #9ca3af;
+}
+body.dark-mode .adj-hint strong {
+    color: #e2e8f0;
+}
+
+/* 요약 카드 — 다크 모드 border-top */
+body.dark-mode #adjSummary {
+    border-color: var(--border, #374151) !important;
+}
 </style>
 {% endblock %}
