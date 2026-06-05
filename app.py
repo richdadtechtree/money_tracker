@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, jsonify, Response, session, r
 from flask_cors import CORS
 from database import get_db, init_db
 from datetime import datetime, date
-import json, os, shutil, sqlite3, re, csv, io, requests as http_req
+import json, os, shutil, sqlite3, re, csv, io, math, requests as http_req
 
 try:
     import yfinance as yf
@@ -3022,14 +3022,22 @@ def get_current_exchange_rate():
 def is_foreign_ticker(ticker):
     return bool(ticker) and not bool(re.match(r'^\d{6}$', str(ticker)))
 
+def _sf(v):
+    """NaN/Inf/None 을 0.0으로 안전 변환."""
+    try:
+        f = float(v) if v is not None else 0.0
+        return 0.0 if (math.isnan(f) or math.isinf(f)) else f
+    except (TypeError, ValueError):
+        return 0.0
+
 def _calc_asset_totals(rows, ex_rate):
     """(val, cost) 계산 공통 로직 — qty 음수 방지(GREATEST 0) 포함."""
     val = 0.0; cost = 0.0
     for r in rows:
-        qty = max(0.0, float(r['buy_qty'] or 0) - float(r['sell_qty'] or 0))
-        buy_qty_f = float(r['buy_qty'] or 0)
-        avg = float(r['total_buy_amt'] or 0) / buy_qty_f if buy_qty_f > 0 else 0.0
-        eval_amt = round(qty * float(r['current_price'] or 0))
+        qty = max(0.0, _sf(r['buy_qty']) - _sf(r['sell_qty']))
+        buy_qty_f = _sf(r['buy_qty'])
+        avg = _sf(r['total_buy_amt']) / buy_qty_f if buy_qty_f > 0 else 0.0
+        eval_amt = round(qty * _sf(r['current_price']))
         cost_amt = round(qty * avg)
         mul = ex_rate if is_foreign_ticker(r['ticker']) else 1.0
         val  += eval_amt * mul
