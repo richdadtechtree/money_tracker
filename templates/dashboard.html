@@ -176,11 +176,18 @@
       <div class="card-header bg-white d-flex justify-content-between align-items-center border-0 pt-3 flex-wrap gap-2">
         <h5 class="mb-0 fw-semibold"><i class="bi bi-graph-up-arrow me-2 text-primary"></i>순자산 변화 추이</h5>
         <!-- 기간 선택 탭 -->
-        <div class="btn-group btn-group-sm" role="group" id="period-tabs">
-          <button type="button" class="btn btn-outline-primary" data-period="daily">일간</button>
-          <button type="button" class="btn btn-outline-primary" data-period="weekly">주간</button>
-          <button type="button" class="btn btn-outline-primary active" data-period="monthly">월간</button>
-          <button type="button" class="btn btn-outline-primary" data-period="yearly">연간</button>
+        <div class="d-flex flex-column align-items-end gap-1">
+          <div class="btn-group btn-group-sm" role="group" id="period-tabs">
+            <button type="button" class="btn btn-outline-primary active" data-period="daily">일간</button>
+            <button type="button" class="btn btn-outline-primary" data-period="weekly">주간</button>
+            <button type="button" class="btn btn-outline-primary" data-period="monthly">월간</button>
+            <button type="button" class="btn btn-outline-primary" data-period="yearly">연간</button>
+          </div>
+          <div class="btn-group btn-group-sm" role="group" id="daily-days-tabs">
+            <button type="button" class="btn btn-outline-secondary active" data-days="7">7일</button>
+            <button type="button" class="btn btn-outline-secondary" data-days="15">15일</button>
+            <button type="button" class="btn btn-outline-secondary" data-days="30">30일</button>
+          </div>
         </div>
       </div>
       <div class="card-body">

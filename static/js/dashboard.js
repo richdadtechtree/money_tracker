@@ -612,13 +612,36 @@ function renderLoansDetail(loans) {
 // ── 순자산 변화 차트 ──────────────────────────────────────
 let networthChart = null;
 
+let _dailyDays = 7;
+
+function updateDailyTabsVisibility(period) {
+  const dailyTabs = document.getElementById('daily-days-tabs');
+  if (dailyTabs) dailyTabs.style.display = period === 'daily' ? '' : 'none';
+}
+
 function initNetworthChart() {
   document.querySelectorAll('#period-tabs button').forEach(btn => {
     btn.addEventListener('click', function () {
       document.querySelectorAll('#period-tabs button')
         .forEach(b => b.classList.remove('active'));
       this.classList.add('active');
-      loadNetworthChart(this.dataset.period);
+      const period = this.dataset.period;
+      updateDailyTabsVisibility(period);
+      if (period === 'daily') {
+        loadNetworthChart('daily', _dailyDays);
+      } else {
+        loadNetworthChart(period);
+      }
+    });
+  });
+
+  document.querySelectorAll('#daily-days-tabs button').forEach(btn => {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('#daily-days-tabs button')
+        .forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      _dailyDays = parseInt(this.dataset.days);
+      loadNetworthChart('daily', _dailyDays);
     });
   });
 }
@@ -640,9 +663,11 @@ function formatKRWMobile(val) {
   return sign + fmt(abs);
 }
 
-async function loadNetworthChart(period) {
+async function loadNetworthChart(period, days) {
   // 요약 수치 업데이트
-  const res  = await fetch('/api/networth-history?period=' + period);
+  let url = '/api/networth-history?period=' + period;
+  if (period === 'daily' && days) url += '&days=' + days;
+  const res  = await fetch(url);
   const data = await res.json();
   const rows = data.rows || [];
   const s    = data.summary || {};
@@ -843,6 +868,7 @@ function scheduleMidnightSnapshot() {
 initPrivacyMode();
 loadDashboard();
 initNetworthChart();
-loadNetworthChart('monthly');
+updateDailyTabsVisibility('daily');
+loadNetworthChart('daily', 7);
 scheduleMidnightSnapshot();
 

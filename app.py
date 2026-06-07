@@ -4390,7 +4390,13 @@ def api_networth_history():
     monthly → 최근 24개월, 월별 마지막 행
     yearly  → 최근 10년, 연별 마지막 행
     """
-    period = request.args.get('period', 'monthly')
+    period = request.args.get('period', 'daily')
+    try:
+        days = int(request.args.get('days', 7))
+        if days not in (7, 15, 30):
+            days = 7
+    except (ValueError, TypeError):
+        days = 7
     db     = get_db()
     cur    = db.cursor()
 
@@ -4402,7 +4408,7 @@ def api_networth_history():
             WITH base AS (
                 SELECT day, net_worth, cash, stocks, real_estate, crypto, pension
                 FROM daily_snapshots
-                WHERE day >= CURRENT_DATE - INTERVAL '90 days'
+                WHERE day >= CURRENT_DATE - INTERVAL '{days} days'
             )
             SELECT
                 day::text AS label,
@@ -4420,7 +4426,7 @@ def api_networth_history():
                 COALESCE(LAG(pension)     OVER (ORDER BY day), pension)     AS prev_pension
             FROM base
             ORDER BY day
-        """)
+        """.format(days=days))
 
     elif period == 'weekly':
         cur.execute("""
