@@ -6381,11 +6381,12 @@ def api_tech_tree_detail():
             WHERE SUBSTRING(listing_date, 1, 7) = %s AND realized_pnl != 0
         """, (ym,))
         for r in cur.fetchall():
+            fee_amt = int(r[3] or 0)
             res.append({
                 'date': r[0],
                 'name': f"{r[1]} (공모주 익절)",
                 'amount': int(r[2] or 0),
-                'memo': f"수수료 {fmt(int(r[3] or 0))}원 차감"
+                'memo': f"수수료 {fee_amt:,}원 차감" if fee_amt else ''
             })
         cur.close()
 
