@@ -6373,6 +6373,41 @@ def api_tech_tree_detail():
                         avg_cost = 0.0
 
         # 날짜 정렬 (날짜 형식은 최신순 정렬, 임대료/레버리지 등 텍스트는 맨 아래로)
+        # 공모주 실현손익 추가
+        cur = db.cursor()
+        cur.execute("""
+            SELECT listing_date, name, (realized_pnl - COALESCE(fee,0)) AS pnl, fee
+            FROM ipo
+            WHERE SUBSTRING(listing_date, 1, 7) = %s AND realized_pnl != 0
+        """, (ym,))
+        for r in cur.fetchall():
+            res.append({
+                'date': r[0],
+                'name': f"{r[1]} (공모주 익절)",
+                'amount': int(r[2] or 0),
+                'memo': f"수수료 {fmt(int(r[3] or 0))}원 차감"
+            })
+        cur.close()
+
+        # 코인 매도 실현손익 추가
+        try:
+            cur = db.cursor()
+            cur.execute("""
+                SELECT sell_date::text, name, pnl, memo
+                FROM crypto_sell
+                WHERE TO_CHAR(sell_date, 'YYYY-MM') = %s AND pnl != 0
+            """, (ym,))
+            for r in cur.fetchall():
+                res.append({
+                    'date': r[0],
+                    'name': f"{r[1]} (코인 익절)",
+                    'amount': int(r[2] or 0),
+                    'memo': r[3] or ''
+                })
+            cur.close()
+        except Exception:
+            pass
+
         def sort_key(x):
             d = str(x['date'] or '')
             if len(d) == 10 and d[4] == '-' and d[7] == '-':
