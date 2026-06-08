@@ -5564,7 +5564,7 @@ def _api_tech_tree_data_inner():
     cur.execute("""
         SELECT COALESCE(SUM(realized_pnl - COALESCE(fee, 0)), 0) AS val
         FROM ipo
-        WHERE TO_CHAR(listing_date, 'YYYY-MM') = %s
+        WHERE SUBSTRING(listing_date, 1, 7) = %s
     """, (ym,))
     ipo_pnl = float(cur.fetchone()[0] or 0)
     cur.close()
