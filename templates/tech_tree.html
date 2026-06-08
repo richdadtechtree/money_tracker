@@ -936,7 +936,7 @@ async function openStrawModal() {
   }
 
   const reviewed = _getReviewedStraws();
-  const straws   = (res.straws || []).filter(s => !reviewed[s.name]);
+  const straws   = res.straws || [];
 
   // 요약 패널 업데이트
   const ratio = res.income_ratio || 0;
