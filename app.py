@@ -3929,17 +3929,54 @@ def api_goals_detail(rid):
 
 # ── 현금 자동 조정 헬퍼 ─────────────────────────────────────
 def _upsert_cash_adj(cur, source_type, source_id, amount, description, adj_date=None):
+    """자동조정 기록 후 즉시 현금 잔액에 반영 (잔액 최대 계좌 차감)"""
     if adj_date is None:
         adj_date = date.today().isoformat()
+
+    # 이전 동일 소스의 기존 조정액 조회 (역적용 위해)
+    cur.execute(
+        "SELECT amount FROM cash_auto_adjustments WHERE source_type=%s AND source_id=%s",
+        (source_type, source_id)
+    )
+    prev = cur.fetchone()
+    prev_amount = int(prev['amount']) if prev else 0
+
+    # 자동조정 테이블 upsert
     cur.execute("""
-        INSERT INTO cash_auto_adjustments (adj_date, source_type, source_id, amount, description)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO cash_auto_adjustments (adj_date, source_type, source_id, amount, description, applied)
+        VALUES (%s, %s, %s, %s, %s, TRUE)
         ON CONFLICT (source_type, source_id) DO UPDATE
             SET adj_date=EXCLUDED.adj_date, amount=EXCLUDED.amount,
-                description=EXCLUDED.description, applied=FALSE
+                description=EXCLUDED.description, applied=TRUE
     """, (adj_date, source_type, source_id, amount, description))
 
+    # 현금 최대 잔액 계좌에 차액 즉시 반영
+    delta = amount - prev_amount
+    if delta != 0:
+        cur.execute("SELECT id, amount FROM cash_deposits ORDER BY amount DESC LIMIT 1")
+        acct = cur.fetchone()
+        if acct:
+            cur.execute(
+                "UPDATE cash_deposits SET amount=%s, updated_date=%s WHERE id=%s",
+                (int(acct['amount']) + delta, adj_date, acct['id'])
+            )
+
 def _remove_cash_adj(cur, source_type, source_id):
+    """자동조정 삭제 시 현금 잔액도 역적용"""
+    cur.execute(
+        "SELECT amount FROM cash_auto_adjustments WHERE source_type=%s AND source_id=%s",
+        (source_type, source_id)
+    )
+    prev = cur.fetchone()
+    if prev:
+        prev_amount = int(prev['amount'])
+        cur.execute("SELECT id, amount FROM cash_deposits ORDER BY amount DESC LIMIT 1")
+        acct = cur.fetchone()
+        if acct:
+            cur.execute(
+                "UPDATE cash_deposits SET amount=%s, updated_date=%s WHERE id=%s",
+                (int(acct['amount']) - prev_amount, date.today().isoformat(), acct['id'])
+            )
     cur.execute(
         "DELETE FROM cash_auto_adjustments WHERE source_type=%s AND source_id=%s",
         (source_type, source_id)
@@ -3982,8 +4019,8 @@ def api_cash_deposits_detail(rid):
         "UPDATE cash_deposits SET name=%s, amount=%s, memo=%s, updated_date=%s WHERE id=%s",
         (data.get('name'), data.get('amount', 0), data.get('memo'), today, rid)
         )
-        # 수기 수정 시 자동 조정 전체 초기화
-        cur.execute("DELETE FROM cash_auto_adjustments WHERE applied=FALSE")
+        # 수기 수정 시 자동 조정 전체 초기화 (이미 반영된 것 포함)
+        cur.execute("DELETE FROM cash_auto_adjustments")
         cur.close()
         db.commit()
         db.close()
@@ -4009,7 +4046,6 @@ def api_cash_auto_adj():
     cur = db.cursor()
     cur.execute("""
         SELECT * FROM cash_auto_adjustments
-        WHERE applied=FALSE
         ORDER BY adj_date DESC, id DESC
     """)
     rows = cur.fetchall()

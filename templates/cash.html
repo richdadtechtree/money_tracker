@@ -45,41 +45,20 @@
 <div class="card border-0 shadow-sm mt-4">
   <div class="card-header border-0 pt-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
     <h5 class="fw-semibold mb-0">
-      <i class="bi bi-lightning-charge-fill me-2 text-warning"></i>자동 조정
-      <span class="badge bg-warning text-dark ms-2 fs-xs" id="adjBadge" style="display:none"></span>
+      <i class="bi bi-lightning-charge-fill me-2 text-warning"></i>자동 조정 내역
+      <span class="badge bg-success text-white ms-2 fs-xs">자동 반영됨</span>
     </h5>
-    <div class="d-flex gap-2">
-      <button class="btn btn-sm btn-outline-primary" onclick="applyAdjustments()" id="btnApplyAdj" disabled>
-        <i class="bi bi-check2-circle me-1"></i>현금에 반영
-      </button>
-      <button class="btn btn-sm btn-outline-secondary" onclick="clearAdjustments()" id="btnClearAdj" disabled>
-        <i class="bi bi-x-circle me-1"></i>초기화
-      </button>
-    </div>
+    <button class="btn btn-sm btn-outline-secondary" onclick="clearAdjustments()" id="btnClearAdj">
+      <i class="bi bi-x-circle me-1"></i>내역 초기화
+    </button>
   </div>
   <div class="card-body">
     <p class="adj-hint small mb-3">
       <i class="bi bi-info-circle me-1"></i>
-      주식·ETF <strong>매수</strong> 또는 부동산 <strong>납입 확정</strong> 시 자동 기록됩니다.
-      현금 잔액을 <strong>직접 수정하면</strong> 자동 조정이 초기화됩니다.
+      주식·ETF <strong>매수</strong> 또는 부동산 <strong>납입 확정</strong> 시 현금에 <strong>즉시 자동 반영</strong>됩니다.
+      현금 잔액을 <strong>직접 수정하면</strong> 자동 조정 내역이 초기화됩니다.
     </p>
     <div id="adjList" class="text-center text-muted py-3">조회 중...</div>
-    <div id="adjSummary" style="display:none" class="border-top pt-3 mt-2">
-      <div class="row g-2 text-center">
-        <div class="col-4">
-          <div class="text-muted small">현재 등록 잔액</div>
-          <div class="fw-bold" id="adjCurrentCash">-</div>
-        </div>
-        <div class="col-4">
-          <div class="text-muted small">자동 조정 합계</div>
-          <div class="fw-bold text-danger" id="adjTotalAdj">-</div>
-        </div>
-        <div class="col-4">
-          <div class="text-muted small">추정 현재 잔액</div>
-          <div class="fw-bold text-primary" id="adjEstimated">-</div>
-        </div>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -226,27 +205,15 @@ async function processOCR(file) {
 // ── 자동 조정 ─────────────────────────────────────────────
 async function loadAutoAdjustments() {
     const adjs = await fetchJSON('/api/cash-auto-adjustments') || [];
-    const adjList  = document.getElementById('adjList');
-    const summary  = document.getElementById('adjSummary');
-    const badge    = document.getElementById('adjBadge');
-    const btnApply = document.getElementById('btnApplyAdj');
-    const btnClear = document.getElementById('btnClearAdj');
+    const adjList = document.getElementById('adjList');
 
     if (!adjs.length) {
         adjList.innerHTML = '<div class="text-muted py-3 text-center"><i class="bi bi-check-circle me-2 text-success"></i>자동 조정 내역이 없습니다.</div>';
-        summary.style.display = 'none';
-        badge.style.display = 'none';
-        btnApply.disabled = true;
-        btnClear.disabled = true;
         return;
     }
 
-    badge.textContent = adjs.length + '건';
-    badge.style.display = '';
-    btnApply.disabled = false;
-    btnClear.disabled = false;
-
-    const typeLabel = { stock_tx: '주식', etf_tx: 'ETF', re_payment: '부동산' };
+    const typeLabel = { stock_tx: '주식', etf_tx: 'ETF', re_payment: '부동산', crypto_sell: '코인' };
+    const totalAdj  = adjs.reduce((s, a) => s + (parseInt(a.amount) || 0), 0);
 
     adjList.innerHTML = `
         <div class="table-responsive">
@@ -257,7 +224,6 @@ async function loadAutoAdjustments() {
                 <th>내용</th>
                 <th style="width:80px">구분</th>
                 <th class="text-end" style="width:130px">금액</th>
-                <th class="text-center" style="width:50px"></th>
               </tr>
             </thead>
             <tbody>
@@ -266,43 +232,22 @@ async function loadAutoAdjustments() {
                   <td class="text-muted small">${a.adj_date}</td>
                   <td>${a.description || '-'}</td>
                   <td><span class="badge bg-secondary-subtle text-secondary">${typeLabel[a.source_type] || a.source_type}</span></td>
-                  <td class="text-end fw-semibold text-danger">${fmt(a.amount)}원</td>
-                  <td class="text-center">
-                    <button class="btn btn-sm btn-link text-danger p-0" onclick="deleteOneAdj(${a.id})" title="삭제">
-                      <i class="bi bi-trash3"></i>
-                    </button>
-                  </td>
+                  <td class="text-end fw-semibold ${parseInt(a.amount) >= 0 ? 'text-success' : 'text-danger'}">${parseInt(a.amount) >= 0 ? '+' : ''}${fmt(a.amount)}원</td>
                 </tr>`).join('')}
             </tbody>
+            <tfoot class="table-light">
+              <tr>
+                <td colspan="3" class="text-end fw-semibold">합계</td>
+                <td class="text-end fw-bold ${totalAdj >= 0 ? 'text-success' : 'text-danger'}">${totalAdj >= 0 ? '+' : ''}${fmt(totalAdj)}원</td>
+              </tr>
+            </tfoot>
           </table>
         </div>`;
-
-    const totalAdj = adjs.reduce((s, a) => s + (parseInt(a.amount) || 0), 0);
-    const estimated = _cashTotal + totalAdj;
-    document.getElementById('adjCurrentCash').textContent = fmt(_cashTotal) + '원';
-    document.getElementById('adjTotalAdj').textContent = (totalAdj >= 0 ? '+' : '') + fmt(totalAdj) + '원';
-    document.getElementById('adjEstimated').textContent = fmt(estimated) + '원';
-    summary.style.display = '';
-}
-
-async function applyAdjustments() {
-    if (!confirm('자동 조정 금액을 현금 잔액에 직접 반영할까요?\n잔액이 가장 큰 계좌에서 차감됩니다.')) return;
-    const res = await fetchJSON('/api/cash-auto-adjustments/apply', { method: 'POST' });
-    if (res?.ok) {
-        const msg = res.message || `${res.account}에서 ${fmt(Math.abs(res.adjusted))}원 차감 완료`;
-        alert(msg);
-        grid.load();
-    }
 }
 
 async function clearAdjustments() {
-    if (!confirm('자동 조정 내역을 모두 초기화할까요?')) return;
+    if (!confirm('자동 조정 내역을 모두 초기화할까요?\n(현금 잔액은 변경되지 않습니다)')) return;
     await fetchJSON('/api/cash-auto-adjustments', { method: 'DELETE' });
-    loadAutoAdjustments();
-}
-
-async function deleteOneAdj(id) {
-    await fetch('/api/cash-auto-adjustments/' + id, { method: 'DELETE' });
     loadAutoAdjustments();
 }
 
