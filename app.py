@@ -5501,7 +5501,16 @@ def _api_tech_tree_data_inner():
 
     passive_inc += stock_realized_pnl
 
-    # 고정비(빨대) 합계 계산 (최근 3개월 내 2회 이상 발생한 동일 이름/금액 지출)
+    # 당월 공모주 실현손익
+    cur = db.cursor()
+    cur.execute("""
+        SELECT COALESCE(SUM(realized_pnl - COALESCE(fee, 0)), 0) AS val
+        FROM ipo
+        WHERE TO_CHAR(listing_date, 'YYYY-MM') = %s
+    """, (ym,))
+    ipo_pnl = float(cur.fetchone()[0] or 0)
+    cur.close()
+    passive_inc += ipo_pnl (최근 3개월 내 2회 이상 발생한 동일 이름/금액 지출)
     cur = db.cursor()
     cur.execute("""
     SELECT name, amount, COUNT(*) as cnt, SUM(amount) as total
