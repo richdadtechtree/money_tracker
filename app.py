@@ -5591,19 +5591,51 @@ def _api_tech_tree_data_inner():
         crypto_sell_pnl = 0.0
     passive_inc += crypto_sell_pnl
 
-    # 고정비(빨대) 합계 계산 (최근 3개월 내 2회 이상 발생한 동일 이름/금액 지출)
+    # 고정비(빨대) 합계 계산 - /api/straws 와 동일한 기준 (3개월 연속 + 편차 ±10%)
+    import math as _math
     cur = db.cursor()
     cur.execute("""
-    SELECT name, amount, COUNT(*) as cnt, SUM(amount) as total
-    FROM budget
-    WHERE date >= CURRENT_DATE - INTERVAL '3 months'
-    GROUP BY name, amount
-    HAVING COUNT(*) >= 2
-    ORDER BY total DESC
+        SELECT name,
+               to_char(date::date, 'YYYY-MM') AS month,
+               AVG(amount) AS avg_amount
+        FROM budget
+        WHERE date >= (CURRENT_DATE - INTERVAL '4 months')
+          AND amount > 0
+          AND name IS NOT NULL AND name != ''
+        GROUP BY name, to_char(date::date, 'YYYY-MM')
     """)
-    straws = cur.fetchall()
+    _straw_rows = cur.fetchall()
     cur.close()
-    straw_total = sum(r['total'] / r['cnt'] for r in straws) # 월평균 고정비
+
+    _name_months = {}
+    for r in _straw_rows:
+        _name_months.setdefault(r['name'], []).append({'month': r['month'], 'avg': float(r['avg_amount'] or 0)})
+
+    _recent_3 = set()
+    _y, _m = today.year, today.month
+    for _ in range(3):
+        _recent_3.add(f"{_y}-{_m:02d}")
+        _m -= 1
+        if _m == 0: _m = 12; _y -= 1
+
+    straw_total = 0
+    _straw_list = []
+    for name, entries in _name_months.items():
+        months_present = {e['month'] for e in entries}
+        if not _recent_3.issubset(months_present):
+            continue
+        amounts = [e['avg'] for e in entries if e['month'] in _recent_3]
+        if not amounts:
+            continue
+        mean_amt = sum(amounts) / len(amounts)
+        if mean_amt <= 0:
+            continue
+        variance = sum((a - mean_amt) ** 2 for a in amounts) / len(amounts)
+        std_dev  = _math.sqrt(variance)
+        if mean_amt > 0 and (std_dev / mean_amt) > 0.10:
+            continue
+        straw_total += round(mean_amt)
+        _straw_list.append({'name': name, 'amount': round(mean_amt)})
 
     expense_total = float(row['expense_total'] or 0)
     card_total = float(row['card_total'] or 0)
