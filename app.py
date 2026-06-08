@@ -1549,7 +1549,7 @@ def api_stock_tx():
     data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'))
     )
     new_id = cur.fetchone()[0]
-    if data.get('tx_type') == '매수':
+    if data.get('tx_type') in ('buy', '매수'):
         cur.execute("SELECT name, ticker FROM stocks WHERE id=%s", (data.get('stock_id'),))
         s = cur.fetchone()
         sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
@@ -1572,7 +1572,7 @@ def api_stock_tx_detail(rid):
         (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
         data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), rid)
         )
-        if data.get('tx_type') == '매수':
+        if data.get('tx_type') in ('buy', '매수'):
             cur.execute("SELECT name, ticker FROM stocks WHERE id=%s", (data.get('stock_id'),))
             s = cur.fetchone()
             sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
