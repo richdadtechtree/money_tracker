@@ -332,7 +332,7 @@
         <i class="bi bi-plus-lg me-1"></i>코인 추가
       </button>
     </div>
-    <div class="card border-0 shadow-sm">
+    <div class="card border-0 shadow-sm mb-4">
       <div class="card-body p-0">
         <div class="table-responsive">
           <table class="table table-hover mb-0" id="cryptoTable">
@@ -343,6 +343,34 @@
                 <th class="text-end">현재가</th>
                 <th>메모</th>
                 <th class="text-end">평가액</th><th class="text-end">수익률</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 코인 매도기록 -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="fw-semibold"><i class="bi bi-cash-coin me-2 text-success"></i>매도 기록 <small class="text-muted fw-normal">(자생소득 반영)</small></div>
+      <div class="d-flex align-items-center gap-3">
+        <div class="text-muted small">당월 실현손익: <strong id="crypto-sell-monthly" class="text-success">-</strong></div>
+        <button class="btn btn-success btn-sm" onclick="cryptoSellGrid.addRow()">
+          <i class="bi bi-plus-lg me-1"></i>매도 기록 추가
+        </button>
+      </div>
+    </div>
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="cryptoSellTable">
+            <thead class="table-light">
+              <tr>
+                <th>매도일</th><th>코인명</th>
+                <th class="text-end">실현손익</th>
+                <th>메모</th>
                 <th class="text-center">삭제</th>
               </tr>
             </thead>
@@ -894,6 +922,29 @@ const cryptoGrid = new GridTable({
     rows.forEach(r => { tv += r.current_price * r.quantity; tc += r.buy_price * r.quantity; });
     document.getElementById('crypto-total').textContent = fmt(Math.round(tv)) + '원';
     document.getElementById('crypto-return').innerHTML  = rateHtml(tc ? (tv - tc) / tc * 100 : null);
+  },
+});
+
+// ── 코인 매도기록 ──
+const cryptoSellGrid = new GridTable({
+  tableId: 'cryptoSellTable',
+  columns: [
+    { key: 'sell_date', type: 'date' },
+    { key: 'name',      type: 'text' },
+    { key: 'pnl',       type: 'number', align: 'end',
+      render: v => `<span class="${v >= 0 ? 'text-success' : 'text-danger'} fw-semibold">${v >= 0 ? '+' : ''}${fmt(v)}원</span>` },
+    { key: 'memo',      type: 'text' },
+  ],
+  apiUrl: '/api/crypto-sell',
+  onLoad: rows => {
+    const curYm = new Date().toISOString().slice(0, 7);
+    const monthly = rows.filter(r => (r.sell_date || '').slice(0, 7) === curYm)
+                        .reduce((s, r) => s + (r.pnl || 0), 0);
+    const el = document.getElementById('crypto-sell-monthly');
+    if (el) {
+      el.textContent = (monthly >= 0 ? '+' : '') + fmt(monthly) + '원';
+      el.className   = monthly >= 0 ? 'text-success' : 'text-danger';
+    }
   },
 });
 
@@ -1530,7 +1581,8 @@ async function initPage() {
   await Promise.all([
     stockGrid.load(),
     etfGrid.load(),
-    cryptoGrid.load()
+    cryptoGrid.load(),
+    cryptoSellGrid.load()
   ]);
 
   // ETF 분할계획기 셀렉트박스 옵션 빌드

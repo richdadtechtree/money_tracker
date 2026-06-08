@@ -450,6 +450,15 @@ def init_db():
             floating_ratio  REAL DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS crypto_sell (
+            id          SERIAL PRIMARY KEY,
+            sell_date   DATE NOT NULL,
+            name        TEXT NOT NULL,
+            pnl         INTEGER DEFAULT 0,
+            memo        TEXT,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS real_estate_payments (
             id              SERIAL PRIMARY KEY,
             real_estate_id  INTEGER REFERENCES real_estate(id) ON DELETE CASCADE,

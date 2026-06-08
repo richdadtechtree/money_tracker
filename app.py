@@ -1795,6 +1795,50 @@ def api_crypto_detail(rid):
     return jsonify({'ok': True})
 
 
+# ── API: 코인 매도기록 ───────────────────────────────────────
+@app.route('/api/crypto-sell', methods=['GET', 'POST'])
+def api_crypto_sell():
+    db = get_db()
+    if request.method == 'GET':
+        cur = db.cursor()
+        cur.execute("SELECT * FROM crypto_sell ORDER BY sell_date DESC, id DESC")
+        rows = rows_to_list(cur.fetchall())
+        cur.close()
+        db.close()
+        return jsonify(rows)
+    data = request.json
+    cur = db.cursor()
+    cur.execute(
+        "INSERT INTO crypto_sell (sell_date, name, pnl, memo) VALUES (%s, %s, %s, %s)",
+        (data.get('sell_date'), data.get('name'), data.get('pnl', 0), data.get('memo'))
+    )
+    cur.close()
+    db.commit()
+    db.close()
+    return jsonify({'ok': True}), 201
+
+@app.route('/api/crypto-sell/<int:rid>', methods=['PUT', 'DELETE'])
+def api_crypto_sell_detail(rid):
+    db = get_db()
+    if request.method == 'PUT':
+        data = request.json
+        cur = db.cursor()
+        cur.execute(
+            "UPDATE crypto_sell SET sell_date=%s, name=%s, pnl=%s, memo=%s WHERE id=%s",
+            (data.get('sell_date'), data.get('name'), data.get('pnl', 0), data.get('memo'), rid)
+        )
+        cur.close()
+        db.commit()
+        db.close()
+        return jsonify({'ok': True})
+    cur = db.cursor()
+    cur.execute("DELETE FROM crypto_sell WHERE id = %s", (rid,))
+    cur.close()
+    db.commit()
+    db.close()
+    return jsonify({'ok': True})
+
+
 # ── API: 공모주 ──────────────────────────────────────────────
 @cache.cached(timeout=180)
 def _get_ipo_cached():
@@ -5510,11 +5554,23 @@ def _api_tech_tree_data_inner():
     """, (ym,))
     ipo_pnl = float(cur.fetchone()[0] or 0)
     cur.close()
-    passive_inc += ipo_pnl (최근 3개월 내 2회 이상 발생한 동일 이름/금액 지출)
+    passive_inc += ipo_pnl
+
+    # 당월 코인 매도 실현손익
+    cur = db.cursor()
+    cur.execute("""
+        SELECT COALESCE(SUM(pnl), 0) AS val FROM crypto_sell
+        WHERE TO_CHAR(sell_date, 'YYYY-MM') = %s
+    """, (ym,))
+    crypto_sell_pnl = float(cur.fetchone()[0] or 0)
+    cur.close()
+    passive_inc += crypto_sell_pnl
+
+    # 고정비(빨대) 합계 계산 (최근 3개월 내 2회 이상 발생한 동일 이름/금액 지출)
     cur = db.cursor()
     cur.execute("""
     SELECT name, amount, COUNT(*) as cnt, SUM(amount) as total
-    FROM budget 
+    FROM budget
     WHERE date >= CURRENT_DATE - INTERVAL '3 months'
     GROUP BY name, amount
     HAVING COUNT(*) >= 2
