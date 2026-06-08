@@ -834,7 +834,23 @@ async function loadNetworthChart(period, days) {
             font: { size: isMobile ? 9 : 11 },
             maxTicksLimit: isMobile ? 5 : 8,
           },
-          title: { display: !isMobile, text: '변동률 (%)' }
+          title: { display: !isMobile, text: '변동률 (%)' },
+          afterDraw: function(scale) {
+            const chart = scale.chart;
+            const ctx   = chart.ctx;
+            const y     = scale.getPixelForValue(0);
+            const left  = chart.chartArea.left;
+            const right = chart.chartArea.right;
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(left, y);
+            ctx.lineTo(right, y);
+            ctx.strokeStyle = 'rgba(150,150,150,0.5)';
+            ctx.lineWidth   = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.stroke();
+            ctx.restore();
+          }
         }
       }
     }
