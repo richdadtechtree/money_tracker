@@ -701,10 +701,12 @@ async function loadNetworthChart(period, days) {
   const isMobile  = window.innerWidth < 768;
   wrap.style.height = isMobile ? '250px' : '300px';
 
-  const labels    = rows.map(r => r.label);
-  const netWorth  = rows.map(r => r.net_worth  || 0);
-  const changePct = rows.map(r => r.change_pct || 0);
+  const labels     = rows.map(r => r.label);
+  const netWorth   = rows.map(r => r.net_worth  || 0);
+  const changePct  = rows.map(r => r.change_pct || 0);
+  const changeAmt  = rows.map(r => r.change_amt || 0);
   const barLabels = { daily: '일간 변동률(%)', weekly: '주간 변동률(%)', monthly: '월간 변동률(%)', yearly: '연간 변동률(%)' };
+  const amtLabels = { daily: '일간 변동금액', weekly: '주간 변동금액', monthly: '월간 변동금액', yearly: '연간 변동금액' };
 
   if (networthChart) { networthChart.destroy(); networthChart = null; }
   document.getElementById('nw-detail-panel').style.display = 'none';
@@ -733,6 +735,16 @@ async function loadNetworthChart(period, days) {
         },
         {
           type: 'bar',
+          label: amtLabels[period] || '변동금액',
+          data: changeAmt,
+          backgroundColor: changeAmt.map(v => v >= 0 ? 'rgba(16,185,129,0)' : 'rgba(244,63,94,0)'),
+          borderColor:     changeAmt.map(v => v >= 0 ? 'rgba(16,185,129,0)' : 'rgba(244,63,94,0)'),
+          borderWidth: 0,
+          yAxisID: 'y',
+          order: 3,
+        },
+        {
+          type: 'bar',
           label: barLabels[period] || '변동률(%)',
           data: changePct,
           backgroundColor: changePct.map(v => v >= 0 ? 'rgba(16,185,129,0.65)' : 'rgba(244,63,94,0.65)'),
@@ -755,12 +767,38 @@ async function loadNetworthChart(period, days) {
             font: { size: isMobile ? 11 : 12 },
             boxWidth: isMobile ? 10 : 12,
             padding: isMobile ? 8 : 10,
+            generateLabels: function(chart) {
+              return chart.data.datasets.map((ds, i) => {
+                const isAmt = ds.label && ds.label.includes('변동금액');
+                const color = isAmt
+                  ? (changeAmt.some(v => v < 0) ? 'rgba(244,63,94,0.8)' : 'rgba(16,185,129,0.8)')
+                  : (ds.borderColor instanceof Array ? ds.borderColor[0] : ds.borderColor);
+                return {
+                  text: ds.label,
+                  fillStyle: color,
+                  strokeStyle: color,
+                  lineWidth: 1,
+                  hidden: false,
+                  datasetIndex: i,
+                };
+              });
+            }
+          },
+          onClick: function(e, legendItem, legend) {
+            const ds = legend.chart.data.datasets[legendItem.datasetIndex];
+            if (ds.label && ds.label.includes('변동금액')) return;
+            Chart.defaults.plugins.legend.onClick.call(this, e, legendItem, legend);
           }
         },
         tooltip: {
           callbacks: {
             label: function(ctx) {
-              if (ctx.dataset.yAxisID === 'y') return '순자산: ' + formatKRW(ctx.raw);
+              const lbl = ctx.dataset.label || '';
+              if (lbl === '순자산') return '순자산: ' + formatKRW(ctx.raw);
+              if (lbl.includes('변동금액')) {
+                var sign = ctx.raw >= 0 ? '+' : '';
+                return '변동금액: ' + sign + formatKRW(ctx.raw);
+              }
               var sign = ctx.raw >= 0 ? '+' : '';
               return '변동률: ' + sign + Number(ctx.raw).toFixed(2) + '%';
             }
