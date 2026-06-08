@@ -1796,9 +1796,22 @@ def api_crypto_detail(rid):
 
 
 # ── API: 코인 매도기록 ───────────────────────────────────────
+def _ensure_crypto_sell_table(db):
+    cur = db.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS crypto_sell (
+            id SERIAL PRIMARY KEY, sell_date DATE NOT NULL,
+            name TEXT NOT NULL, pnl INTEGER DEFAULT 0,
+            memo TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    db.commit()
+    cur.close()
+
 @app.route('/api/crypto-sell', methods=['GET', 'POST'])
 def api_crypto_sell():
     db = get_db()
+    _ensure_crypto_sell_table(db)
     if request.method == 'GET':
         cur = db.cursor()
         cur.execute("SELECT * FROM crypto_sell ORDER BY sell_date DESC, id DESC")
@@ -1820,6 +1833,7 @@ def api_crypto_sell():
 @app.route('/api/crypto-sell/<int:rid>', methods=['PUT', 'DELETE'])
 def api_crypto_sell_detail(rid):
     db = get_db()
+    _ensure_crypto_sell_table(db)
     if request.method == 'PUT':
         data = request.json
         cur = db.cursor()
@@ -5557,13 +5571,24 @@ def _api_tech_tree_data_inner():
     passive_inc += ipo_pnl
 
     # 당월 코인 매도 실현손익
-    cur = db.cursor()
-    cur.execute("""
-        SELECT COALESCE(SUM(pnl), 0) AS val FROM crypto_sell
-        WHERE TO_CHAR(sell_date, 'YYYY-MM') = %s
-    """, (ym,))
-    crypto_sell_pnl = float(cur.fetchone()[0] or 0)
-    cur.close()
+    try:
+        cur = db.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS crypto_sell (
+                id SERIAL PRIMARY KEY, sell_date DATE NOT NULL,
+                name TEXT NOT NULL, pnl INTEGER DEFAULT 0,
+                memo TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        db.commit()
+        cur.execute("""
+            SELECT COALESCE(SUM(pnl), 0) AS val FROM crypto_sell
+            WHERE TO_CHAR(sell_date, 'YYYY-MM') = %s
+        """, (ym,))
+        crypto_sell_pnl = float(cur.fetchone()[0] or 0)
+        cur.close()
+    except Exception:
+        crypto_sell_pnl = 0.0
     passive_inc += crypto_sell_pnl
 
     # 고정비(빨대) 합계 계산 (최근 3개월 내 2회 이상 발생한 동일 이름/금액 지출)
