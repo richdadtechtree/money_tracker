@@ -155,10 +155,11 @@
          data-ux_mode="popup"
          data-callback="handleCredentialResponse"
          data-auto_select="true"
-         data-itp_support="true">
+         data-itp_support="true"
+         data-cancel_on_tap_outside="false">
     </div>
 
-    <div class="google-btn-wrapper">
+    <div class="google-btn-wrapper" id="googleBtnWrap">
       <div class="g_id_signin"
            data-type="standard"
            data-shape="rectangular"
@@ -167,6 +168,11 @@
            data-size="large"
            data-logo_alignment="left">
       </div>
+    </div>
+
+    <div id="autoLoginMsg" class="text-muted small mt-3" style="display:none">
+      <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+      구글 계정으로 자동 로그인 중...
     </div>
     
     <div class="text-muted small mt-4" style="font-size: 11px;">
@@ -200,10 +206,45 @@
       }
     }
 
+    // Google 라이브러리 로드 완료 후 자동 로그인 시도
+    window.onload = function() {
+      // gsi/client 스크립트가 로드된 뒤 명시적으로 initialize + prompt
+      const waitForGoogle = setInterval(() => {
+        if (window.google && window.google.accounts) {
+          clearInterval(waitForGoogle);
+          google.accounts.id.initialize({
+            client_id: '{{ google_client_id }}',
+            callback: handleCredentialResponse,
+            auto_select: true,
+            cancel_on_tap_outside: false,
+            itp_support: true,
+          });
+          // One Tap 프롬프트 자동 호출
+          google.accounts.id.prompt((notification) => {
+            // One Tap이 표시되지 않으면 (dismissed/skipped/not_displayed) 버튼은 유지
+            if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+              // 자동 로그인 메시지 숨기고 버튼 표시 유지
+              document.getElementById('autoLoginMsg').style.display = 'none';
+            } else if (notification.isDismissedMoment()) {
+              document.getElementById('autoLoginMsg').style.display = 'none';
+            }
+          });
+          // One Tap 시도 중 안내 메시지
+          document.getElementById('autoLoginMsg').style.display = '';
+          // 1.5초 후에도 자동 로그인 안 되면 메시지 숨김
+          setTimeout(() => {
+            document.getElementById('autoLoginMsg').style.display = 'none';
+          }, 1500);
+        }
+      }, 100);
+    };
+
     // Google Credential Callback
     async function handleCredentialResponse(response) {
       const alertEl = document.getElementById('loginAlert');
       alertEl.classList.add('d-none');
+      document.getElementById('autoLoginMsg').style.display = '';
+      document.getElementById('autoLoginMsg').innerHTML = '<div class="spinner-border spinner-border-sm me-2" role="status"></div>로그인 중...';
 
       try {
         const res = await fetch('/api/auth/google', {
@@ -211,15 +252,15 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ credential: response.credential })
         });
-        
         const data = await res.json();
         if (res.ok && data.ok) {
-          // 로그인 성공 시 메인 화면으로 리디렉션
           window.location.href = '/';
         } else {
+          document.getElementById('autoLoginMsg').style.display = 'none';
           showError(data.error || '구글 로그인 검증에 실패했습니다.');
         }
       } catch (err) {
+        document.getElementById('autoLoginMsg').style.display = 'none';
         showError('서버 통신 오류가 발생했습니다.');
         console.error(err);
       }
