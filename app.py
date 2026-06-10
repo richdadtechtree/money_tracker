@@ -216,11 +216,27 @@ def _retry_on_db_error(fn):
     return wrapper
 
 from flask.json.provider import DefaultJSONProvider
+import math as _math
 class CustomJSONProvider(DefaultJSONProvider):
     def default(self, obj):
         if isinstance(obj, (date, datetime)):
             return obj.isoformat()
+        if isinstance(obj, float) and (_math.isnan(obj) or _math.isinf(obj)):
+            return None
         return super().default(obj)
+
+    def dumps(self, obj, **kwargs):
+        # float NaN/Infinity → null 치환 후 직렬화
+        def _sanitize(o):
+            if isinstance(o, float) and (_math.isnan(o) or _math.isinf(o)):
+                return None
+            if isinstance(o, dict):
+                return {k: _sanitize(v) for k, v in o.items()}
+            if isinstance(o, list):
+                return [_sanitize(v) for v in o]
+            return o
+        return super().dumps(_sanitize(obj), **kwargs)
+
 app.json = CustomJSONProvider(app)
 
 # ── 버전 정보 ────────────────────────────────────────────────
@@ -1411,19 +1427,17 @@ def api_card_tx_auto_categorize():
 
 # ── 포지션 계산 헬퍼 ─────────────────────────────────────────
 def calc_position(transactions):
-    """
-    거래내역을 시간순으로 처리해 현재 수량·평균단가·실현손익을 계산.
-    보유수량이 0이 되면 평균단가를 리셋하여 이후 매수부터 새로 시작.
-    """
     qty = 0.0
     avg_cost = 0.0
     realized = 0.0
     for tx in transactions:
-        tq = float(tx['quantity'])
-        tp = float(tx['price'])
+        tq = float(tx['quantity'] or 0)
+        tp = float(tx['price'] or 0)
+        if tq <= 0:
+            continue
         if tx['tx_type'] == 'buy':
             new_qty = qty + tq
-            avg_cost = (qty * avg_cost + tq * tp) / new_qty
+            avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
             qty = new_qty
         else:  # sell
             realized += (tp - avg_cost) * tq
