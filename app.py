@@ -193,6 +193,28 @@ def close_db_connection(exception=None):
         except Exception as e:
             print("Error returning connection to pool on teardown:", e)
 
+def _retry_on_db_error(fn):
+    """DB 연결 끊김 시 연결 초기화 후 1회 재시도하는 래퍼"""
+    import functools, psycopg2
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        for attempt in range(2):
+            try:
+                if attempt > 0 and hasattr(g, 'db_conn'):
+                    try:
+                        from database import _pool
+                        if _pool:
+                            _pool.putconn(g.db_conn, close=True)
+                    except Exception:
+                        pass
+                    delattr(g, 'db_conn')
+                return fn(*args, **kwargs)
+            except (psycopg2.DatabaseError, psycopg2.OperationalError):
+                if attempt == 0:
+                    continue
+                raise
+    return wrapper
+
 from flask.json.provider import DefaultJSONProvider
 class CustomJSONProvider(DefaultJSONProvider):
     def default(self, obj):
@@ -5076,7 +5098,7 @@ def api_lifecycle_simulate():
 @cache.cached(timeout=120, query_string=True)
 def api_dashboard():
     try:
-     return _api_dashboard_inner()
+        return _retry_on_db_error(_api_dashboard_inner)()
     except Exception as e:
         import traceback
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 200
@@ -5429,7 +5451,7 @@ def _calc_annual_avg_income(db):
 @cache.cached(timeout=180)
 def api_tech_tree_data():
     try:
-        return _api_tech_tree_data_inner()
+        return _retry_on_db_error(_api_tech_tree_data_inner)()
     except Exception as e:
         import traceback
         return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
