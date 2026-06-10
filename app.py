@@ -219,15 +219,21 @@ from flask.json.provider import DefaultJSONProvider
 import math as _math
 class CustomJSONProvider(DefaultJSONProvider):
     def default(self, obj):
+        import decimal
         if isinstance(obj, (date, datetime)):
             return obj.isoformat()
+        if isinstance(obj, decimal.Decimal):
+            return float(obj)
         if isinstance(obj, float) and (_math.isnan(obj) or _math.isinf(obj)):
             return None
         return super().default(obj)
 
     def dumps(self, obj, **kwargs):
-        # float NaN/Infinity → null 치환 후 직렬화
+        import decimal
+        # float NaN/Infinity → null, Decimal → float 치환 후 직렬화
         def _sanitize(o):
+            if isinstance(o, decimal.Decimal):
+                return float(o)
             if isinstance(o, float) and (_math.isnan(o) or _math.isinf(o)):
                 return None
             if isinstance(o, dict):
