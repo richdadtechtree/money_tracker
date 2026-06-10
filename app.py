@@ -1441,7 +1441,7 @@ def calc_position(transactions):
         tp = float(tx['price'] or 0)
         if tq <= 0:
             continue
-        if tx['tx_type'] == 'buy':
+        if tx['tx_type'] in ('buy', '매수'):
             new_qty = qty + tq
             avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
             qty = new_qty
@@ -1464,8 +1464,8 @@ def api_stocks():
         # SQL 기반 qty (대시보드·테크트리와 동일 기준, 음수 0 처리)
         cur.execute("""
             SELECT s.id,
-                GREATEST(0, COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0)
-                          - COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0)) AS qty
+                GREATEST(0, COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0)
+                          - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0)) AS qty
             FROM stocks s LEFT JOIN stock_tx t ON t.stock_id = s.id
             GROUP BY s.id
         """)
@@ -1656,10 +1656,10 @@ def api_etf():
         # SQL 기반 qty (대시보드·테크트리와 동일 기준, 음수 0 처리)
         cur.execute("""
             SELECT e.id,
-                GREATEST(0, COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0)
-                          - COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0)) AS qty,
-                COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
-                COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty
+                GREATEST(0, COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0)
+                          - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0)) AS qty,
+                COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+                COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty
             FROM etf e LEFT JOIN etf_tx t ON t.etf_id = e.id
             GROUP BY e.id
         """)
@@ -3168,9 +3168,9 @@ def _fetch_stock_rows(db):
     cur = db.cursor()
     cur.execute("""
         SELECT s.ticker, s.current_price,
-            COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
-            COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
-            COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
+            COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+            COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty,
+            COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
         FROM stocks s LEFT JOIN stock_tx t ON t.stock_id = s.id
         GROUP BY s.id
     """)
@@ -3181,9 +3181,9 @@ def _fetch_etf_rows(db):
     cur = db.cursor()
     cur.execute("""
         SELECT e.ticker, e.current_price,
-            COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
-            COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty,
-            COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
+            COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+            COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty,
+            COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
         FROM etf e LEFT JOIN etf_tx t ON t.etf_id = e.id
         GROUP BY e.id
     """)
@@ -4203,7 +4203,7 @@ def api_stock_category_pnl():
         for tx in txs:
             tq = float(tx['quantity'] or 0.0)
             tp = float(tx['price'] or 0.0)
-            if tx['tx_type'] == 'buy':
+            if tx['tx_type'] in ('buy', '매수'):
                 new_qty = qty + tq
                 if new_qty > 0:
                     avg_cost = (qty * avg_cost + tq * tp) / new_qty
@@ -4403,8 +4403,8 @@ def api_investment_monthly():
     cur.execute("""
         WITH avg_costs AS (
             SELECT stock_id,
-                SUM(CASE WHEN tx_type='buy' THEN price*quantity ELSE 0 END) /
-                NULLIF(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE 0 END), 0) AS avg_cost
+                SUM(CASE WHEN tx_type IN ('buy','매수') THEN price*quantity ELSE 0 END) /
+                NULLIF(SUM(CASE WHEN tx_type IN ('buy','매수') THEN quantity ELSE 0 END), 0) AS avg_cost
             FROM stock_tx GROUP BY stock_id
         )
         SELECT to_char(t.tx_date::date, 'YYYY-MM') AS ym,
@@ -4412,7 +4412,7 @@ def api_investment_monthly():
         FROM stock_tx t
         JOIN avg_costs ac ON ac.stock_id = t.stock_id
         JOIN stocks s ON s.id = t.stock_id
-        WHERE t.tx_type = 'sell'
+        WHERE t.tx_type IN ('sell','매도')
         GROUP BY ym ORDER BY ym
     """, (ex_rate,))
     stocks_by_month = {r['ym']: float(r['realized_pnl']) for r in cur.fetchall()}
@@ -4422,8 +4422,8 @@ def api_investment_monthly():
     cur.execute("""
         WITH avg_costs AS (
             SELECT etf_id,
-                SUM(CASE WHEN tx_type='buy' THEN price*quantity ELSE 0 END) /
-                NULLIF(SUM(CASE WHEN tx_type='buy' THEN quantity ELSE 0 END), 0) AS avg_cost
+                SUM(CASE WHEN tx_type IN ('buy','매수') THEN price*quantity ELSE 0 END) /
+                NULLIF(SUM(CASE WHEN tx_type IN ('buy','매수') THEN quantity ELSE 0 END), 0) AS avg_cost
             FROM etf_tx GROUP BY etf_id
         )
         SELECT to_char(t.tx_date::date, 'YYYY-MM') AS ym,
@@ -4431,7 +4431,7 @@ def api_investment_monthly():
         FROM etf_tx t
         JOIN avg_costs ac ON ac.etf_id = t.etf_id
         JOIN etf e ON e.id = t.etf_id
-        WHERE t.tx_type = 'sell'
+        WHERE t.tx_type IN ('sell','매도')
         GROUP BY ym ORDER BY ym
     """, (ex_rate,))
     etf_by_month = {r['ym']: float(r['realized_pnl']) for r in cur.fetchall()}
@@ -5555,11 +5555,11 @@ def _api_tech_tree_data_inner():
         
         s_buy AS (
             SELECT COALESCE(SUM(price*quantity), 0) AS val FROM stock_tx 
-            WHERE tx_date >= %s AND tx_date < %s AND tx_type='buy'
+            WHERE tx_date >= %s AND tx_date < %s AND tx_type IN ('buy','매수')
         ),
         s_sell AS (
-            SELECT COALESCE(SUM(price*quantity), 0) AS val FROM stock_tx 
-            WHERE tx_date >= %s AND tx_date < %s AND tx_type='sell'
+            SELECT COALESCE(SUM(price*quantity), 0) AS val FROM stock_tx
+            WHERE tx_date >= %s AND tx_date < %s AND tx_type IN ('sell','매도')
         ),
         c_buy AS (
             SELECT COALESCE(SUM(buy_price*quantity), 0) AS val FROM crypto 
@@ -5641,7 +5641,7 @@ def _api_tech_tree_data_inner():
         qty = 0.0; avg_cost = 0.0
         for tx in txs:
             tq = float(tx['quantity']); tp = float(tx['price'])
-            if tx['tx_type'] == 'buy':
+            if tx['tx_type'] in ('buy', '매수'):
                 new_qty = qty + tq
                 avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
                 qty = new_qty
@@ -6242,8 +6242,8 @@ def api_asset_history():
     cur = db.cursor()
     cur.execute("""
         SELECT to_char(tx_date::date, 'YYYY-MM') as ym, 
-               COALESCE(SUM(CASE WHEN tx_type='buy' THEN price*quantity ELSE 0 END), 0) as s_buy,
-               COALESCE(SUM(CASE WHEN tx_type='sell' THEN price*quantity ELSE 0 END), 0) as s_sell
+               COALESCE(SUM(CASE WHEN tx_type IN ('buy','매수') THEN price*quantity ELSE 0 END), 0) as s_buy,
+               COALESCE(SUM(CASE WHEN tx_type IN ('sell','매도') THEN price*quantity ELSE 0 END), 0) as s_sell
         FROM stock_tx
         WHERE tx_date >= %s AND tx_date < %s
         GROUP BY ym
@@ -6412,7 +6412,7 @@ def api_tech_tree_detail():
             qty = 0.0; avg_cost = 0.0
             for tx in txs:
                 tq = float(tx['quantity']); tp = float(tx['price'])
-                if tx['tx_type'] == 'buy':
+                if tx['tx_type'] in ('buy', '매수'):
                     new_qty = qty + tq
                     avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
                     qty = new_qty
@@ -6513,8 +6513,8 @@ def api_tech_tree_detail():
         cur = db.cursor()
         cur.execute("""
         SELECT s.name, s.ticker, s.current_price,
-        COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
-        COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty
+        COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+        COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty
         FROM stocks s
         LEFT JOIN stock_tx t ON t.stock_id = s.id
         GROUP BY s.id
@@ -6531,8 +6531,8 @@ def api_tech_tree_detail():
         cur = db.cursor()
         cur.execute("""
         SELECT e.name, e.ticker, e.current_price,
-        COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0) AS buy_qty,
-        COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS sell_qty
+        COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+        COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty
         FROM etf e
         LEFT JOIN etf_tx t ON t.etf_id = e.id
         GROUP BY e.id
@@ -7498,13 +7498,13 @@ def api_assets_detailed():
         # 주식 (수량은 stock_tx 기반 계산)
         cur.execute("""
             SELECT s.name, s.ticker, s.current_price,
-                COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0)
-              - COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS qty
+                COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0)
+              - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS qty
             FROM stocks s
             LEFT JOIN stock_tx t ON t.stock_id = s.id
             GROUP BY s.id, s.name, s.ticker, s.current_price
-            HAVING (COALESCE(SUM(CASE WHEN t.tx_type='buy' THEN t.quantity ELSE 0 END), 0)
-                  - COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0)) > 0
+            HAVING (COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0)
+                  - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0)) > 0
         """)
         stocks = []
         for r in cur.fetchall():
@@ -7517,13 +7517,13 @@ def api_assets_detailed():
         # ETF (수량은 etf_tx 기반 계산)
         cur.execute("""
             SELECT e.name, e.ticker, e.current_price,
-                COALESCE(SUM(CASE WHEN t.tx_type='buy'  THEN t.quantity ELSE 0 END), 0)
-              - COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0) AS qty
+                COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0)
+              - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS qty
             FROM etf e
             LEFT JOIN etf_tx t ON t.etf_id = e.id
             GROUP BY e.id, e.name, e.ticker, e.current_price
-            HAVING (COALESCE(SUM(CASE WHEN t.tx_type='buy' THEN t.quantity ELSE 0 END), 0)
-                  - COALESCE(SUM(CASE WHEN t.tx_type='sell' THEN t.quantity ELSE 0 END), 0)) > 0
+            HAVING (COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0)
+                  - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0)) > 0
         """)
         etfs = []
         for r in cur.fetchall():
