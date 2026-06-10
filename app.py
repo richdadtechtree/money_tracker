@@ -1486,7 +1486,7 @@ def api_stocks():
                 qty      = sql_qty.get(s['id'], 0.0)
                 _, avg, realized = calc_position(tx_by_stock[s['id']])
                 avg      = avg if (avg is not None and avg == avg) else 0.0  # NaN guard
-                eval_amt = round(qty * float(s['current_price'] or 0))
+                eval_amt = round(qty * _sf(s['current_price']))
                 cost_amt = round(qty * avg)
                 s['quantity']       = qty
                 s['avg_price']      = avg if qty > 0 else None
@@ -1681,7 +1681,7 @@ def api_etf():
                 qty      = info['qty']
                 _, avg, realized = calc_position(tx_by_etf[e['id']])
                 avg      = avg if (avg is not None and avg == avg) else 0.0  # NaN guard
-                eval_amt = round(qty * float(e['current_price'] or 0))
+                eval_amt = round(qty * _sf(e['current_price']))
                 cost_amt = round(qty * avg)
                 e['quantity']       = qty
                 e['avg_price']      = avg if qty > 0 else None
@@ -2097,8 +2097,7 @@ def api_invest_plans():
             r['executed_amount'] = sum(s['executed_amount'] or 0
                                        for s in r['steps'] if s['is_executed'])
             # 현재가
-            r['current_price'] = (row['stock_current_price']
-                                  or row['etf_current_price'] or 0)
+            r['current_price'] = _sf(row['stock_current_price'] or row['etf_current_price'])
             result.append(r)
 
         db.close()
