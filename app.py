@@ -1575,7 +1575,9 @@ def api_stock_tx():
         cur.execute("SELECT name, ticker FROM stocks WHERE id=%s", (data.get('stock_id'),))
         s = cur.fetchone()
         sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
-        amt = -round(float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0)))
+        ticker = s['ticker'] if s else ''
+        ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
+        amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'stock_tx', new_id, amt, f"{sname} 매수", data.get('tx_date'))
     cur.close()
     db.commit()
@@ -1598,7 +1600,9 @@ def api_stock_tx_detail(rid):
             cur.execute("SELECT name, ticker FROM stocks WHERE id=%s", (data.get('stock_id'),))
             s = cur.fetchone()
             sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
-            amt = -round(float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0)))
+            ticker = s['ticker'] if s else ''
+            ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
+            amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
             _upsert_cash_adj(cur, 'stock_tx', rid, amt, f"{sname} 매수", data.get('tx_date'))
         else:
             _remove_cash_adj(cur, 'stock_tx', rid)
@@ -1730,7 +1734,9 @@ def api_etf_tx():
         cur.execute("SELECT name, ticker FROM etf WHERE id=%s", (data.get('etf_id'),))
         e = cur.fetchone()
         ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')
-        amt = -round(float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0)))
+        ticker = e['ticker'] if e else ''
+        ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
+        amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'etf_tx', new_id, amt, f"{ename} ETF 매수", data.get('tx_date'))
     cur.close()
     db.commit(); db.close()
@@ -1758,7 +1764,9 @@ def api_etf_tx_detail(rid):
         cur.execute("SELECT name, ticker FROM etf WHERE id=%s", (data.get('etf_id'),))
         e = cur.fetchone()
         ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')
-        amt = -round(float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0)))
+        ticker = e['ticker'] if e else ''
+        ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
+        amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'etf_tx', rid, amt, f"{ename} ETF 매수", data.get('tx_date'))
     else:
         _remove_cash_adj(cur, 'etf_tx', rid)
