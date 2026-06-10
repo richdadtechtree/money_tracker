@@ -2,6 +2,7 @@ import os
 import psycopg2
 from psycopg2.extras import DictCursor
 from psycopg2.pool import ThreadedConnectionPool
+import psycopg2.extensions
 
 def load_dotenv():
     env_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -21,15 +22,44 @@ def load_dotenv():
 load_dotenv()
 
 _pool = None
+_db_url = None
+
+def _make_conn(db_url):
+    """TCP keepalive + connect_timeout 옵션을 포함한 커넥션 생성"""
+    conn = psycopg2.connect(
+        db_url,
+        cursor_factory=DictCursor,
+        connect_timeout=10,
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=5,
+    )
+    conn.autocommit = False
+    return conn
+
+def _get_healthy_conn(pool, db_url):
+    """풀에서 커넥션을 꺼내되 끊긴 경우 재연결"""
+    conn = pool.getconn()
+    try:
+        conn.cursor().execute("SELECT 1")
+    except Exception:
+        try:
+            pool.putconn(conn, close=True)
+        except Exception:
+            pass
+        conn = _make_conn(db_url)
+    return conn
 
 def init_pool():
-    global _pool
+    global _pool, _db_url
     if _pool is None:
         db_url = os.environ.get('DATABASE_URL')
         if not db_url:
             raise ValueError("DATABASE_URL environment variable is not set")
-        # 커넥션 풀 초기화 (최소 2개, 최대 20개 연결 유지)
-        _pool = ThreadedConnectionPool(2, 20, db_url, cursor_factory=DictCursor)
+        _db_url = db_url
+        # 최소 1개, 최대 10개 (Render 무료 플랜 커넥션 한도 고려)
+        _pool = ThreadedConnectionPool(1, 10, db_url, cursor_factory=DictCursor)
 
 class PooledConnectionWrapper:
     def __init__(self, conn, is_request_scoped=False):
@@ -70,10 +100,10 @@ def get_db():
 
     if has_app_context():
         if not hasattr(g, 'db_conn'):
-            g.db_conn = _pool.getconn()
+            g.db_conn = _get_healthy_conn(_pool, _db_url)
         return PooledConnectionWrapper(g.db_conn, is_request_scoped=True)
     else:
-        conn = _pool.getconn()
+        conn = _get_healthy_conn(_pool, _db_url)
         return PooledConnectionWrapper(conn, is_request_scoped=False)
 
 
