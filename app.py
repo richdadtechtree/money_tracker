@@ -1475,18 +1475,24 @@ def api_stocks():
             tx_by_stock[tx['stock_id']].append(tx)
 
         result = []
-        for s in stocks:
-            qty      = sql_qty.get(s['id'], 0.0)       # SQL SUM 기반 (대시보드 일치)
-            _, avg, realized = calc_position(tx_by_stock[s['id']])  # FIFO avg/realized
-            eval_amt = round(qty * float(s['current_price'] or 0))
-            cost_amt = round(qty * avg)
-            s['quantity']       = qty
-            s['avg_price']      = avg if qty > 0 else None
-            s['eval_amount']    = eval_amt
-            s['unrealized_pnl'] = eval_amt - cost_amt
-            s['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
-            s['realized_pnl']   = round(realized)
-            result.append(s)
+        try:
+            for s in stocks:
+                qty      = sql_qty.get(s['id'], 0.0)
+                _, avg, realized = calc_position(tx_by_stock[s['id']])
+                avg      = avg if (avg is not None and avg == avg) else 0.0  # NaN guard
+                eval_amt = round(qty * float(s['current_price'] or 0))
+                cost_amt = round(qty * avg)
+                s['quantity']       = qty
+                s['avg_price']      = avg if qty > 0 else None
+                s['eval_amount']    = eval_amt
+                s['unrealized_pnl'] = eval_amt - cost_amt
+                s['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
+                s['realized_pnl']   = round(realized)
+                result.append(s)
+        except Exception as e:
+            import traceback
+            db.close()
+            return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
         db.close()
         return jsonify(result)
 
@@ -1663,21 +1669,27 @@ def api_etf():
             tx_by_etf[tx['etf_id']].append(tx)
 
         result = []
-        for e in etfs:
-            info     = sql_etf.get(e['id'], {'qty': 0.0, 'buy_qty': 0.0, 'sell_qty': 0.0})
-            qty      = info['qty']                         # SQL SUM 기반 (대시보드 일치)
-            _, avg, realized = calc_position(tx_by_etf[e['id']])  # FIFO avg/realized
-            eval_amt = round(qty * float(e['current_price'] or 0))
-            cost_amt = round(qty * avg)
-            e['quantity']       = qty
-            e['avg_price']      = avg if qty > 0 else None
-            e['eval_amount']    = eval_amt
-            e['unrealized_pnl'] = eval_amt - cost_amt
-            e['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
-            e['realized_pnl']   = round(realized)
-            e['buy_qty']        = info['buy_qty']
-            e['sell_qty']       = info['sell_qty']
-            result.append(e)
+        try:
+            for e in etfs:
+                info     = sql_etf.get(e['id'], {'qty': 0.0, 'buy_qty': 0.0, 'sell_qty': 0.0})
+                qty      = info['qty']
+                _, avg, realized = calc_position(tx_by_etf[e['id']])
+                avg      = avg if (avg is not None and avg == avg) else 0.0  # NaN guard
+                eval_amt = round(qty * float(e['current_price'] or 0))
+                cost_amt = round(qty * avg)
+                e['quantity']       = qty
+                e['avg_price']      = avg if qty > 0 else None
+                e['eval_amount']    = eval_amt
+                e['unrealized_pnl'] = eval_amt - cost_amt
+                e['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
+                e['realized_pnl']   = round(realized)
+                e['buy_qty']        = info['buy_qty']
+                e['sell_qty']       = info['sell_qty']
+                result.append(e)
+        except Exception as ex:
+            import traceback
+            db.close()
+            return jsonify({'error': str(ex), 'trace': traceback.format_exc()}), 500
         db.close()
         return jsonify(result)
 
