@@ -780,6 +780,11 @@ def init_db():
         "ALTER TABLE invest_plan_steps ADD COLUMN IF NOT EXISTS executed_shares NUMERIC(12,4)",
         "ALTER TABLE invest_plan_steps ADD COLUMN IF NOT EXISTS executed_amount BIGINT",
         "ALTER TABLE invest_plan_steps ALTER COLUMN trigger_price TYPE NUMERIC(14,4) USING trigger_price::NUMERIC",
+        # tx_type 한글 → 영문 정규화 (기존 '매수'/'매도' 데이터 수정)
+        "UPDATE stock_tx SET tx_type='buy'  WHERE tx_type='매수'",
+        "UPDATE stock_tx SET tx_type='sell' WHERE tx_type='매도'",
+        "UPDATE etf_tx   SET tx_type='buy'  WHERE tx_type='매수'",
+        "UPDATE etf_tx   SET tx_type='sell' WHERE tx_type='매도'",
     ]
     for sql in migrations:
         try:
