@@ -4157,6 +4157,54 @@ def api_cash_auto_adj_apply():
     return jsonify({'ok': True, 'account': account['name'], 'adjusted': total_adj, 'new_amount': new_amount})
 
 
+@app.route('/api/cash-auto-adjustments/recalc-foreign', methods=['POST'])
+def api_recalc_foreign_cash_adj():
+    """달러 ETF/주식 거래의 현금자동조정을 원화로 재계산"""
+    db = get_db()
+    cur = db.cursor()
+    ex = get_current_exchange_rate()
+    fixed = 0
+
+    # ETF 외화 거래 재계산
+    cur.execute("""
+        SELECT t.id, t.price, t.quantity, t.fee, t.tx_date,
+               e.name, e.ticker
+        FROM etf_tx t
+        JOIN etf e ON e.id = t.etf_id
+        WHERE t.tx_type IN ('buy','매수')
+    """)
+    for row in cur.fetchall():
+        if not is_foreign_ticker(row['ticker']):
+            continue
+        amt = -round((float(row['price']) * float(row['quantity']) + float(row['fee'] or 0)) * ex)
+        ename = f"{row['name']}({row['ticker']})"
+        c2 = db.cursor()
+        _upsert_cash_adj(c2, 'etf_tx', row['id'], amt, f"{ename} ETF 매수", row['tx_date'])
+        c2.close()
+        fixed += 1
+
+    # 주식 외화 거래 재계산
+    cur.execute("""
+        SELECT t.id, t.price, t.quantity, t.fee, t.tx_date,
+               s.name, s.ticker
+        FROM stock_tx t
+        JOIN stocks s ON s.id = t.stock_id
+        WHERE t.tx_type IN ('buy','매수')
+    """)
+    for row in cur.fetchall():
+        if not is_foreign_ticker(row['ticker']):
+            continue
+        amt = -round((float(row['price']) * float(row['quantity']) + float(row['fee'] or 0)) * ex)
+        sname = f"{row['name']}({row['ticker']})"
+        c2 = db.cursor()
+        _upsert_cash_adj(c2, 'stock_tx', row['id'], amt, f"{sname} 매수", row['tx_date'])
+        c2.close()
+        fixed += 1
+
+    cur.close()
+    db.commit(); db.close()
+    return jsonify({'ok': True, 'fixed': fixed, 'exchange_rate': ex})
+
 # ── API: 구분별 실현손익 ─────────────────────────────────────
 @app.route('/api/stock-category-pnl')
 def api_stock_category_pnl():

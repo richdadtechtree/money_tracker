@@ -48,9 +48,14 @@
       <i class="bi bi-lightning-charge-fill me-2 text-warning"></i>자동 조정 내역
       <span class="badge bg-success text-white ms-2 fs-xs">자동 반영됨</span>
     </h5>
-    <button class="btn btn-sm btn-outline-secondary" onclick="clearAdjustments()" id="btnClearAdj">
-      <i class="bi bi-x-circle me-1"></i>내역 초기화
-    </button>
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-outline-warning" onclick="recalcForeignAdj()" id="btnRecalcFgn" title="달러 ETF/주식 매수 금액을 현재 환율로 재계산">
+        <i class="bi bi-currency-exchange me-1"></i>달러→원화 재계산
+      </button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="clearAdjustments()" id="btnClearAdj">
+        <i class="bi bi-x-circle me-1"></i>내역 초기화
+      </button>
+    </div>
   </div>
   <div class="card-body">
     <p class="adj-hint small mb-3">
@@ -243,6 +248,23 @@ async function loadAutoAdjustments() {
             </tfoot>
           </table>
         </div>`;
+}
+
+async function recalcForeignAdj() {
+    const btn = document.getElementById('btnRecalcFgn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>재계산 중...';
+    try {
+        const res = await fetchJSON('/api/cash-auto-adjustments/recalc-foreign', { method: 'POST' });
+        if (res && res.ok) {
+            alert(`달러→원화 재계산 완료 (${res.fixed}건, 환율: ${res.exchange_rate.toLocaleString()}원)`);
+            grid.load();
+            loadAutoAdjustments();
+        }
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-currency-exchange me-1"></i>달러→원화 재계산';
+    }
 }
 
 async function clearAdjustments() {
