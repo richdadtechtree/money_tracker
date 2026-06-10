@@ -1591,18 +1591,19 @@ def api_stock_tx():
 
     data = request.json
     cur = db.cursor()
+    cur.execute("SELECT name, ticker FROM stocks WHERE id=%s", (data.get('stock_id'),))
+    s = cur.fetchone()
+    ticker = s['ticker'] if s else ''
+    ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
+
     cur.execute(
-    "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+    "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
     (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
-    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'))
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex)
     )
     new_id = cur.fetchone()[0]
     if data.get('tx_type') in ('buy', '매수'):
-        cur.execute("SELECT name, ticker FROM stocks WHERE id=%s", (data.get('stock_id'),))
-        s = cur.fetchone()
         sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
-        ticker = s['ticker'] if s else ''
-        ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
         amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'stock_tx', new_id, amt, f"{sname} 매수", data.get('tx_date'))
     cur.close()
@@ -1617,17 +1618,18 @@ def api_stock_tx_detail(rid):
     if request.method == 'PUT':
         data = request.json
         cur = db.cursor()
+        cur.execute("SELECT name, ticker FROM stocks WHERE id=%s", (data.get('stock_id'),))
+        s = cur.fetchone()
+        ticker = s['ticker'] if s else ''
+        ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
+
         cur.execute(
-        "UPDATE stock_tx SET stock_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s WHERE id=%s",
+        "UPDATE stock_tx SET stock_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s WHERE id=%s",
         (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
-        data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), rid)
+        data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, rid)
         )
         if data.get('tx_type') in ('buy', '매수'):
-            cur.execute("SELECT name, ticker FROM stocks WHERE id=%s", (data.get('stock_id'),))
-            s = cur.fetchone()
             sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
-            ticker = s['ticker'] if s else ''
-            ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
             amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
             _upsert_cash_adj(cur, 'stock_tx', rid, amt, f"{sname} 매수", data.get('tx_date'))
         else:
@@ -1756,18 +1758,19 @@ def api_etf_tx():
 
     data = request.json
     cur = db.cursor()
+    cur.execute("SELECT name, ticker FROM etf WHERE id=%s", (data.get('etf_id'),))
+    e = cur.fetchone()
+    ticker = e['ticker'] if e else ''
+    ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
+
     cur.execute(
-    "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+    "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
     (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
-    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'))
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex)
     )
     new_id = cur.fetchone()[0]
     if data.get('tx_type') == 'buy':
-        cur.execute("SELECT name, ticker FROM etf WHERE id=%s", (data.get('etf_id'),))
-        e = cur.fetchone()
         ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')
-        ticker = e['ticker'] if e else ''
-        ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
         amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'etf_tx', new_id, amt, f"{ename} ETF 매수", data.get('tx_date'))
     cur.close()
@@ -1787,17 +1790,18 @@ def api_etf_tx_detail(rid):
         return jsonify({'ok': True})
     data = request.json
     cur = db.cursor()
+    cur.execute("SELECT name, ticker FROM etf WHERE id=%s", (data.get('etf_id'),))
+    e = cur.fetchone()
+    ticker = e['ticker'] if e else ''
+    ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
+
     cur.execute(
-    "UPDATE etf_tx SET etf_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s WHERE id=%s",
+    "UPDATE etf_tx SET etf_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s WHERE id=%s",
     (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
-    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), rid)
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, rid)
     )
     if data.get('tx_type') == 'buy':
-        cur.execute("SELECT name, ticker FROM etf WHERE id=%s", (data.get('etf_id'),))
-        e = cur.fetchone()
         ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')
-        ticker = e['ticker'] if e else ''
-        ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
         amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'etf_tx', rid, amt, f"{ename} ETF 매수", data.get('tx_date'))
     else:
@@ -2562,26 +2566,36 @@ def api_split_buy_plan_linked_tx(pid):
         return jsonify({'error': '이 계획에 티커가 설정되지 않았습니다.'}), 400
 
     # stocks 테이블 먼저 확인
-    cur.execute("SELECT id FROM stocks WHERE UPPER(ticker) = UPPER(%s) LIMIT 1", (ticker,))
+    cur.execute("SELECT id, name, ticker FROM stocks WHERE UPPER(ticker) = UPPER(%s) LIMIT 1", (ticker,))
     stock = cur.fetchone()
     if stock:
+        ex = get_current_exchange_rate() if is_foreign_ticker(stock['ticker']) else 1.0
         cur.execute(
-            "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (stock['id'], tx_date, tx_type, price, quantity, fee, memo)
+            "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (stock['id'], tx_date, tx_type, price, quantity, fee, memo, ex)
         )
         new_id = cur.fetchone()['id']
+        if tx_type == 'buy':
+            sname = f"{stock['name']}({stock['ticker']})" if stock.get('ticker') else stock['name']
+            amt = -round((price * quantity + fee) * ex)
+            _upsert_cash_adj(cur, 'stock_tx', new_id, amt, f"{sname} 매수", tx_date)
         db.commit(); cur.close(); db.close()
         return jsonify({'ok': True, 'id': new_id, 'source': 'stock'}), 201
 
     # ETF 테이블 확인
-    cur.execute("SELECT id FROM etf WHERE UPPER(ticker) = UPPER(%s) LIMIT 1", (ticker,))
+    cur.execute("SELECT id, name, ticker FROM etf WHERE UPPER(ticker) = UPPER(%s) LIMIT 1", (ticker,))
     etf = cur.fetchone()
     if etf:
+        ex = get_current_exchange_rate() if is_foreign_ticker(etf['ticker']) else 1.0
         cur.execute(
-            "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (etf['id'], tx_date, tx_type, price, quantity, fee, memo)
+            "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (etf['id'], tx_date, tx_type, price, quantity, fee, memo, ex)
         )
         new_id = cur.fetchone()['id']
+        if tx_type == 'buy':
+            ename = f"{etf['name']}({etf['ticker']})" if etf.get('ticker') else etf['name']
+            amt = -round((price * quantity + fee) * ex)
+            _upsert_cash_adj(cur, 'etf_tx', new_id, amt, f"{ename} ETF 매수", tx_date)
         db.commit(); cur.close(); db.close()
         return jsonify({'ok': True, 'id': new_id, 'source': 'etf'}), 201
 
@@ -2594,8 +2608,10 @@ def api_split_buy_plan_linked_tx_delete(pid, source, tx_id):
     db = get_db()
     cur = db.cursor()
     if source == 'stock':
+        _remove_cash_adj(cur, 'stock_tx', tx_id)
         cur.execute("DELETE FROM stock_tx WHERE id = %s", (tx_id,))
     elif source == 'etf':
+        _remove_cash_adj(cur, 'etf_tx', tx_id)
         cur.execute("DELETE FROM etf_tx WHERE id = %s", (tx_id,))
     else:
         cur.close(); db.close()
@@ -2616,13 +2632,18 @@ def _is_krx_ticker(ticker: str) -> bool:
 def _fetch_price_and_52w_high(ticker: str) -> tuple:
     """Yahoo Finance API 한 번 호출로 현재가 + 52주 최고가 동시 조회.
     국내 종목은 .KS → .KQ 순으로 시도. 반환: (current_price, high_52w) — 실패 시 None"""
+    ticker = (ticker or '').strip()
+    if not ticker:
+        return None, None
+    if not _is_krx_ticker(ticker):
+        ticker = ticker.upper()
     syms = ([ticker + s for s in ['.KS', '.KQ']] if _is_krx_ticker(ticker) else [ticker])
     for sym in syms:
         try:
             res = http_req.get(
                 f'https://query2.finance.yahoo.com/v8/finance/chart/{sym}',
                 params={'interval': '1d', 'range': '5d'},
-                headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
+                headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Accept': 'application/json'},
                 timeout=8
             )
             if not res.ok:
@@ -2644,13 +2665,19 @@ import sys
 
 def _fetch_all_time_high(ticker: str) -> float | None:
     """Yahoo Finance 전체 이력 월봉으로 역사상 최고가(ATH) 조회."""
+    ticker = (ticker or '').strip()
+    if not ticker:
+        return None
+    if not _is_krx_ticker(ticker):
+        ticker = ticker.upper()
+    time.sleep(0.5)  # rate limit 방지
     syms = ([ticker + s for s in ['.KS', '.KQ']] if _is_krx_ticker(ticker) else [ticker])
     for sym in syms:
         try:
             res = http_req.get(
                 f'https://query2.finance.yahoo.com/v8/finance/chart/{sym}',
                 params={'interval': '1mo', 'range': 'max'},
-                headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
+                headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Accept': 'application/json'},
                 timeout=15
             )
             if not res.ok:
@@ -2659,7 +2686,7 @@ def _fetch_all_time_high(ticker: str) -> float | None:
             if not result:
                 continue
             highs = result[0].get('indicators', {}).get('quote', [{}])[0].get('high', [])
-            highs = [h for h in highs if h is not None]
+            highs = [h for h in highs if h is not None and not (isinstance(h, float) and math.isnan(h))]
             if highs:
                 return float(max(highs))
         except Exception as e:
@@ -2669,6 +2696,11 @@ def _fetch_all_time_high(ticker: str) -> float | None:
 
 def _fetch_alphavantage_price(ticker: str) -> float | None:
     """Alpha Vantage API로 현재가 조회 (env: ALPHAVANTAGE_API_KEY 필요)"""
+    ticker = (ticker or '').strip()
+    if not ticker:
+        return None
+    if not _is_krx_ticker(ticker):
+        ticker = ticker.upper()
     api_key = os.environ.get('ALPHAVANTAGE_API_KEY', '').strip()
     if not api_key:
         return None
@@ -2695,12 +2727,17 @@ def _fetch_alphavantage_price(ticker: str) -> float | None:
 
 def _fetch_stooq_price(ticker: str) -> float | None:
     """Stooq CSV 피드로 주식 현재가(종가) 조회"""
+    ticker = (ticker or '').strip()
+    if not ticker:
+        return None
+    if not _is_krx_ticker(ticker):
+        ticker = ticker.upper()
     try:
         stooq_sym = (ticker + '.kr') if _is_krx_ticker(ticker) else ticker
         res = http_req.get(
             f'https://stooq.com/q/l/?s={stooq_sym}&f=sd2t2ohlcv&h&e=csv',
             timeout=8,
-            headers={'User-Agent': 'Mozilla/5.0'}
+            headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
         )
         print(f'[price] stooq {stooq_sym}: status={res.status_code} body={res.text[:100]}', file=sys.stderr)
         if not res.ok:
@@ -2723,12 +2760,18 @@ def _fetch_stooq_price(ticker: str) -> float | None:
 
 def _fetch_yf_direct_price(ticker: str) -> float | None:
     """Yahoo Finance v8 API 직접 호출 (regularMarketPrice 또는 Close 종가 반영)"""
+    ticker = (ticker or '').strip()
+    if not ticker:
+        return None
+    if not _is_krx_ticker(ticker):
+        ticker = ticker.upper()
+    time.sleep(0.5)  # rate limit 방지
     try:
         yf_sym = (ticker + '.KS') if _is_krx_ticker(ticker) else ticker
         res = http_req.get(
             f'https://query2.finance.yahoo.com/v8/finance/chart/{yf_sym}',
             params={'interval': '1d', 'range': '5d'},
-            headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
+            headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Accept': 'application/json'},
             timeout=8
         )
         print(f'[price] yf_direct {yf_sym}: status={res.status_code} body={res.text[:100]}', file=sys.stderr)
@@ -2740,7 +2783,7 @@ def _fetch_yf_direct_price(ticker: str) -> float | None:
             if market_price is not None:
                 return float(market_price)
             closes = result[0].get('indicators', {}).get('quote', [{}])[0].get('close', [])
-            closes = [c for c in closes if c is not None]
+            closes = [c for c in closes if c is not None and not (isinstance(c, float) and math.isnan(c))]
             if closes:
                 return float(closes[-1])
     except Exception as e:
@@ -2750,6 +2793,11 @@ def _fetch_yf_direct_price(ticker: str) -> float | None:
 
 def _fetch_stock_price(ticker: str) -> float | None:
     """pykrx (국내) / yfinance (해외) 우선 시도 후 외부 HTTP API 순차 시도"""
+    ticker = (ticker or '').strip()
+    if not ticker:
+        return None
+    if not _is_krx_ticker(ticker):
+        ticker = ticker.upper()
     if _is_krx_ticker(ticker):
         # 1순위: pykrx
         if HAS_PYKRX:
@@ -2767,7 +2815,7 @@ def _fetch_stock_price(ticker: str) -> float | None:
         try:
             res = http_req.get(
                 f"https://m.stock.naver.com/api/stock/{ticker}/basic",
-                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://m.stock.naver.com/'},
+                headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Referer': 'https://m.stock.naver.com/'},
                 timeout=5
             )
             if res.ok:
@@ -2782,7 +2830,7 @@ def _fetch_stock_price(ticker: str) -> float | None:
         try:
             res = http_req.get(
                 f"https://polling.finance.naver.com/api/realtime/domestic/stock/{ticker}",
-                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/'},
+                headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Referer': 'https://finance.naver.com/'},
                 timeout=5
             )
             if res.ok:
@@ -2801,7 +2849,7 @@ def _fetch_stock_price(ticker: str) -> float | None:
                 res = http_req.get(
                     f'https://query2.finance.yahoo.com/v8/finance/chart/{sym}',
                     params={'interval': '1d', 'range': '5d'},
-                    headers={'User-Agent': 'Mozilla/5.0'},
+                    headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'},
                     timeout=5
                 )
                 if res.ok:
@@ -2815,25 +2863,29 @@ def _fetch_stock_price(ticker: str) -> float | None:
             print(f'[price] yahoo KS/KQ error {ticker}: {e}', file=sys.stderr)
 
     else:
+        # 해외 주식/ETF는 대문자로 변환하여 조회 시도
+        ticker = ticker.upper()
         price = _fetch_yf_direct_price(ticker)
-        if price:
+        if price is not None and not (isinstance(price, float) and math.isnan(price)):
             return price
         if HAS_YFINANCE:
             try:
                 t = yf.Ticker(ticker)
                 hist = t.history(period="5d")
                 if not hist.empty and 'Close' in hist.columns:
-                    return float(hist['Close'].iloc[-1])
+                    val = float(hist['Close'].iloc[-1])
+                    if not math.isnan(val):
+                        return val
             except Exception as e:
                 print(f'[price] yfinance error {ticker}: {e}', file=sys.stderr)
 
-    price = _fetch_stooq_price(ticker)
-    if price:
-        return price
-    price = _fetch_alphavantage_price(ticker)
-    if price:
-        return price
-    return None
+    if price is None or (isinstance(price, float) and math.isnan(price)):
+        price = _fetch_stooq_price(ticker)
+    if price is None or (isinstance(price, float) and math.isnan(price)):
+        price = _fetch_alphavantage_price(ticker)
+    if price is not None and isinstance(price, float) and (math.isnan(price) or math.isinf(price)):
+        return None
+    return price
 
 
 
@@ -3118,7 +3170,7 @@ def get_current_exchange_rate():
         r = http_req.get(
             'https://query2.finance.yahoo.com/v8/finance/chart/USDKRW=X',
             params={'interval': '1d', 'range': '5d'},
-            headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
+            headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Accept': 'application/json'},
             timeout=3
         )
         if r.ok:
@@ -4161,12 +4213,11 @@ def api_recalc_foreign_cash_adj():
     """달러 ETF/주식 거래의 현금자동조정을 원화로 재계산"""
     db = get_db()
     cur = db.cursor()
-    ex = get_current_exchange_rate()
     fixed = 0
 
     # ETF 외화 거래 재계산
     cur.execute("""
-        SELECT t.id, t.price, t.quantity, t.fee, t.tx_date,
+        SELECT t.id, t.price, t.quantity, t.fee, t.tx_date, t.exchange_rate,
                e.name, e.ticker
         FROM etf_tx t
         JOIN etf e ON e.id = t.etf_id
@@ -4175,7 +4226,8 @@ def api_recalc_foreign_cash_adj():
     for row in cur.fetchall():
         if not is_foreign_ticker(row['ticker']):
             continue
-        amt = -round((float(row['price']) * float(row['quantity']) + float(row['fee'] or 0)) * ex)
+        rate = float(row['exchange_rate'] or 1.0)
+        amt = -round((float(row['price']) * float(row['quantity']) + float(row['fee'] or 0)) * rate)
         ename = f"{row['name']}({row['ticker']})"
         c2 = db.cursor()
         _upsert_cash_adj(c2, 'etf_tx', row['id'], amt, f"{ename} ETF 매수", row['tx_date'])
@@ -4184,7 +4236,7 @@ def api_recalc_foreign_cash_adj():
 
     # 주식 외화 거래 재계산
     cur.execute("""
-        SELECT t.id, t.price, t.quantity, t.fee, t.tx_date,
+        SELECT t.id, t.price, t.quantity, t.fee, t.tx_date, t.exchange_rate,
                s.name, s.ticker
         FROM stock_tx t
         JOIN stocks s ON s.id = t.stock_id
@@ -4193,7 +4245,8 @@ def api_recalc_foreign_cash_adj():
     for row in cur.fetchall():
         if not is_foreign_ticker(row['ticker']):
             continue
-        amt = -round((float(row['price']) * float(row['quantity']) + float(row['fee'] or 0)) * ex)
+        rate = float(row['exchange_rate'] or 1.0)
+        amt = -round((float(row['price']) * float(row['quantity']) + float(row['fee'] or 0)) * rate)
         sname = f"{row['name']}({row['ticker']})"
         c2 = db.cursor()
         _upsert_cash_adj(c2, 'stock_tx', row['id'], amt, f"{sname} 매수", row['tx_date'])
@@ -4202,7 +4255,7 @@ def api_recalc_foreign_cash_adj():
 
     cur.close()
     db.commit(); db.close()
-    return jsonify({'ok': True, 'fixed': fixed, 'exchange_rate': ex})
+    return jsonify({'ok': True, 'fixed': fixed})
 
 # ── API: 구분별 실현손익 ─────────────────────────────────────
 @app.route('/api/stock-category-pnl')

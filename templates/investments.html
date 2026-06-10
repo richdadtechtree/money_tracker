@@ -786,7 +786,8 @@ const stockTxGrid = new GridTable({
     { key: 'quantity', type: 'number', align: 'end', step: 0.001 },
     { key: '_amount',  type: 'computed', align: 'end',
       compute: r => {
-        const krw = Math.round(toKrw(r.price * r.quantity, r.ticker));
+        const rate = r.exchange_rate || (isForeign(r.ticker) ? usdKrw : 1.0);
+        const krw = Math.round(r.price * r.quantity * rate);
         return `<span class="fw-semibold">${fmt(krw)}원</span>`;
       }},
     { key: 'fee',      type: 'number', align: 'end', step: 0.01,
@@ -882,7 +883,8 @@ const etfTxGrid = new GridTable({
     { key: 'quantity', type: 'number', align: 'end', step: 0.001 },
     { key: '_amount',  type: 'computed', align: 'end',
       compute: r => {
-        const krw = Math.round(toKrw(r.price * r.quantity, r.ticker));
+        const rate = r.exchange_rate || (isForeign(r.ticker) ? usdKrw : 1.0);
+        const krw = Math.round(r.price * r.quantity * rate);
         return `<span class="fw-semibold">${fmt(krw)}원</span>`;
       }},
     { key: 'fee',      type: 'number', align: 'end', step: 0.01,
