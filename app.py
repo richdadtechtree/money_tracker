@@ -2815,6 +2815,9 @@ def _fetch_stock_price(ticker: str) -> float | None:
             print(f'[price] yahoo KS/KQ error {ticker}: {e}', file=sys.stderr)
 
     else:
+        price = _fetch_yf_direct_price(ticker)
+        if price:
+            return price
         if HAS_YFINANCE:
             try:
                 t = yf.Ticker(ticker)
@@ -2824,13 +2827,10 @@ def _fetch_stock_price(ticker: str) -> float | None:
             except Exception as e:
                 print(f'[price] yfinance error {ticker}: {e}', file=sys.stderr)
 
-    price = _fetch_alphavantage_price(ticker)
-    if price:
-        return price
     price = _fetch_stooq_price(ticker)
     if price:
         return price
-    price = _fetch_yf_direct_price(ticker)
+    price = _fetch_alphavantage_price(ticker)
     if price:
         return price
     return None
