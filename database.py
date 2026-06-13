@@ -780,11 +780,12 @@ def init_db():
         "ALTER TABLE invest_plan_steps ADD COLUMN IF NOT EXISTS executed_shares NUMERIC(12,4)",
         "ALTER TABLE invest_plan_steps ADD COLUMN IF NOT EXISTS executed_amount BIGINT",
         "ALTER TABLE invest_plan_steps ALTER COLUMN trigger_price TYPE NUMERIC(14,4) USING trigger_price::NUMERIC",
-        # tx_type 한글 → 영문 정규화 (기존 '매수'/'매도' 데이터 수정)
         "UPDATE stock_tx SET tx_type='buy'  WHERE tx_type='매수'",
         "UPDATE stock_tx SET tx_type='sell' WHERE tx_type='매도'",
         "UPDATE etf_tx   SET tx_type='buy'  WHERE tx_type='매수'",
         "UPDATE etf_tx   SET tx_type='sell' WHERE tx_type='매도'",
+        "ALTER TABLE stock_tx ADD COLUMN IF NOT EXISTS realized_pnl REAL DEFAULT 0.0",
+        "ALTER TABLE etf_tx   ADD COLUMN IF NOT EXISTS realized_pnl REAL DEFAULT 0.0",
     ]
     for sql in migrations:
         try:
@@ -809,5 +810,68 @@ def init_db():
                     )
     except Exception:
         pass
+
+    # 기존 sell 거래내역 realized_pnl 보정
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                # 1. 주식 거래내역 보정
+                cur.execute("SELECT id, stock_id, tx_date, tx_type, price, quantity, fee, realized_pnl FROM stock_tx ORDER BY stock_id, tx_date, id")
+                all_stock_tx = cur.fetchall()
+                
+                from collections import defaultdict
+                tx_by_stock = defaultdict(list)
+                for tx in all_stock_tx:
+                    tx_by_stock[tx['stock_id']].append(tx)
+                
+                for stock_id, txs in tx_by_stock.items():
+                    qty = 0.0
+                    avg_cost = 0.0
+                    for tx in txs:
+                        tq = float(tx['quantity'] or 0)
+                        tp = float(tx['price'] or 0)
+                        if tq <= 0:
+                            continue
+                        if tx['tx_type'] in ('buy', '매수'):
+                            new_qty = qty + tq
+                            avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
+                            qty = new_qty
+                        else:
+                            if tx['realized_pnl'] is None or float(tx['realized_pnl']) == 0.0:
+                                pnl = (tp - avg_cost) * tq
+                                cur.execute("UPDATE stock_tx SET realized_pnl = %s WHERE id = %s", (pnl, tx['id']))
+                            qty = max(0.0, qty - tq)
+                            if qty == 0.0:
+                                avg_cost = 0.0
+                
+                # 2. ETF 거래내역 보정
+                cur.execute("SELECT id, etf_id, tx_date, tx_type, price, quantity, fee, realized_pnl FROM etf_tx ORDER BY etf_id, tx_date, id")
+                all_etf_tx = cur.fetchall()
+                
+                tx_by_etf = defaultdict(list)
+                for tx in all_etf_tx:
+                    tx_by_etf[tx['etf_id']].append(tx)
+                
+                for etf_id, txs in tx_by_etf.items():
+                    qty = 0.0
+                    avg_cost = 0.0
+                    for tx in txs:
+                        tq = float(tx['quantity'] or 0)
+                        tp = float(tx['price'] or 0)
+                        if tq <= 0:
+                            continue
+                        if tx['tx_type'] in ('buy', '매수'):
+                            new_qty = qty + tq
+                            avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
+                            qty = new_qty
+                        else:
+                            if tx['realized_pnl'] is None or float(tx['realized_pnl']) == 0.0:
+                                pnl = (tp - avg_cost) * tq
+                                cur.execute("UPDATE etf_tx SET realized_pnl = %s WHERE id = %s", (pnl, tx['id']))
+                            qty = max(0.0, qty - tq)
+                            if qty == 0.0:
+                                avg_cost = 0.0
+    except Exception as e:
+        print("Migration realized_pnl error:", e)
 
     conn.close()

@@ -144,6 +144,7 @@
                 <th class="text-end">수량</th>
                 <th class="text-end">거래금액</th>
                 <th class="text-end">수수료</th>
+                <th class="text-end">실현손익</th>
                 <th>메모</th>
                 <th class="text-center">삭제</th>
               </tr>
@@ -247,6 +248,7 @@
                 <th class="text-end">수량</th>
                 <th class="text-end">거래금액</th>
                 <th class="text-end">수수료</th>
+                <th class="text-end">실현손익</th>
                 <th>메모</th>
                 <th class="text-center">삭제</th>
               </tr>
@@ -713,6 +715,53 @@ function rateHtml(pct) {
   return `<span class="${cls} fw-semibold">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</span>`;
 }
 
+function bindTxEditFields(tr, r, isEtf) {
+  const typeSelect = tr.querySelector('[data-key="tx_type"]');
+  const pnlInput   = tr.querySelector('[data-key="realized_pnl"]');
+  const priceInput = tr.querySelector('[data-key="price"]');
+  const qtyInput   = tr.querySelector('[data-key="quantity"]');
+  const itemSelect  = tr.querySelector(isEtf ? '[data-key="etf_id"]' : '[data-key="stock_id"]');
+
+  if (!typeSelect || !pnlInput) return;
+
+  function updatePnlState() {
+    const txType = typeSelect.value;
+    if (txType === 'buy' || txType === '매수') {
+      pnlInput.value = '0';
+      pnlInput.disabled = true;
+    } else {
+      pnlInput.disabled = false;
+      const price = parseFloat((priceInput?.value || '0').replace(/,/g, '')) || 0;
+      const qty   = parseFloat((qtyInput?.value || '0').replace(/,/g, '')) || 0;
+      const itemId = itemSelect?.value;
+      
+      if (price && qty && itemId) {
+        const itemsList = isEtf ? allEtfs : allStocks;
+        const item = itemsList.find(x => String(x.id) === String(itemId));
+        if (item && item.avg_price != null) {
+          const avg = parseFloat(item.avg_price) || 0;
+          if (!pnlInput.value || pnlInput.value === '0' || pnlInput.dataset.autoFilled === 'true') {
+            const calculated = (price - avg) * qty;
+            pnlInput.value = calculated.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+            pnlInput.dataset.autoFilled = 'true';
+          }
+        }
+      }
+    }
+  }
+
+  typeSelect.addEventListener('change', updatePnlState);
+  if (priceInput) priceInput.addEventListener('input', updatePnlState);
+  if (qtyInput) qtyInput.addEventListener('input', updatePnlState);
+  if (itemSelect) itemSelect.addEventListener('change', updatePnlState);
+
+  pnlInput.addEventListener('input', () => {
+    pnlInput.dataset.autoFilled = 'false';
+  });
+
+  updatePnlState();
+}
+
 // ── 주식 포지션 ──
 const stockGrid = new GridTable({
   tableId: 'stockTable',
@@ -792,6 +841,11 @@ const stockTxGrid = new GridTable({
       }},
     { key: 'fee',      type: 'number', align: 'end', step: 0.01,
       render: (v, r) => v ? (isForeign(r?.ticker) ? fmtUsd(v) : fmt(v)) : '-' },
+    { key: 'realized_pnl', type: 'number', align: 'end',
+      render: (v, r) => {
+        if (r && (r.tx_type === 'buy' || r.tx_type === '매수')) return '-';
+        return pnlHtml(toKrw(v || 0, r?.ticker));
+      }},
     { key: 'memo',     type: 'text' },
   ],
   apiUrl: '/api/stock-tx',
@@ -805,6 +859,9 @@ const stockTxGrid = new GridTable({
   },
   onSave:   () => stockGrid.load(),
   onDelete: () => stockGrid.load(),
+  onStartEdit: (tr, r) => {
+    bindTxEditFields(tr, r, false);
+  },
 });
 
 // ── ETF 포지션 ──
@@ -889,6 +946,11 @@ const etfTxGrid = new GridTable({
       }},
     { key: 'fee',      type: 'number', align: 'end', step: 0.01,
       render: (v, r) => v ? (isForeign(r?.ticker) ? fmtUsd(v) : fmt(v)) : '-' },
+    { key: 'realized_pnl', type: 'number', align: 'end',
+      render: (v, r) => {
+        if (r && (r.tx_type === 'buy' || r.tx_type === '매수')) return '-';
+        return pnlHtml(toKrw(v || 0, r?.ticker));
+      }},
     { key: 'memo',     type: 'text' },
   ],
   apiUrl: '/api/etf-tx',
@@ -899,6 +961,9 @@ const etfTxGrid = new GridTable({
   onLoad: () => {},
   onSave:   () => etfGrid.load(),
   onDelete: () => etfGrid.load(),
+  onStartEdit: (tr, r) => {
+    bindTxEditFields(tr, r, true);
+  },
 });
 
 // ── 코인 ──

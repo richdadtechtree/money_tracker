@@ -1446,13 +1446,54 @@ def calc_position(transactions):
             avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
             qty = new_qty
         else:  # sell
-            realized += (tp - avg_cost) * tq
+            tx_realized = tx.get('realized_pnl')
+            if tx_realized is not None:
+                realized += float(tx_realized)
+            else:
+                realized += (tp - avg_cost) * tq
             qty = max(0.0, qty - tq)
             if qty == 0.0:
                 avg_cost = 0.0
     return qty, avg_cost, realized
 
 
+def get_default_realized_pnl(db, stock_id, tx_date, price, quantity, tx_type, is_etf=False, exclude_id=None):
+    if tx_type not in ('sell', '매도'):
+        return 0.0
+    cur = db.cursor()
+    table = 'etf_tx' if is_etf else 'stock_tx'
+    col = 'etf_id' if is_etf else 'stock_id'
+    
+    query = f"SELECT id, tx_date, tx_type, price, quantity, COALESCE(fee,0) as fee, COALESCE(realized_pnl,0) as realized_pnl FROM {table} WHERE {col} = %s"
+    params = [stock_id]
+    if exclude_id is not None:
+        query += " AND id != %s"
+        params.append(exclude_id)
+    query += " ORDER BY tx_date, id"
+    cur.execute(query, params)
+    all_txs = cur.fetchall()
+    cur.close()
+
+    qty = 0.0
+    avg_cost = 0.0
+    for tx in all_txs:
+        if tx['tx_date'] > tx_date:
+            continue
+        
+        tq = float(tx['quantity'] or 0)
+        tp = float(tx['price'] or 0)
+        if tq <= 0:
+            continue
+        if tx['tx_type'] in ('buy', '매수'):
+            new_qty = qty + tq
+            avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
+            qty = new_qty
+        else:
+            qty = max(0.0, qty - tq)
+            if qty == 0.0:
+                avg_cost = 0.0
+                
+    return (float(price) - avg_cost) * float(quantity)
 # ── API: 주식 ────────────────────────────────────────────────
 @app.route('/api/stocks', methods=['GET', 'POST'])
 def api_stocks():
@@ -1471,7 +1512,7 @@ def api_stocks():
         """)
         sql_qty = {r['id']: float(r['qty'] or 0) for r in cur.fetchall()}
         # avg_price / realized_pnl 은 calc_position(FIFO) 사용
-        cur.execute("SELECT stock_id, tx_type, price, quantity, COALESCE(fee,0) as fee FROM stock_tx ORDER BY stock_id, tx_date, id")
+        cur.execute("SELECT stock_id, tx_type, price, quantity, COALESCE(fee,0) as fee, COALESCE(realized_pnl,0) as realized_pnl FROM stock_tx ORDER BY stock_id, tx_date, id")
         all_tx = cur.fetchall()
         cur.close()
 
@@ -1596,10 +1637,18 @@ def api_stock_tx():
     ticker = s['ticker'] if s else ''
     ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
+    realized_pnl = data.get('realized_pnl')
+    if data.get('tx_type') not in ('sell', '매도'):
+        realized_pnl = 0.0
+    elif realized_pnl == "" or realized_pnl is None:
+        realized_pnl = get_default_realized_pnl(db, data.get('stock_id'), data.get('tx_date'), data.get('price', 0), data.get('quantity', 0), data.get('tx_type'))
+    else:
+        realized_pnl = float(realized_pnl)
+
     cur.execute(
-    "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+    "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate, realized_pnl) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
     (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
-    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex)
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, realized_pnl)
     )
     new_id = cur.fetchone()[0]
     if data.get('tx_type') in ('buy', '매수'):
@@ -1623,10 +1672,18 @@ def api_stock_tx_detail(rid):
         ticker = s['ticker'] if s else ''
         ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
+        realized_pnl = data.get('realized_pnl')
+        if data.get('tx_type') not in ('sell', '매도'):
+            realized_pnl = 0.0
+        elif realized_pnl == "" or realized_pnl is None:
+            realized_pnl = get_default_realized_pnl(db, data.get('stock_id'), data.get('tx_date'), data.get('price', 0), data.get('quantity', 0), data.get('tx_type'), exclude_id=rid)
+        else:
+            realized_pnl = float(realized_pnl)
+
         cur.execute(
-        "UPDATE stock_tx SET stock_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s WHERE id=%s",
+        "UPDATE stock_tx SET stock_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s, realized_pnl=%s WHERE id=%s",
         (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
-        data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, rid)
+        data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, realized_pnl, rid)
         )
         if data.get('tx_type') in ('buy', '매수'):
             sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
@@ -1667,7 +1724,7 @@ def api_etf():
         """)
         sql_etf = {r['id']: {'qty': float(r['qty'] or 0), 'buy_qty': float(r['buy_qty'] or 0), 'sell_qty': float(r['sell_qty'] or 0)}
                    for r in cur.fetchall()}
-        cur.execute("SELECT etf_id, tx_type, price, quantity, COALESCE(fee,0) as fee FROM etf_tx ORDER BY etf_id, tx_date, id")
+        cur.execute("SELECT etf_id, tx_type, price, quantity, COALESCE(fee,0) as fee, COALESCE(realized_pnl,0) as realized_pnl FROM etf_tx ORDER BY etf_id, tx_date, id")
         all_tx = cur.fetchall()
         cur.close()
 
@@ -1763,10 +1820,18 @@ def api_etf_tx():
     ticker = e['ticker'] if e else ''
     ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
+    realized_pnl = data.get('realized_pnl')
+    if data.get('tx_type') not in ('sell', '매도'):
+        realized_pnl = 0.0
+    elif realized_pnl == "" or realized_pnl is None:
+        realized_pnl = get_default_realized_pnl(db, data.get('etf_id'), data.get('tx_date'), data.get('price', 0), data.get('quantity', 0), data.get('tx_type'), is_etf=True)
+    else:
+        realized_pnl = float(realized_pnl)
+
     cur.execute(
-    "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+    "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate, realized_pnl) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
     (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
-    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex)
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, realized_pnl)
     )
     new_id = cur.fetchone()[0]
     if data.get('tx_type') == 'buy':
@@ -1795,10 +1860,18 @@ def api_etf_tx_detail(rid):
     ticker = e['ticker'] if e else ''
     ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
+    realized_pnl = data.get('realized_pnl')
+    if data.get('tx_type') not in ('sell', '매도'):
+        realized_pnl = 0.0
+    elif realized_pnl == "" or realized_pnl is None:
+        realized_pnl = get_default_realized_pnl(db, data.get('etf_id'), data.get('tx_date'), data.get('price', 0), data.get('quantity', 0), data.get('tx_type'), is_etf=True, exclude_id=rid)
+    else:
+        realized_pnl = float(realized_pnl)
+
     cur.execute(
-    "UPDATE etf_tx SET etf_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s WHERE id=%s",
+    "UPDATE etf_tx SET etf_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s, realized_pnl=%s WHERE id=%s",
     (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
-    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, rid)
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, realized_pnl, rid)
     )
     if data.get('tx_type') == 'buy':
         ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')

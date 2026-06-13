@@ -312,10 +312,12 @@ class GridTable {
       el.addEventListener('input', () => {
         const sel  = el.selectionStart;
         const prev = el.value;
+        const isNeg = prev.startsWith('-');
         const clean = prev.replace(/[^\d.]/g, '');
         const parts = clean.split('.');
         const intFmt = (parts[0] || '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-        const next = parts.length > 1 ? intFmt + '.' + parts[1] : intFmt;
+        let next = parts.length > 1 ? intFmt + '.' + parts[1] : intFmt;
+        if (isNeg) next = '-' + next;
         el.value = next;
         try { el.setSelectionRange(sel + next.length - prev.length, sel + next.length - prev.length); } catch {}
       });
