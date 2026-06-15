@@ -1651,10 +1651,14 @@ def api_stock_tx():
     data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, realized_pnl)
     )
     new_id = cur.fetchone()[0]
-    if data.get('tx_type') in ('buy', '매수'):
-        sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
+    tx_type = data.get('tx_type')
+    sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
+    if tx_type in ('buy', '매수'):
         amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'stock_tx', new_id, amt, f"{sname} 매수", data.get('tx_date'))
+    elif tx_type in ('sell', '매도'):
+        amt = round((float(data.get('price', 0)) * float(data.get('quantity', 0)) - float(data.get('fee', 0))) * ex)
+        _upsert_cash_adj(cur, 'stock_tx', new_id, amt, f"{sname} 매도", data.get('tx_date'))
     cur.close()
     db.commit()
     db.close()
@@ -1685,10 +1689,14 @@ def api_stock_tx_detail(rid):
         (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
         data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, realized_pnl, rid)
         )
-        if data.get('tx_type') in ('buy', '매수'):
-            sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
+        tx_type = data.get('tx_type')
+        sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
+        if tx_type in ('buy', '매수'):
             amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
             _upsert_cash_adj(cur, 'stock_tx', rid, amt, f"{sname} 매수", data.get('tx_date'))
+        elif tx_type in ('sell', '매도'):
+            amt = round((float(data.get('price', 0)) * float(data.get('quantity', 0)) - float(data.get('fee', 0))) * ex)
+            _upsert_cash_adj(cur, 'stock_tx', rid, amt, f"{sname} 매도", data.get('tx_date'))
         else:
             _remove_cash_adj(cur, 'stock_tx', rid)
         cur.close()
@@ -1834,10 +1842,14 @@ def api_etf_tx():
     data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, realized_pnl)
     )
     new_id = cur.fetchone()[0]
-    if data.get('tx_type') == 'buy':
-        ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')
+    tx_type = data.get('tx_type')
+    ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')
+    if tx_type in ('buy', '매수'):
         amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'etf_tx', new_id, amt, f"{ename} ETF 매수", data.get('tx_date'))
+    elif tx_type in ('sell', '매도'):
+        amt = round((float(data.get('price', 0)) * float(data.get('quantity', 0)) - float(data.get('fee', 0))) * ex)
+        _upsert_cash_adj(cur, 'etf_tx', new_id, amt, f"{ename} ETF 매도", data.get('tx_date'))
     cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True}), 201
@@ -1873,10 +1885,14 @@ def api_etf_tx_detail(rid):
     (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
     data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, realized_pnl, rid)
     )
-    if data.get('tx_type') == 'buy':
-        ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')
+    tx_type = data.get('tx_type')
+    ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')
+    if tx_type in ('buy', '매수'):
         amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'etf_tx', rid, amt, f"{ename} ETF 매수", data.get('tx_date'))
+    elif tx_type in ('sell', '매도'):
+        amt = round((float(data.get('price', 0)) * float(data.get('quantity', 0)) - float(data.get('fee', 0))) * ex)
+        _upsert_cash_adj(cur, 'etf_tx', rid, amt, f"{ename} ETF 매도", data.get('tx_date'))
     else:
         _remove_cash_adj(cur, 'etf_tx', rid)
     cur.close()
