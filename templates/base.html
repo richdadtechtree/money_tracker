@@ -327,8 +327,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ── 기존 웰컴 팝업 ──
-  function showWelcomePopup() {
-    if (sessionStorage.getItem('welcome_popup_shown')) return;
+  function showWelcomePopup(onClose) {
+    if (sessionStorage.getItem('welcome_popup_shown')) { if (onClose) onClose(); return; }
     fetch('/api/settings').then(r => r.ok ? r.json() : null).then(settings => {
       if (!settings) return;
       const config = settings.settings_popup_config || {};
@@ -366,12 +366,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           </div></div>`;
       }
       sessionStorage.setItem('welcome_popup_shown', 'true');
-      showPopup(html, null);
+      showPopup(html, onClose);
     }).catch(() => {});
   }
 
-  // 리밸런싱 알림 먼저, 클릭 후 웰컴 팝업 표시
-  await checkAndShowRbAlert(showWelcomePopup);
+  // 웰컴 팝업 먼저, 클릭 후 리밸런싱 알림 표시
+  showWelcomePopup(() => checkAndShowRbAlert(null));
 });
 
 // ── Page leave & navigation guards ───────────────────────────
