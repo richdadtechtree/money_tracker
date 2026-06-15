@@ -554,7 +554,11 @@
             <span class="badge bg-secondary ms-1 small" id="rb-unassigned-count">0</span>
           </div>
           <div class="card-body p-2">
-            <div id="rb-unassigned" class="d-flex flex-column gap-2" style="min-height:80px">
+            <div id="rb-unassigned" class="d-flex flex-column gap-2"
+                 style="min-height:80px"
+                 ondragover="rbZoneDragOver(event,this)"
+                 ondragleave="rbZoneDragLeave(event,this)"
+                 ondrop="rbZoneDrop(event,'unassigned',this)">
               <div class="text-muted small text-center py-3" id="rb-loading">로딩 중...</div>
             </div>
           </div>
@@ -572,7 +576,8 @@
                   <span class="fw-semibold" style="color:#3b82f6">📘 미국 장기채 <small class="text-muted">(목표 40%)</small></span>
                   <span class="badge bg-primary-subtle text-primary rb-pct" data-class="long_bond">0%</span>
                 </div>
-                <div class="rb-drop-zone d-flex flex-wrap gap-2" data-class="long_bond" style="min-height:40px"></div>
+                <div class="rb-drop-zone d-flex flex-wrap gap-2" data-class="long_bond" style="min-height:40px"
+                     ondragover="rbZoneDragOver(event,this)" ondragleave="rbZoneDragLeave(event,this)" ondrop="rbZoneDrop(event,'long_bond',this)"></div>
               </div>
             </div>
           </div>
@@ -584,7 +589,8 @@
                   <span class="fw-semibold" style="color:#10b981">📗 주식(S&amp;P) <small class="text-muted">(목표 30%)</small></span>
                   <span class="badge bg-success-subtle text-success rb-pct" data-class="equity">0%</span>
                 </div>
-                <div class="rb-drop-zone d-flex flex-wrap gap-2" data-class="equity" style="min-height:40px"></div>
+                <div class="rb-drop-zone d-flex flex-wrap gap-2" data-class="equity" style="min-height:40px"
+                     ondragover="rbZoneDragOver(event,this)" ondragleave="rbZoneDragLeave(event,this)" ondrop="rbZoneDrop(event,'equity',this)"></div>
               </div>
             </div>
           </div>
@@ -596,7 +602,8 @@
                   <span class="fw-semibold" style="color:#f59e0b">📒 미국 단기채 <small class="text-muted">(목표 15%)</small></span>
                   <span class="badge bg-warning-subtle text-warning rb-pct" data-class="short_bond">0%</span>
                 </div>
-                <div class="rb-drop-zone d-flex flex-wrap gap-2" data-class="short_bond" style="min-height:40px"></div>
+                <div class="rb-drop-zone d-flex flex-wrap gap-2" data-class="short_bond" style="min-height:40px"
+                     ondragover="rbZoneDragOver(event,this)" ondragleave="rbZoneDragLeave(event,this)" ondrop="rbZoneDrop(event,'short_bond',this)"></div>
               </div>
             </div>
           </div>
@@ -608,7 +615,8 @@
                   <span class="fw-semibold" style="color:#f97316">🥇 금 <small class="text-muted">(목표 7.5%)</small></span>
                   <span class="badge" style="background:#f97316" data-class="gold" id="rb-pct-gold">0%</span>
                 </div>
-                <div class="rb-drop-zone d-flex flex-wrap gap-2" data-class="gold" style="min-height:40px"></div>
+                <div class="rb-drop-zone d-flex flex-wrap gap-2" data-class="gold" style="min-height:40px"
+                     ondragover="rbZoneDragOver(event,this)" ondragleave="rbZoneDragLeave(event,this)" ondrop="rbZoneDrop(event,'gold',this)"></div>
               </div>
             </div>
           </div>
@@ -2412,16 +2420,27 @@ function renderRbChips() {
 
 let _rbDraggingKey = null;
 
-function _attachZoneListeners(el, onDrop) {
-  el.addEventListener('dragenter', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; el.style.outline = '2px dashed #6366f1'; });
-  el.addEventListener('dragover',  e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; el.style.outline = '2px dashed #6366f1'; });
-  el.addEventListener('dragleave', e => { if (!el.contains(e.relatedTarget)) el.style.outline = ''; });
-  el.addEventListener('drop', e => {
-    e.preventDefault();
-    el.style.outline = '';
-    const key = _rbDraggingKey || e.dataTransfer.getData('text/plain');
-    if (key) onDrop(key);
-  });
+// HTML ondragover/ondrop 속성으로 직접 호출되는 전역 함수
+function rbZoneDragOver(e, el) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  el.style.outline = '2px dashed #6366f1';
+}
+function rbZoneDragLeave(e, el) {
+  if (!el.contains(e.relatedTarget)) el.style.outline = '';
+}
+function rbZoneDrop(e, assetClass, el) {
+  e.preventDefault();
+  el.style.outline = '';
+  const key = _rbDraggingKey || e.dataTransfer.getData('text/plain');
+  if (!key) return;
+  if (assetClass === 'unassigned') {
+    delete rbAssignments[key];
+  } else {
+    rbAssignments[key] = assetClass;
+  }
+  renderRbChips();
+  updateRbChart();
 }
 
 function bindRbListeners() {
@@ -2431,17 +2450,6 @@ function bindRbListeners() {
     delete rbAssignments[btn.dataset.key];
     renderRbChips(); updateRbChart();
   });
-
-  _attachZoneListeners(document.getElementById('rb-unassigned'), key => {
-    delete rbAssignments[key]; renderRbChips(); updateRbChart();
-  });
-
-  document.querySelectorAll('.rb-drop-zone').forEach(zone => {
-    _attachZoneListeners(zone, key => {
-      rbAssignments[key] = zone.dataset.class; renderRbChips(); updateRbChart();
-    });
-  });
-
   document.getElementById('rb-cash-input').addEventListener('input', updateRbChart);
 }
 
