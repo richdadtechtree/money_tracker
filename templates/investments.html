@@ -665,6 +665,28 @@
 
 </div>
 
+<!-- 리밸런싱 알림 모달 -->
+<div class="modal fade" id="rbAlertModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold">
+          <i class="bi bi-bell-fill me-2 text-warning"></i>리밸런싱 알림
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="rbAlertBody"></div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">닫기</button>
+        <button type="button" class="btn btn-warning btn-sm" data-bs-dismiss="modal"
+                onclick="localStorage.removeItem('rb_alert_levels')">
+          <i class="bi bi-arrow-counterclockwise me-1"></i>알림 초기화
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- 구분별 수익률 모달 -->
 <div class="modal fade" id="catPnlModal" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-centered">
@@ -2365,6 +2387,7 @@ async function loadRebalance() {
   if (!rbListenersReady) { bindRbListeners(); rbListenersReady = true; }
   renderRbChips();
   updateRbChart();
+  checkRbAlert();
 }
 
 function rbKey(it) { return it.source_type + '_' + it.source_id; }
@@ -2520,6 +2543,66 @@ async function saveRebalance() {
 }
 
 document.querySelector('[href="#tab-rebalance"]').addEventListener('shown.bs.tab', loadRebalance);
+
+// ── 리밸런싱 알림 ─────────────────────────────────────────
+const RB_ALERT_KEY = 'rb_alert_levels';
+
+function checkRbAlert() {
+  const totals = getRbTotals();
+  const grandTotal = Object.values(totals).reduce((s, v) => s + v, 0);
+  if (grandTotal <= 0) return;
+
+  // 이전에 알림 보낸 편차 단계 (1% 단위 정수) 불러오기
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(RB_ALERT_KEY) || '{}'); } catch(e) {}
+
+  const alerts = [];
+  let needSave = false;
+
+  Object.keys(RB_TARGETS).forEach(cls => {
+    if (cls === 'cash') return; // 현금은 직접입력이라 제외
+    const actual = totals[cls] / grandTotal * 100;
+    const diff = actual - RB_TARGETS[cls];
+    const level = Math.floor(Math.abs(diff)); // 1% 단위 정수 (0이면 정상)
+    const prevLevel = saved[cls] ?? -1;       // -1 = 아직 한번도 체크 안함
+
+    if (level >= 1 && level !== prevLevel) {
+      alerts.push({ cls, label: RB_LABELS[cls], actual, target: RB_TARGETS[cls], diff });
+      saved[cls] = level;
+      needSave = true;
+    } else if (level === 0 && prevLevel > 0) {
+      // 정상 범위로 복귀 — 리셋
+      saved[cls] = 0;
+      needSave = true;
+    }
+  });
+
+  if (needSave) localStorage.setItem(RB_ALERT_KEY, JSON.stringify(saved));
+  if (!alerts.length) return;
+
+  const rows = alerts.map(a => {
+    const sign = a.diff >= 0 ? '+' : '';
+    const color = Math.abs(a.diff) >= 5 ? '#ef4444' : '#f59e0b';
+    return `<tr>
+      <td><span class="badge rounded-pill" style="background:${RB_COLORS[a.cls]}">${a.label}</span></td>
+      <td class="text-end fw-bold">${a.actual.toFixed(1)}%</td>
+      <td class="text-end text-muted">${a.target}%</td>
+      <td class="text-end fw-bold" style="color:${color}">${sign}${a.diff.toFixed(1)}%</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('rbAlertBody').innerHTML = `
+    <p class="text-muted small mb-3">
+      <i class="bi bi-info-circle me-1"></i>목표 비중 대비 <strong>±1% 이상</strong> 벗어난 자산군입니다.
+    </p>
+    <table class="table table-sm mb-0">
+      <thead><tr><th>자산군</th><th class="text-end">현재</th><th class="text-end">목표</th><th class="text-end">편차</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  const modal = bootstrap.Modal.getOrCreate(document.getElementById('rbAlertModal'));
+  modal.show();
+}
 
 </script>
 {% endblock %}
