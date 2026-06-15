@@ -240,83 +240,138 @@ document.querySelectorAll('#sidebar .nav-link').forEach(el => {
 document.addEventListener('DOMContentLoaded', async () => {
   // 로그인 상태일 때만 팝업 실행
   if (!document.getElementById('user-display-name')) return;
-  
-  if (!sessionStorage.getItem('welcome_popup_shown')) {
-    try {
-      const res = await fetch('/api/settings');
-      if (!res.ok) return;
-      const settings = await res.json();
-      
-      const config = settings.settings_popup_config || {};
-      const activePopups = [];
-      
-      // 1. 나의 행복 10계명
-      if (config.happiness_enabled && settings.settings_happiness && settings.settings_happiness.some(x => x && x.trim())) {
-        activePopups.push({ type: 'happiness', data: settings.settings_happiness });
-      }
-      // 2. 비전보드
-      if (config.vision_enabled && settings.settings_vision_board) {
-        activePopups.push({ type: 'vision', data: settings.settings_vision_board });
-      }
-      // 3. 목표
-      if (config.goals_enabled && settings.settings_goals && Object.values(settings.settings_goals).some(x => x && x.trim())) {
-        activePopups.push({ type: 'goals', data: settings.settings_goals });
-      }
-      
-      if (activePopups.length > 0) {
-        const chosen = activePopups[Math.floor(Math.random() * activePopups.length)];
-        const popupEl = document.getElementById('app-welcome-popup');
-        const contentEl = document.getElementById('popup-content-area');
-        
-        let html = '';
-        if (chosen.type === 'happiness') {
-          html = `
-            <div class="text-center">
-              <h5 class="fw-bold mb-3 text-success"><i class="bi bi-balloon-heart-fill me-2"></i>나의 행복 10계명</h5>
-              <ol class="list-group list-group-numbered list-group-flush text-start mx-auto" style="max-width: 440px; background: transparent;">
-                ${chosen.data.filter(x => x && x.trim()).map(x => `
-                  <li class="list-group-item border-0 py-1 bg-transparent" style="color: inherit; font-size: 0.9rem; padding-left: 0.5rem;">${x}</li>
-                `).join('')}
-              </ol>
-            </div>
-          `;
-        } else if (chosen.type === 'vision') {
-          html = `
-            <div class="text-center">
-              <h5 class="fw-bold mb-3 text-primary"><i class="bi bi-geo-alt-fill me-2"></i>나의 비전보드</h5>
-              <div class="d-flex justify-content-center align-items-center rounded overflow-hidden shadow-sm" style="max-height: 380px; background: rgba(0,0,0,0.03);">
-                <img src="${chosen.data}" alt="Vision Board" style="max-width: 100%; max-height: 380px; object-fit: contain;">
-              </div>
-            </div>
-          `;
-        } else if (chosen.type === 'goals') {
-          const g = chosen.data;
-          html = `
-            <div class="text-center">
-              <h5 class="fw-bold mb-3 text-warning"><i class="bi bi-trophy-fill me-2"></i>나의 성장 목표</h5>
-              <div class="row g-2 text-start small">
-                ${g.goal_1 ? `<div class="col-6"><div class="p-2 rounded bg-light border-0 h-100" style="color: inherit;"><strong class="text-warning">1년 목표</strong><p class="mb-0 mt-1" style="font-size:0.8rem; line-height:1.3;">${g.goal_1.replace(/\n/g, '<br>')}</p></div></div>` : ''}
-                ${g.goal_3 ? `<div class="col-6"><div class="p-2 rounded bg-light border-0 h-100" style="color: inherit;"><strong class="text-warning">3년 목표</strong><p class="mb-0 mt-1" style="font-size:0.8rem; line-height:1.3;">${g.goal_3.replace(/\n/g, '<br>')}</p></div></div>` : ''}
-                ${g.goal_5 ? `<div class="col-6"><div class="p-2 rounded bg-light border-0 h-100" style="color: inherit;"><strong class="text-warning">5년 목표</strong><p class="mb-0 mt-1" style="font-size:0.8rem; line-height:1.3;">${g.goal_5.replace(/\n/g, '<br>')}</p></div></div>` : ''}
-                ${g.goal_10 ? `<div class="col-6"><div class="p-2 rounded bg-light border-0 h-100" style="color: inherit;"><strong class="text-warning">10년 목표</strong><p class="mb-0 mt-1" style="font-size:0.8rem; line-height:1.3;">${g.goal_10.replace(/\n/g, '<br>')}</p></div></div>` : ''}
-              </div>
-            </div>
-          `;
-        }
-        
-        contentEl.innerHTML = html;
-        popupEl.classList.add('show');
-        sessionStorage.setItem('welcome_popup_shown', 'true');
 
-        popupEl.addEventListener('click', function closePopup() {
-          popupEl.classList.remove('show');
-          popupEl.removeEventListener('click', closePopup);
-        }, { once: true });
-      }
-    } catch (e) {
-      console.error('Failed to trigger welcome popup:', e);
+  const popupEl = document.getElementById('app-welcome-popup');
+  const contentEl = document.getElementById('popup-content-area');
+
+  function showPopup(html, onClose) {
+    contentEl.innerHTML = html;
+    popupEl.classList.add('show');
+    popupEl.addEventListener('click', function closePopup() {
+      popupEl.classList.remove('show');
+      popupEl.removeEventListener('click', closePopup);
+      if (onClose) setTimeout(onClose, 300);
+    }, { once: true });
+  }
+
+  // ── 리밸런싱 편차 알림 (매 세션 최초 1회, 편차 단계 변화 시) ──
+  async function checkAndShowRbAlert(thenCallback) {
+    const RB_TARGETS = { long_bond: 40, equity: 30, short_bond: 15, gold: 7.5, cash: 7.5 };
+    const RB_LABELS  = { long_bond: '미국 장기채', equity: '주식(S&P)', short_bond: '미국 단기채', gold: '금', cash: '현금' };
+    const RB_COLORS  = { long_bond: '#3b82f6', equity: '#10b981', short_bond: '#f59e0b', gold: '#f97316', cash: '#6b7280' };
+    const RB_ALERT_KEY = 'rb_alert_levels';
+
+    try {
+      const res = await fetch('/api/rebalance');
+      if (!res.ok) { if (thenCallback) thenCallback(); return; }
+      const data = await res.json();
+      const items = data.items || [];
+      const cashVal = data.cash || 0;
+
+      const totals = { long_bond: 0, equity: 0, short_bond: 0, gold: 0, cash: cashVal };
+      items.forEach(it => {
+        if (it.asset_class && totals[it.asset_class] !== undefined)
+          totals[it.asset_class] += it.eval_amount || 0;
+      });
+      const grandTotal = Object.values(totals).reduce((s, v) => s + v, 0);
+      if (grandTotal <= 0) { if (thenCallback) thenCallback(); return; }
+
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem(RB_ALERT_KEY) || '{}'); } catch(e) {}
+
+      const alerts = [];
+      let needSave = false;
+      Object.keys(RB_TARGETS).forEach(cls => {
+        if (cls === 'cash') return;
+        const actual = totals[cls] / grandTotal * 100;
+        const diff = actual - RB_TARGETS[cls];
+        const level = Math.floor(Math.abs(diff));
+        const prevLevel = saved[cls] ?? -1;
+        if (level >= 1 && level !== prevLevel) {
+          alerts.push({ cls, actual, diff });
+          saved[cls] = level;
+          needSave = true;
+        } else if (level === 0 && prevLevel > 0) {
+          saved[cls] = 0;
+          needSave = true;
+        }
+      });
+
+      if (needSave) localStorage.setItem(RB_ALERT_KEY, JSON.stringify(saved));
+
+      if (!alerts.length) { if (thenCallback) thenCallback(); return; }
+
+      const rows = alerts.map(a => {
+        const sign = a.diff >= 0 ? '+' : '';
+        const color = Math.abs(a.diff) >= 5 ? '#ef4444' : '#f59e0b';
+        return `<tr>
+          <td><span class="badge rounded-pill" style="background:${RB_COLORS[a.cls]};font-size:.75rem">${RB_LABELS[a.cls]}</span></td>
+          <td class="text-end fw-bold">${a.actual.toFixed(1)}%</td>
+          <td class="text-end text-muted">${RB_TARGETS[a.cls]}%</td>
+          <td class="text-end fw-bold" style="color:${color}">${sign}${a.diff.toFixed(1)}%</td>
+        </tr>`;
+      }).join('');
+
+      showPopup(`
+        <div class="text-center">
+          <h5 class="fw-bold mb-3 text-warning"><i class="bi bi-bell-fill me-2"></i>리밸런싱 알림</h5>
+          <p class="text-muted small mb-3">목표 비중 대비 <strong>±1% 이상</strong> 벗어난 자산이 있습니다.</p>
+          <table class="table table-sm mb-0 text-start">
+            <thead><tr><th>자산군</th><th class="text-end">현재</th><th class="text-end">목표</th><th class="text-end">편차</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`, thenCallback);
+    } catch(e) {
+      if (thenCallback) thenCallback();
     }
   }
+
+  // ── 기존 웰컴 팝업 ──
+  function showWelcomePopup() {
+    if (sessionStorage.getItem('welcome_popup_shown')) return;
+    fetch('/api/settings').then(r => r.ok ? r.json() : null).then(settings => {
+      if (!settings) return;
+      const config = settings.settings_popup_config || {};
+      const activePopups = [];
+      if (config.happiness_enabled && settings.settings_happiness && settings.settings_happiness.some(x => x && x.trim()))
+        activePopups.push({ type: 'happiness', data: settings.settings_happiness });
+      if (config.vision_enabled && settings.settings_vision_board)
+        activePopups.push({ type: 'vision', data: settings.settings_vision_board });
+      if (config.goals_enabled && settings.settings_goals && Object.values(settings.settings_goals).some(x => x && x.trim()))
+        activePopups.push({ type: 'goals', data: settings.settings_goals });
+      if (!activePopups.length) return;
+
+      const chosen = activePopups[Math.floor(Math.random() * activePopups.length)];
+      let html = '';
+      if (chosen.type === 'happiness') {
+        html = `<div class="text-center">
+          <h5 class="fw-bold mb-3 text-success"><i class="bi bi-balloon-heart-fill me-2"></i>나의 행복 10계명</h5>
+          <ol class="list-group list-group-numbered list-group-flush text-start mx-auto" style="max-width:440px;background:transparent;">
+            ${chosen.data.filter(x => x && x.trim()).map(x => `<li class="list-group-item border-0 py-1 bg-transparent" style="color:inherit;font-size:.9rem;padding-left:.5rem">${x}</li>`).join('')}
+          </ol></div>`;
+      } else if (chosen.type === 'vision') {
+        html = `<div class="text-center">
+          <h5 class="fw-bold mb-3 text-primary"><i class="bi bi-geo-alt-fill me-2"></i>나의 비전보드</h5>
+          <div class="d-flex justify-content-center align-items-center rounded overflow-hidden shadow-sm" style="max-height:380px;background:rgba(0,0,0,.03)">
+            <img src="${chosen.data}" alt="Vision Board" style="max-width:100%;max-height:380px;object-fit:contain"></div></div>`;
+      } else if (chosen.type === 'goals') {
+        const g = chosen.data;
+        html = `<div class="text-center">
+          <h5 class="fw-bold mb-3 text-warning"><i class="bi bi-trophy-fill me-2"></i>나의 성장 목표</h5>
+          <div class="row g-2 text-start small">
+            ${g.goal_1  ? `<div class="col-6"><div class="p-2 rounded bg-light border-0 h-100" style="color:inherit"><strong class="text-warning">1년 목표</strong><p class="mb-0 mt-1" style="font-size:.8rem;line-height:1.3">${g.goal_1.replace(/\n/g,'<br>')}</p></div></div>` : ''}
+            ${g.goal_3  ? `<div class="col-6"><div class="p-2 rounded bg-light border-0 h-100" style="color:inherit"><strong class="text-warning">3년 목표</strong><p class="mb-0 mt-1" style="font-size:.8rem;line-height:1.3">${g.goal_3.replace(/\n/g,'<br>')}</p></div></div>` : ''}
+            ${g.goal_5  ? `<div class="col-6"><div class="p-2 rounded bg-light border-0 h-100" style="color:inherit"><strong class="text-warning">5년 목표</strong><p class="mb-0 mt-1" style="font-size:.8rem;line-height:1.3">${g.goal_5.replace(/\n/g,'<br>')}</p></div></div>` : ''}
+            ${g.goal_10 ? `<div class="col-6"><div class="p-2 rounded bg-light border-0 h-100" style="color:inherit"><strong class="text-warning">10년 목표</strong><p class="mb-0 mt-1" style="font-size:.8rem;line-height:1.3">${g.goal_10.replace(/\n/g,'<br>')}</p></div></div>` : ''}
+          </div></div>`;
+      }
+      sessionStorage.setItem('welcome_popup_shown', 'true');
+      showPopup(html, null);
+    }).catch(() => {});
+  }
+
+  // 리밸런싱 알림 먼저, 클릭 후 웰컴 팝업 표시
+  await checkAndShowRbAlert(showWelcomePopup);
 });
 
 // ── Page leave & navigation guards ───────────────────────────
