@@ -246,6 +246,28 @@ class CustomJSONProvider(DefaultJSONProvider):
 app.json = CustomJSONProvider(app)
 
 # ── 버전 정보 ────────────────────────────────────────────────
+def _auto_increment_version():
+    version_file = os.path.join(os.path.dirname(__file__), 'version.json')
+    try:
+        data = {"version": "1.00", "updated": ""}
+        if os.path.exists(version_file):
+            with open(version_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        try:
+            v_num = float(data.get("version", "1.00"))
+            v_num = round(v_num + 0.01, 2)
+            data["version"] = f"{v_num:.2f}"
+        except ValueError:
+            data["version"] = "1.00"
+        from datetime import date
+        data["updated"] = str(date.today())
+        with open(version_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print("Version increment failed:", e)
+
+_auto_increment_version()
+
 def _load_version():
     try:
         with open(os.path.join(os.path.dirname(__file__), 'version.json'), 'r', encoding='utf-8') as f:
