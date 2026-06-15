@@ -2399,13 +2399,14 @@ function renderRbChips() {
 let _rbDraggingKey = null;
 
 function _attachZoneListeners(el, onDrop) {
-  el.addEventListener('dragenter', e => { e.preventDefault(); el.style.outline = '2px dashed #6366f1'; });
-  el.addEventListener('dragover',  e => { e.preventDefault(); el.style.outline = '2px dashed #6366f1'; });
+  el.addEventListener('dragenter', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; el.style.outline = '2px dashed #6366f1'; });
+  el.addEventListener('dragover',  e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; el.style.outline = '2px dashed #6366f1'; });
   el.addEventListener('dragleave', e => { if (!el.contains(e.relatedTarget)) el.style.outline = ''; });
   el.addEventListener('drop', e => {
     e.preventDefault();
     el.style.outline = '';
     const key = _rbDraggingKey || e.dataTransfer.getData('text/plain');
+    console.log('[RB drop]', key, '->', el.id || el.dataset.class);
     if (key) onDrop(key);
   });
 }
@@ -2417,6 +2418,7 @@ function bindRbListeners() {
     _rbDraggingKey = chip.dataset.key;
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', chip.dataset.key);
+    console.log('[RB dragstart]', _rbDraggingKey);
   });
   document.addEventListener('dragend', () => { _rbDraggingKey = null; });
 
