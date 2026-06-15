@@ -2370,9 +2370,9 @@ function rbChipHtml(it, inBucket) {
     data-key="${rbKey(it)}"
     data-src-type="${it.source_type}"
     data-src-id="${it.source_id}"
-    style="background:#e0e7ff;color:#3730a3;font-size:.8rem;cursor:grab;user-select:none"
+    style="background:#e0e7ff;color:#3730a3;font-size:.8rem;cursor:grab;user-select:none;pointer-events:auto"
     title="${it.name} | ${eval_fmt}">
-    <span style="pointer-events:none">${it.name}${it.ticker ? ` (${it.ticker})` : ''} <small>${eval_fmt}</small>${remove}</span>
+    <span style="pointer-events:none;display:inline-block">${it.name}${it.ticker ? ` (${it.ticker})` : ''} <small>${eval_fmt}</small>${remove}</span>
   </span>`;
 }
 
@@ -2396,53 +2396,45 @@ function renderRbChips() {
   });
 }
 
+let _rbDraggingKey = null;
+
+function _attachZoneListeners(el, onDrop) {
+  el.addEventListener('dragenter', e => { e.preventDefault(); el.style.outline = '2px dashed #6366f1'; });
+  el.addEventListener('dragover',  e => { e.preventDefault(); el.style.outline = '2px dashed #6366f1'; });
+  el.addEventListener('dragleave', e => { if (!el.contains(e.relatedTarget)) el.style.outline = ''; });
+  el.addEventListener('drop', e => {
+    e.preventDefault();
+    el.style.outline = '';
+    const key = _rbDraggingKey || e.dataTransfer.getData('text/plain');
+    if (key) onDrop(key);
+  });
+}
+
 function bindRbListeners() {
-  // 드래그 시작 — 이벤트 위임 (document)
   document.addEventListener('dragstart', e => {
     const chip = e.target.closest('.rb-chip');
     if (!chip) return;
+    _rbDraggingKey = chip.dataset.key;
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('rbKey',     chip.dataset.key);
-    e.dataTransfer.setData('rbSrcType', chip.dataset.srcType);
-    e.dataTransfer.setData('rbSrcId',   chip.dataset.srcId);
+    e.dataTransfer.setData('text/plain', chip.dataset.key);
   });
+  document.addEventListener('dragend', () => { _rbDraggingKey = null; });
 
-  // × 버튼 클릭 — 이벤트 위임
   document.addEventListener('click', e => {
     const btn = e.target.closest('.rb-remove');
     if (!btn) return;
     delete rbAssignments[btn.dataset.key];
-    renderRbChips();
-    updateRbChart();
+    renderRbChips(); updateRbChart();
   });
 
-  // 드롭존 dragover / drop
+  _attachZoneListeners(document.getElementById('rb-unassigned'), key => {
+    delete rbAssignments[key]; renderRbChips(); updateRbChart();
+  });
+
   document.querySelectorAll('.rb-drop-zone').forEach(zone => {
-    zone.addEventListener('dragover', e => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      zone.style.outline = '2px dashed #6366f1';
+    _attachZoneListeners(zone, key => {
+      rbAssignments[key] = zone.dataset.class; renderRbChips(); updateRbChart();
     });
-    zone.addEventListener('dragleave', e => {
-      if (!zone.contains(e.relatedTarget)) zone.style.outline = '';
-    });
-    zone.addEventListener('drop', e => {
-      e.preventDefault();
-      zone.style.outline = '';
-      const key     = e.dataTransfer.getData('rbKey');
-      const cls     = zone.dataset.class;
-      if (key) { rbAssignments[key] = cls; renderRbChips(); updateRbChart(); }
-    });
-  });
-
-  // 미배분 영역으로 되돌리기
-  const unEl = document.getElementById('rb-unassigned');
-  unEl.addEventListener('dragover', e => { e.preventDefault(); unEl.style.outline = '2px dashed #9ca3af'; });
-  unEl.addEventListener('dragleave', e => { if (!unEl.contains(e.relatedTarget)) unEl.style.outline = ''; });
-  unEl.addEventListener('drop', e => {
-    e.preventDefault(); unEl.style.outline = '';
-    const key = e.dataTransfer.getData('rbKey');
-    if (key) { delete rbAssignments[key]; renderRbChips(); updateRbChart(); }
   });
 
   document.getElementById('rb-cash-input').addEventListener('input', updateRbChart);
