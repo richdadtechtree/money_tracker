@@ -2338,115 +2338,123 @@ const RB_TARGETS = { long_bond: 40, equity: 30, short_bond: 15, gold: 7.5, cash:
 const RB_LABELS  = { long_bond: '미국 장기채', equity: '주식(S&P)', short_bond: '미국 단기채', gold: '금', cash: '현금' };
 const RB_COLORS  = { long_bond: '#3b82f6', equity: '#10b981', short_bond: '#f59e0b', gold: '#f97316', cash: '#6b7280' };
 
-let rbItems = [];         // 전체 종목 목록
-let rbAssignments = {};   // {source_type+source_id: asset_class}
+let rbItems = [];
+let rbAssignments = {};
 let rbCash = 0;
 let rbChartInst = null;
+let rbListenersReady = false;
 
 async function loadRebalance() {
   const data = await fetchJSON('/api/rebalance');
   if (!data) return;
   rbItems = data.items || [];
   rbCash  = data.cash || 0;
-
-  // 배분 복원
   rbAssignments = {};
   rbItems.forEach(it => {
-    if (it.asset_class) rbAssignments[it.source_type + it.source_id] = it.asset_class;
+    if (it.asset_class) rbAssignments[rbKey(it)] = it.asset_class;
   });
-
   document.getElementById('rb-cash-input').value = rbCash > 0 ? fmt(rbCash) : '';
-  renderRbItems();
+  if (!rbListenersReady) { bindRbListeners(); rbListenersReady = true; }
+  renderRbChips();
   updateRbChart();
 }
 
-function renderRbItems() {
-  // 미배분 목록
-  const unassigned = rbItems.filter(it => !rbAssignments[it.source_type + it.source_id]);
-  const unEl = document.getElementById('rb-unassigned');
-  document.getElementById('rb-loading').style.display = 'none';
-  document.getElementById('rb-unassigned-count').textContent = unassigned.length;
+function rbKey(it) { return it.source_type + '_' + it.source_id; }
 
-  unEl.innerHTML = unassigned.length === 0
-    ? '<div class="text-muted small text-center py-2">모두 배분 완료</div>'
-    : unassigned.map(it => rbChipHtml(it)).join('');
-
-  // 각 버킷 채우기
-  document.querySelectorAll('.rb-drop-zone').forEach(zone => {
-    const cls = zone.dataset.class;
-    const assigned = rbItems.filter(it => rbAssignments[it.source_type + it.source_id] === cls);
-    zone.innerHTML = assigned.length === 0
-      ? '<span class="text-muted small" style="opacity:.5">여기에 드래그</span>'
-      : assigned.map(it => rbChipHtml(it, true)).join('');
-  });
-
-  // 드래그 이벤트 바인딩
-  bindRbDrag();
-}
-
-function rbChipHtml(it, inBucket = false) {
+function rbChipHtml(it, inBucket) {
   const eval_fmt = it.eval_amount > 0 ? fmt(it.eval_amount) + '원' : '-';
-  return `<span class="badge rounded-pill px-3 py-2 rb-chip"
-    style="background:#e0e7ff;color:#3730a3;font-size:.82rem;cursor:grab"
+  const remove = inBucket
+    ? `<span class="rb-remove ms-1" data-key="${rbKey(it)}" style="cursor:pointer;opacity:.7">×</span>` : '';
+  return `<span class="badge rounded-pill px-2 py-1 rb-chip"
     draggable="true"
+    data-key="${rbKey(it)}"
     data-src-type="${it.source_type}"
     data-src-id="${it.source_id}"
+    style="background:#e0e7ff;color:#3730a3;font-size:.8rem;cursor:grab;user-select:none"
     title="${it.name} | ${eval_fmt}">
-    ${it.name}${it.ticker ? ` <small>(${it.ticker})</small>` : ''}
-    <small class="ms-1 opacity-75">${eval_fmt}</small>
-    ${inBucket ? `<span onclick="rbReturn(event,'${it.source_type}',${it.source_id})" style="cursor:pointer;margin-left:4px">×</span>` : ''}
+    <span style="pointer-events:none">${it.name}${it.ticker ? ` (${it.ticker})` : ''} <small>${eval_fmt}</small>${remove}</span>
   </span>`;
 }
 
-function bindRbDrag() {
-  document.querySelectorAll('.rb-chip[draggable]').forEach(chip => {
-    chip.addEventListener('dragstart', e => {
-      e.dataTransfer.setData('srcType', chip.dataset.srcType);
-      e.dataTransfer.setData('srcId',   chip.dataset.srcId);
-    });
-  });
-
-  document.querySelectorAll('.rb-drop-zone').forEach(zone => {
-    zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.background='#f0f9ff'; });
-    zone.addEventListener('dragleave', () => { zone.style.background=''; });
-    zone.addEventListener('drop', e => {
-      e.preventDefault(); zone.style.background='';
-      const srcType = e.dataTransfer.getData('srcType');
-      const srcId   = e.dataTransfer.getData('srcId');
-      rbAssignments[srcType + srcId] = zone.dataset.class;
-      renderRbItems();
-      updateRbChart();
-    });
-  });
-
-  // 미배분 영역에 드롭 (되돌리기)
+function renderRbChips() {
+  // 미배분
+  const unassigned = rbItems.filter(it => !rbAssignments[rbKey(it)]);
   const unEl = document.getElementById('rb-unassigned');
-  unEl.addEventListener('dragover', e => e.preventDefault());
-  unEl.addEventListener('drop', e => {
-    e.preventDefault();
-    const srcType = e.dataTransfer.getData('srcType');
-    const srcId   = e.dataTransfer.getData('srcId');
-    delete rbAssignments[srcType + srcId];
-    renderRbItems();
-    updateRbChart();
+  document.getElementById('rb-loading').style.display = 'none';
+  document.getElementById('rb-unassigned-count').textContent = unassigned.length;
+  unEl.innerHTML = unassigned.length === 0
+    ? '<div class="text-muted small text-center py-2">모두 배분 완료</div>'
+    : unassigned.map(it => rbChipHtml(it, false)).join('');
+
+  // 버킷별
+  document.querySelectorAll('.rb-drop-zone').forEach(zone => {
+    const cls = zone.dataset.class;
+    const assigned = rbItems.filter(it => rbAssignments[rbKey(it)] === cls);
+    zone.innerHTML = assigned.length === 0
+      ? '<span class="rb-placeholder text-muted small" style="pointer-events:none;opacity:.5">여기에 드래그</span>'
+      : assigned.map(it => rbChipHtml(it, true)).join('');
   });
 }
 
-function rbReturn(e, srcType, srcId) {
-  e.stopPropagation();
-  delete rbAssignments[srcType + srcId];
-  renderRbItems();
-  updateRbChart();
+function bindRbListeners() {
+  // 드래그 시작 — 이벤트 위임 (document)
+  document.addEventListener('dragstart', e => {
+    const chip = e.target.closest('.rb-chip');
+    if (!chip) return;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('rbKey',     chip.dataset.key);
+    e.dataTransfer.setData('rbSrcType', chip.dataset.srcType);
+    e.dataTransfer.setData('rbSrcId',   chip.dataset.srcId);
+  });
+
+  // × 버튼 클릭 — 이벤트 위임
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('.rb-remove');
+    if (!btn) return;
+    delete rbAssignments[btn.dataset.key];
+    renderRbChips();
+    updateRbChart();
+  });
+
+  // 드롭존 dragover / drop
+  document.querySelectorAll('.rb-drop-zone').forEach(zone => {
+    zone.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      zone.style.outline = '2px dashed #6366f1';
+    });
+    zone.addEventListener('dragleave', e => {
+      if (!zone.contains(e.relatedTarget)) zone.style.outline = '';
+    });
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      zone.style.outline = '';
+      const key     = e.dataTransfer.getData('rbKey');
+      const cls     = zone.dataset.class;
+      if (key) { rbAssignments[key] = cls; renderRbChips(); updateRbChart(); }
+    });
+  });
+
+  // 미배분 영역으로 되돌리기
+  const unEl = document.getElementById('rb-unassigned');
+  unEl.addEventListener('dragover', e => { e.preventDefault(); unEl.style.outline = '2px dashed #9ca3af'; });
+  unEl.addEventListener('dragleave', e => { if (!unEl.contains(e.relatedTarget)) unEl.style.outline = ''; });
+  unEl.addEventListener('drop', e => {
+    e.preventDefault(); unEl.style.outline = '';
+    const key = e.dataTransfer.getData('rbKey');
+    if (key) { delete rbAssignments[key]; renderRbChips(); updateRbChart(); }
+  });
+
+  document.getElementById('rb-cash-input').addEventListener('input', updateRbChart);
 }
 
 function getRbTotals() {
   const totals = { long_bond: 0, equity: 0, short_bond: 0, gold: 0, cash: 0 };
   rbItems.forEach(it => {
-    const cls = rbAssignments[it.source_type + it.source_id];
+    const cls = rbAssignments[rbKey(it)];
     if (cls && totals[cls] !== undefined) totals[cls] += it.eval_amount || 0;
   });
-  const cashVal = parseInt((document.getElementById('rb-cash-input').value || '').replace(/,/g,'')) || rbCash;
-  totals.cash = cashVal;
+  totals.cash = parseInt((document.getElementById('rb-cash-input')?.value || '').replace(/,/g,'')) || rbCash;
   return totals;
 }
 
@@ -2455,15 +2463,12 @@ function updateRbChart() {
   const grandTotal = Object.values(totals).reduce((s, v) => s + v, 0);
   document.getElementById('rb-total-amt').textContent = fmt(grandTotal) + '원';
 
-  // 비중 배지 업데이트
   document.querySelectorAll('.rb-pct').forEach(el => {
     const cls = el.dataset.class;
     const pct = grandTotal > 0 ? (totals[cls] / grandTotal * 100).toFixed(1) : 0;
     el.textContent = pct + '%';
   });
-  document.querySelector('[data-class="gold"]#rb-pct-gold') && (document.getElementById('rb-pct-gold').textContent = grandTotal > 0 ? (totals.gold / grandTotal * 100).toFixed(1) + '%' : '0%');
 
-  // 비교 테이블
   const rows = Object.keys(RB_TARGETS).map(cls => {
     const actual = grandTotal > 0 ? (totals[cls] / grandTotal * 100) : 0;
     const target = RB_TARGETS[cls];
@@ -2487,42 +2492,28 @@ function updateRbChart() {
       <tbody>${rows}</tbody>
     </table>`;
 
-  // 도넛 차트
   const ctx = document.getElementById('rbChart').getContext('2d');
-  const labels = Object.keys(RB_TARGETS).map(c => RB_LABELS[c]);
-  const values = Object.keys(RB_TARGETS).map(c => totals[c]);
-  const colors = Object.keys(RB_TARGETS).map(c => RB_COLORS[c]);
   if (rbChartInst) rbChartInst.destroy();
   rbChartInst = new Chart(ctx, {
     type: 'doughnut',
-    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 2 }] },
-    options: {
-      cutout: '60%',
-      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 10, font: { size: 11 } } } }
-    }
+    data: {
+      labels: Object.keys(RB_TARGETS).map(c => RB_LABELS[c]),
+      datasets: [{ data: Object.keys(RB_TARGETS).map(c => totals[c]), backgroundColor: Object.keys(RB_TARGETS).map(c => RB_COLORS[c]), borderWidth: 2 }]
+    },
+    options: { cutout: '60%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 10, font: { size: 11 } } } } }
   });
 }
 
 async function saveRebalance() {
   const cashVal = parseInt((document.getElementById('rb-cash-input').value || '').replace(/,/g,'')) || 0;
   const assignments = rbItems
-    .filter(it => rbAssignments[it.source_type + it.source_id])
-    .map(it => ({ source_type: it.source_type, source_id: it.source_id, asset_class: rbAssignments[it.source_type + it.source_id] }));
+    .filter(it => rbAssignments[rbKey(it)])
+    .map(it => ({ source_type: it.source_type, source_id: it.source_id, asset_class: rbAssignments[rbKey(it)] }));
   const res = await fetchJSON('/api/rebalance', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ assignments, cash: cashVal }) });
-  if (res?.ok) {
-    rbCash = cashVal;
-    showToast('리밸런싱 설정이 저장되었습니다.');
-  }
+  if (res?.ok) { rbCash = cashVal; showToast('리밸런싱 설정이 저장되었습니다.'); }
 }
 
-// 현금 입력 변경 시 차트 실시간 업데이트
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('rb-cash-input').addEventListener('input', updateRbChart);
-});
+document.querySelector('[href="#tab-rebalance"]').addEventListener('shown.bs.tab', loadRebalance);
 
-// 리밸런싱 탭 열릴 때 데이터 로드
-document.querySelector('[href="#tab-rebalance"]').addEventListener('shown.bs.tab', () => {
-  loadRebalance();
-});
 </script>
 {% endblock %}
