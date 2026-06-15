@@ -158,12 +158,22 @@ def _keep_alive():
     except Exception as e:
         print(f"[scheduler] keep-alive 실패: {e}")
 
+def _scheduled_price_update():
+    """매일 17:00 KST — 주식/ETF/코인 현재가 자동 업데이트"""
+    try:
+        with app.app_context():
+            _run_price_update_logic()
+            print("[scheduler] 17:00 가격 업데이트 완료")
+    except Exception as e:
+        print(f"[scheduler] 가격 업데이트 실패: {e}")
+
 if HAS_SCHEDULER:
     _scheduler = BackgroundScheduler(timezone='Asia/Seoul')
     _scheduler.add_job(_scheduled_snapshot, CronTrigger(hour=23, minute=59, second=30))
+    _scheduler.add_job(_scheduled_price_update, CronTrigger(hour=17, minute=0, second=0))
     _scheduler.add_job(_keep_alive, IntervalTrigger(minutes=10))
     _scheduler.start()
-    print("[scheduler] 시작: 매일 23:59:30 스냅샷 + 10분 keep-alive")
+    print("[scheduler] 시작: 매일 17:00 가격 업데이트 + 23:59:30 스냅샷 + 10분 keep-alive")
 
 def _clear_summary_cache():
     """수입/지출/자산 데이터 변경 시 모든 캐시 삭제"""
@@ -2139,6 +2149,103 @@ def _calc_invest_plan_steps(target_price, upper_pct, lower_pct,
         })
 
     return steps
+
+
+@app.route('/api/rebalance', methods=['GET'])
+def api_rebalance_get():
+    """올웨더 자산 배분 현황 조회"""
+    db = get_db()
+    cur = db.cursor()
+
+    # 저장된 배분 설정 조회
+    cur.execute("SELECT * FROM rebalance_assignments")
+    assignments = {(r['source_type'], r['source_id']): dict(r) for r in cur.fetchall()}
+
+    # 올웨더 ETF 조회 (현재 평가액 포함)
+    cur.execute("""
+        SELECT e.id, e.name, e.ticker, e.current_price, e.category,
+               GREATEST(0,
+                 COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END),0)
+               - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END),0)
+               ) AS qty
+        FROM etf e
+        LEFT JOIN etf_tx t ON t.etf_id = e.id
+        WHERE LOWER(e.category) LIKE '%올웨더%'
+        GROUP BY e.id
+    """)
+    etfs = rows_to_list(cur.fetchall())
+
+    # 올웨더 주식 조회
+    cur.execute("""
+        SELECT s.id, s.name, s.ticker, s.current_price, s.category,
+               GREATEST(0,
+                 COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END),0)
+               - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END),0)
+               ) AS qty
+        FROM stocks s
+        LEFT JOIN stock_tx t ON t.stock_id = s.id
+        WHERE LOWER(s.category) LIKE '%올웨더%'
+        GROUP BY s.id
+    """)
+    stocks = rows_to_list(cur.fetchall())
+    cur.close()
+    db.close()
+
+    # 현재가 × 수량 = 평가액 계산
+    result_items = []
+    for item in etfs:
+        key = ('etf', item['id'])
+        asgn = assignments.get(key, {})
+        eval_amt = round(float(item['qty'] or 0) * float(item['current_price'] or 0))
+        result_items.append({
+            'source_type': 'etf', 'source_id': item['id'],
+            'name': item['name'], 'ticker': item['ticker'],
+            'eval_amount': eval_amt,
+            'asset_class': asgn.get('asset_class', ''),
+        })
+    for item in stocks:
+        key = ('stock', item['id'])
+        asgn = assignments.get(key, {})
+        eval_amt = round(float(item['qty'] or 0) * float(item['current_price'] or 0))
+        result_items.append({
+            'source_type': 'stock', 'source_id': item['id'],
+            'name': item['name'], 'ticker': item['ticker'],
+            'eval_amount': eval_amt,
+            'asset_class': asgn.get('asset_class', ''),
+        })
+
+    # 현금 항목
+    cash_row = assignments.get(('cash', 0), {})
+    cash_amount = int(cash_row.get('cash_amount', 0) or 0)
+
+    return jsonify({'items': result_items, 'cash': cash_amount})
+
+
+@app.route('/api/rebalance', methods=['POST'])
+def api_rebalance_save():
+    """올웨더 자산 배분 설정 저장"""
+    db = get_db()
+    d = request.json or {}
+    assignments = d.get('assignments', [])  # [{source_type, source_id, asset_class}]
+    cash = int(d.get('cash', 0) or 0)
+    cur = db.cursor()
+    for a in assignments:
+        cur.execute("""
+            INSERT INTO rebalance_assignments (source_type, source_id, asset_class)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (source_type, source_id)
+            DO UPDATE SET asset_class = EXCLUDED.asset_class
+        """, (a['source_type'], a['source_id'], a['asset_class']))
+    # 현금 저장
+    cur.execute("""
+        INSERT INTO rebalance_assignments (source_type, source_id, asset_class, cash_amount)
+        VALUES ('cash', 0, 'cash', %s)
+        ON CONFLICT (source_type, source_id)
+        DO UPDATE SET asset_class='cash', cash_amount=EXCLUDED.cash_amount
+    """, (cash,))
+    cur.close()
+    db.commit(); db.close()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/invest-plans', methods=['GET', 'POST'])

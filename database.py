@@ -786,6 +786,14 @@ def init_db():
         "UPDATE etf_tx   SET tx_type='sell' WHERE tx_type='매도'",
         "ALTER TABLE stock_tx ADD COLUMN IF NOT EXISTS realized_pnl REAL DEFAULT 0.0",
         "ALTER TABLE etf_tx   ADD COLUMN IF NOT EXISTS realized_pnl REAL DEFAULT 0.0",
+        """CREATE TABLE IF NOT EXISTS rebalance_assignments (
+            id          SERIAL PRIMARY KEY,
+            source_type TEXT NOT NULL,
+            source_id   INTEGER NOT NULL,
+            asset_class TEXT NOT NULL,
+            UNIQUE(source_type, source_id)
+        )""",
+        "ALTER TABLE rebalance_assignments ADD COLUMN IF NOT EXISTS cash_amount BIGINT DEFAULT 0",
     ]
     for sql in migrations:
         try:
