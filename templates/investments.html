@@ -2394,6 +2394,20 @@ function renderRbChips() {
       ? '<span class="rb-placeholder text-muted small" style="pointer-events:none;opacity:.5">여기에 드래그</span>'
       : assigned.map(it => rbChipHtml(it, true)).join('');
   });
+
+  // 각 칩에 dragstart 직접 바인딩 (가용자산 계산기와 동일한 방식)
+  document.querySelectorAll('.rb-chip').forEach(chip => {
+    chip.addEventListener('dragstart', e => {
+      _rbDraggingKey = chip.dataset.key;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', chip.dataset.key);
+      chip.style.opacity = '0.5';
+    });
+    chip.addEventListener('dragend', () => {
+      chip.style.opacity = '';
+      _rbDraggingKey = null;
+    });
+  });
 }
 
 let _rbDraggingKey = null;
@@ -2406,22 +2420,11 @@ function _attachZoneListeners(el, onDrop) {
     e.preventDefault();
     el.style.outline = '';
     const key = _rbDraggingKey || e.dataTransfer.getData('text/plain');
-    console.log('[RB drop]', key, '->', el.id || el.dataset.class);
     if (key) onDrop(key);
   });
 }
 
 function bindRbListeners() {
-  document.addEventListener('dragstart', e => {
-    const chip = e.target.closest('.rb-chip');
-    if (!chip) return;
-    _rbDraggingKey = chip.dataset.key;
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', chip.dataset.key);
-    console.log('[RB dragstart]', _rbDraggingKey);
-  });
-  document.addEventListener('dragend', () => { _rbDraggingKey = null; });
-
   document.addEventListener('click', e => {
     const btn = e.target.closest('.rb-remove');
     if (!btn) return;
