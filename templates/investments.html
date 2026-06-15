@@ -2388,7 +2388,8 @@ function renderRbChips() {
   // 미배분
   const unassigned = rbItems.filter(it => !rbAssignments[rbKey(it)]);
   const unEl = document.getElementById('rb-unassigned');
-  document.getElementById('rb-loading').style.display = 'none';
+  const rbLoading = document.getElementById('rb-loading');
+  if (rbLoading) rbLoading.style.display = 'none';
   document.getElementById('rb-unassigned-count').textContent = unassigned.length;
   unEl.innerHTML = unassigned.length === 0
     ? '<div class="text-muted small text-center py-2">모두 배분 완료</div>'
