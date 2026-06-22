@@ -3364,23 +3364,42 @@ def get_current_exchange_rate():
             'https://query2.finance.yahoo.com/v8/finance/chart/USDKRW=X',
             params={'interval': '1d', 'range': '5d'},
             headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Accept': 'application/json'},
-            timeout=3
+            timeout=8
         )
         if r.ok:
             result = r.json().get('chart', {}).get('result', [])
             if result:
                 closes = result[0].get('indicators', {}).get('quote', [{}])[0].get('close', [])
                 closes = [c for c in closes if c is not None]
+                rate = None
                 if closes:
                     rate = round(closes[-1], 2)
+                else:
+                    meta_price = result[0].get('meta', {}).get('regularMarketPrice')
+                    if meta_price:
+                        rate = round(meta_price, 2)
+                if rate:
                     _exchange_rate_cache['rate'] = rate
                     _exchange_rate_cache['last_updated'] = now
                     return rate
     except Exception:
         pass
-    
-    # 실패 시 캐시 수명을 살짝 늘려(5분) 잦은 재시도 방지
-    _exchange_rate_cache['last_updated'] = now - 3300 
+
+    # 보조 API (exchangerate.host) — Yahoo 실패 시 시도
+    try:
+        r2 = http_req.get('https://open.er-api.com/v6/latest/USD', timeout=8)
+        if r2.ok:
+            krw = r2.json().get('rates', {}).get('KRW')
+            if krw:
+                rate = round(krw, 2)
+                _exchange_rate_cache['rate'] = rate
+                _exchange_rate_cache['last_updated'] = now
+                return rate
+    except Exception:
+        pass
+
+    # 모두 실패 시 캐시 수명을 살짝 늘려(5분) 잦은 재시도 방지
+    _exchange_rate_cache['last_updated'] = now - 3300
     return _exchange_rate_cache['rate']
 
 def is_foreign_ticker(ticker):
