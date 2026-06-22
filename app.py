@@ -3475,7 +3475,7 @@ def get_real_estate_value(db):
         price = float(prop['current_price'] or 0)
         cur.execute(
             "SELECT payment_type, amount FROM real_estate_payments "
-            "WHERE real_estate_id=%s AND direction='buy' AND actual_date IS NOT NULL AND actual_date <= CURRENT_DATE",
+            "WHERE real_estate_id=%s AND direction='buy' AND actual_date IS NOT NULL AND actual_date::date <= CURRENT_DATE",
             (rid,)
         )
         payments = cur.fetchall()
