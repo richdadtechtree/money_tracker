@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, Response, session, redirect
+from flask import Flask, render_template, request, jsonify, Response, session, redirect, g
 from flask_cors import CORS
 from database import get_db, init_db
 from datetime import datetime, date
