@@ -3459,6 +3459,37 @@ def get_stocks_etf_totals(db, ex_rate):
     e_val, e_cost = _calc_asset_totals(_fetch_etf_rows(db), ex_rate)
     return s_val, s_cost, e_val, e_cost
 
+def get_real_estate_value(db):
+    """
+    부동산 평가가치 합계.
+    잔금(최종 납입)이 실제 완료된 매물만 current_price 전액을 반영하고,
+    아직 잔금을 치르지 않은 매물은 지금까지 실제 지급한 금액(계약금/중도금 등, actual_date 도달분)만 반영한다.
+    결제 일정이 전혀 등록되지 않은 매물(레거시 데이터)은 기존처럼 current_price 전액을 반영한다.
+    """
+    cur = db.cursor()
+    cur.execute("SELECT id, current_price FROM real_estate")
+    properties = cur.fetchall()
+    total = 0.0
+    for prop in properties:
+        rid = prop['id']
+        price = float(prop['current_price'] or 0)
+        cur.execute(
+            "SELECT payment_type, amount FROM real_estate_payments "
+            "WHERE real_estate_id=%s AND direction='buy' AND actual_date IS NOT NULL AND actual_date <= CURRENT_DATE",
+            (rid,)
+        )
+        payments = cur.fetchall()
+        if not payments:
+            total += price
+            continue
+        final_paid = any(p['payment_type'] == '잔금' for p in payments)
+        if final_paid:
+            total += price
+        else:
+            total += sum(float(p['amount'] or 0) for p in payments)
+    cur.close()
+    return total
+
 # 하위 호환 래퍼 (기존 호출부 유지)
 def get_stocks_total_value(db, ex_rate):
     return get_stocks_etf_totals(db, ex_rate)[0]
@@ -4791,10 +4822,7 @@ def _save_daily_snapshot(db):
     crypto_val = float(cur.fetchone()[0] or 0)
     cur.close()
     
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
-    re_total_price = float(cur.fetchone()[0] or 0)
-    cur.close()
+    re_total_price = get_real_estate_value(db)
     
     cur = db.cursor()
     cur.execute("""
@@ -5257,10 +5285,7 @@ def api_lifecycle_simulate():
     base_crypto = float(cur.fetchone()[0] or 0)
     cur.close()
 
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
-    re_total_price = float(cur.fetchone()[0] or 0)
-    cur.close()
+    re_total_price = get_real_estate_value(db)
 
     cur = db.cursor()
     cur.execute("""
@@ -5519,10 +5544,7 @@ def _api_dashboard_inner():
     cur.close()
 
     # 부동산 현재가 (시세 - 임대보증금 + 거주보증금)
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
-    re_total_price = float(cur.fetchone()[0] or 0)
-    cur.close()
+    re_total_price = get_real_estate_value(db)
     cur = db.cursor()
     cur.execute("""
     SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts
@@ -5911,7 +5933,7 @@ def _api_tech_tree_data_inner():
     cur.close()
 
     crypto_val = float(row['crypto_val'] or 0)
-    re_total_price = float(row['re_total_price'] or 0)
+    re_total_price = get_real_estate_value(db)
     re_total_deposit = float(row['re_total_deposit'] or 0)
     residence_deposit = float(row['residence_deposit'] or 0)
     re_val = re_total_price - re_total_deposit + residence_deposit
@@ -6258,10 +6280,7 @@ def _api_tech_tree_yearly_stats_inner():
     crypto_val = float(cur.fetchone()[0] or 0)
     cur.close()
 
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
-    re_total_price = float(cur.fetchone()[0] or 0)
-    cur.close()
+    re_total_price = get_real_estate_value(db)
 
     cur = db.cursor()
     cur.execute("""
@@ -6488,10 +6507,7 @@ def api_asset_history():
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
     curr_crypto = float(cur.fetchone()[0] or 0)
     cur.close()
-    cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(current_price),0) FROM real_estate")
-    re_price = float(cur.fetchone()[0] or 0)
-    cur.close()
+    re_price = get_real_estate_value(db)
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts WHERE id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)")
     re_dep = float(cur.fetchone()[0] or 0)
