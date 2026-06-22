@@ -1453,11 +1453,7 @@ def calc_position(transactions):
             avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
             qty = new_qty
         else:  # sell
-            tx_realized = tx.get('realized_pnl')
-            if tx_realized is not None:
-                realized += float(tx_realized)
-            else:
-                realized += (tp - avg_cost) * tq
+            realized += (tp - avg_cost) * tq
             qty = max(0.0, qty - tq)
             if qty == 0.0:
                 avg_cost = 0.0
@@ -1491,6 +1487,39 @@ def recalc_realized_pnl(db, item_id, is_etf=False):
             if qty == 0.0:
                 avg_cost = 0.0
     cur.close()
+
+
+def compute_realized_pnl_map(rows, key_col):
+    """주어진 거래 목록을 종목별로 묶어 날짜순으로 재계산한 매도 건 실현손익 맵(tx id -> 값)을 반환한다.
+    저장된 컬럼값에 의존하지 않고 항상 거래내역 자체에서 다시 계산하므로 쓰기 경합/누락에도 안전하다."""
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for r in rows:
+        groups[r[key_col]].append(r)
+    result = {}
+    for grp in groups.values():
+        grp_sorted = sorted(grp, key=lambda r: (r['tx_date'], r['id']))
+        qty = 0.0
+        avg_cost = 0.0
+        for tx in grp_sorted:
+            tq = float(tx['quantity'] or 0)
+            tp = float(tx['price'] or 0)
+            if tq <= 0:
+                result[tx['id']] = 0.0
+                continue
+            if tx['tx_type'] in ('buy', '매수'):
+                new_qty = qty + tq
+                avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
+                qty = new_qty
+                result[tx['id']] = 0.0
+            elif tx['tx_type'] in ('sell', '매도'):
+                result[tx['id']] = (tp - avg_cost) * tq
+                qty = max(0.0, qty - tq)
+                if qty == 0.0:
+                    avg_cost = 0.0
+            else:
+                result[tx['id']] = 0.0
+    return result
 
 
 @app.route('/api/recalc-realized-pnl', methods=['POST'])
@@ -1663,9 +1692,12 @@ def api_stock_tx():
         query += " ORDER BY t.tx_date DESC, t.id DESC"
         cur = db.cursor()
         cur.execute(query, params)
-        rows = cur.fetchall()
+        rows = [dict(r) for r in cur.fetchall()]
         cur.close()
         db.close()
+        pnl_map = compute_realized_pnl_map(rows, 'stock_id')
+        for r in rows:
+            r['realized_pnl'] = pnl_map.get(r['id'], 0.0)
         return jsonify(rows_to_list(rows))
 
     data = request.json
@@ -1865,8 +1897,11 @@ def api_etf_tx():
         query += " ORDER BY t.tx_date DESC, t.id DESC"
         cur = db.cursor()
         cur.execute(query, params)
-        rows = cur.fetchall()
+        rows = [dict(r) for r in cur.fetchall()]
         cur.close(); db.close()
+        pnl_map = compute_realized_pnl_map(rows, 'etf_id')
+        for r in rows:
+            r['realized_pnl'] = pnl_map.get(r['id'], 0.0)
         return jsonify(rows_to_list(rows))
 
     data = request.json
