@@ -80,12 +80,15 @@
       <div class="card-header bg-white border-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
         <span class="fw-semibold"><i class="bi bi-journal-text me-2 text-secondary"></i>매매 거래내역</span>
         <div class="d-flex gap-2 align-items-center">
+          <button class="btn btn-outline-secondary btn-sm" onclick="recalcAllRealizedPnl()">
+            <i class="bi bi-arrow-repeat me-1"></i>실현손익 재계산
+          </button>
           <button class="btn btn-primary btn-sm" onclick="stockTxGrid.addRow()">
             <i class="bi bi-plus-lg me-1"></i>거래 입력
           </button>
         </div>
       </div>
-      
+
       <!-- 거래내역 검색 바 -->
       <div class="card-body border-bottom py-2 bg-light-subtle" id="tx-search-bar">
         <div class="row g-2 align-items-center">
@@ -861,6 +864,12 @@ function fmtUsd(v) {
 
 function toKrw(amount, ticker) {
   return isForeign(ticker) ? amount * usdKrw : amount;
+}
+
+async function recalcAllRealizedPnl() {
+  await fetchJSON('/api/recalc-realized-pnl', { method: 'POST' });
+  await Promise.all([stockGrid.load(), stockTxGrid.load(), etfGrid.load(), etfTxGrid.load()]);
+  alert('실현손익을 재계산했습니다.');
 }
 
 function pnlHtml(v) {

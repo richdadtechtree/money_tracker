@@ -1493,6 +1493,45 @@ def recalc_realized_pnl(db, item_id, is_etf=False):
     cur.close()
 
 
+@app.route('/api/recalc-realized-pnl', methods=['POST'])
+def api_recalc_realized_pnl():
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT id FROM stocks")
+    stock_ids = [r['id'] for r in cur.fetchall()]
+    cur.execute("SELECT id FROM etf")
+    etf_ids = [r['id'] for r in cur.fetchall()]
+    cur.close()
+    for sid in stock_ids:
+        recalc_realized_pnl(db, sid)
+    for eid in etf_ids:
+        recalc_realized_pnl(db, eid, is_etf=True)
+    db.commit()
+    db.close()
+    return jsonify({'ok': True})
+
+
+def _qty_before(db, item_id, tx_date, tx_type, table, col, exclude_id=None):
+    """해당 거래 시점(같은 날짜는 id 기준) 이전까지의 보유 수량을 계산한다. 매도 검증용."""
+    cur = db.cursor()
+    query = f"SELECT tx_type, quantity FROM {table} WHERE {col} = %s AND tx_date <= %s"
+    params = [item_id, tx_date]
+    if exclude_id is not None:
+        query += " AND id != %s"
+        params.append(exclude_id)
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    cur.close()
+    qty = 0.0
+    for r in rows:
+        tq = float(r['quantity'] or 0)
+        if r['tx_type'] in ('buy', '매수'):
+            qty += tq
+        elif r['tx_type'] in ('sell', '매도'):
+            qty -= tq
+    return qty
+
+
 # ── API: 주식 ────────────────────────────────────────────────
 @app.route('/api/stocks', methods=['GET', 'POST'])
 def api_stocks():
@@ -1636,6 +1675,13 @@ def api_stock_tx():
     ticker = s['ticker'] if s else ''
     ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
+    if data.get('tx_type') in ('sell', '매도'):
+        held = _qty_before(db, data.get('stock_id'), data.get('tx_date'), data.get('tx_type'), 'stock_tx', 'stock_id')
+        if float(data.get('quantity', 0)) > held + 1e-9:
+            cur.close()
+            db.close()
+            return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.'}), 400
+
     cur.execute(
     "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate, realized_pnl) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
     (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
@@ -1670,6 +1716,13 @@ def api_stock_tx_detail(rid):
         s = cur.fetchone()
         ticker = s['ticker'] if s else ''
         ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
+
+        if data.get('tx_type') in ('sell', '매도'):
+            held = _qty_before(db, data.get('stock_id'), data.get('tx_date'), data.get('tx_type'), 'stock_tx', 'stock_id', exclude_id=rid)
+            if float(data.get('quantity', 0)) > held + 1e-9:
+                cur.close()
+                db.close()
+                return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.'}), 400
 
         cur.execute(
         "UPDATE stock_tx SET stock_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s WHERE id=%s",
@@ -1823,6 +1876,13 @@ def api_etf_tx():
     ticker = e['ticker'] if e else ''
     ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
+    if data.get('tx_type') in ('sell', '매도'):
+        held = _qty_before(db, data.get('etf_id'), data.get('tx_date'), data.get('tx_type'), 'etf_tx', 'etf_id')
+        if float(data.get('quantity', 0)) > held + 1e-9:
+            cur.close()
+            db.close()
+            return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.'}), 400
+
     cur.execute(
     "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate, realized_pnl) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
     (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
@@ -1867,6 +1927,13 @@ def api_etf_tx_detail(rid):
     e = cur.fetchone()
     ticker = e['ticker'] if e else ''
     ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
+
+    if data.get('tx_type') in ('sell', '매도'):
+        held = _qty_before(db, data.get('etf_id'), data.get('tx_date'), data.get('tx_type'), 'etf_tx', 'etf_id', exclude_id=rid)
+        if float(data.get('quantity', 0)) > held + 1e-9:
+            cur.close()
+            db.close()
+            return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.'}), 400
 
     cur.execute(
     "UPDATE etf_tx SET etf_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s WHERE id=%s",
