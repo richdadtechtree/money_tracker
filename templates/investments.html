@@ -1000,10 +1000,10 @@ const stockTxGrid = new GridTable({
       }},
     { key: 'fee',      type: 'number', align: 'end', step: 0.01,
       render: (v, r) => v ? (isForeign(r?.ticker) ? fmtUsd(v) : fmt(v)) : '-' },
-    { key: 'realized_pnl', type: 'number', align: 'end',
-      render: (v, r) => {
+    { key: 'realized_pnl', type: 'computed', align: 'end',
+      compute: r => {
         if (r && (r.tx_type === 'buy' || r.tx_type === '매수')) return '-';
-        return pnlHtml(toKrw(v || 0, r?.ticker));
+        return pnlHtml(toKrw(r.realized_pnl || 0, r?.ticker));
       }},
     { key: 'memo',     type: 'text' },
   ],
@@ -1105,10 +1105,10 @@ const etfTxGrid = new GridTable({
       }},
     { key: 'fee',      type: 'number', align: 'end', step: 0.01,
       render: (v, r) => v ? (isForeign(r?.ticker) ? fmtUsd(v) : fmt(v)) : '-' },
-    { key: 'realized_pnl', type: 'number', align: 'end',
-      render: (v, r) => {
+    { key: 'realized_pnl', type: 'computed', align: 'end',
+      compute: r => {
         if (r && (r.tx_type === 'buy' || r.tx_type === '매수')) return '-';
-        return pnlHtml(toKrw(v || 0, r?.ticker));
+        return pnlHtml(toKrw(r.realized_pnl || 0, r?.ticker));
       }},
     { key: 'memo',     type: 'text' },
   ],

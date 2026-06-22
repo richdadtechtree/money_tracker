@@ -1464,29 +1464,18 @@ def calc_position(transactions):
     return qty, avg_cost, realized
 
 
-def get_default_realized_pnl(db, stock_id, tx_date, price, quantity, tx_type, is_etf=False, exclude_id=None):
-    if tx_type not in ('sell', '매도'):
-        return 0.0
+def recalc_realized_pnl(db, item_id, is_etf=False):
+    """해당 종목의 모든 거래를 날짜순으로 다시 훑어 매도 건의 실현손익을 일괄 재계산/저장한다.
+    과거 거래 하나를 수정/삭제해도 이후 매도 건들의 실현손익이 항상 정합성을 유지하도록 한다."""
     cur = db.cursor()
     table = 'etf_tx' if is_etf else 'stock_tx'
     col = 'etf_id' if is_etf else 'stock_id'
-    
-    query = f"SELECT id, tx_date, tx_type, price, quantity, COALESCE(fee,0) as fee, COALESCE(realized_pnl,0) as realized_pnl FROM {table} WHERE {col} = %s"
-    params = [stock_id]
-    if exclude_id is not None:
-        query += " AND id != %s"
-        params.append(exclude_id)
-    query += " ORDER BY tx_date, id"
-    cur.execute(query, params)
-    all_txs = cur.fetchall()
-    cur.close()
+    cur.execute(f"SELECT id, tx_date, tx_type, price, quantity FROM {table} WHERE {col} = %s ORDER BY tx_date, id", (item_id,))
+    txs = cur.fetchall()
 
     qty = 0.0
     avg_cost = 0.0
-    for tx in all_txs:
-        if tx['tx_date'] > tx_date:
-            continue
-        
+    for tx in txs:
         tq = float(tx['quantity'] or 0)
         tp = float(tx['price'] or 0)
         if tq <= 0:
@@ -1495,12 +1484,15 @@ def get_default_realized_pnl(db, stock_id, tx_date, price, quantity, tx_type, is
             new_qty = qty + tq
             avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
             qty = new_qty
-        else:
+        elif tx['tx_type'] in ('sell', '매도'):
+            realized = (tp - avg_cost) * tq
+            cur.execute(f"UPDATE {table} SET realized_pnl = %s WHERE id = %s", (realized, tx['id']))
             qty = max(0.0, qty - tq)
             if qty == 0.0:
                 avg_cost = 0.0
-                
-    return (float(price) - avg_cost) * float(quantity)
+    cur.close()
+
+
 # ── API: 주식 ────────────────────────────────────────────────
 @app.route('/api/stocks', methods=['GET', 'POST'])
 def api_stocks():
@@ -1644,18 +1636,10 @@ def api_stock_tx():
     ticker = s['ticker'] if s else ''
     ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
-    realized_pnl = data.get('realized_pnl')
-    if data.get('tx_type') not in ('sell', '매도'):
-        realized_pnl = 0.0
-    elif realized_pnl == "" or realized_pnl is None:
-        realized_pnl = get_default_realized_pnl(db, data.get('stock_id'), data.get('tx_date'), data.get('price', 0), data.get('quantity', 0), data.get('tx_type'))
-    else:
-        realized_pnl = float(realized_pnl)
-
     cur.execute(
     "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate, realized_pnl) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
     (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
-    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, realized_pnl)
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, 0.0)
     )
     new_id = cur.fetchone()[0]
     tx_type = data.get('tx_type')
@@ -1666,6 +1650,7 @@ def api_stock_tx():
     elif tx_type in ('sell', '매도'):
         amt = round((float(data.get('price', 0)) * float(data.get('quantity', 0)) - float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'stock_tx', new_id, amt, f"{sname} 매도", data.get('tx_date'))
+    recalc_realized_pnl(db, data.get('stock_id'))
     cur.close()
     db.commit()
     db.close()
@@ -1678,23 +1663,18 @@ def api_stock_tx_detail(rid):
     if request.method == 'PUT':
         data = request.json
         cur = db.cursor()
+        cur.execute("SELECT stock_id FROM stock_tx WHERE id=%s", (rid,))
+        old_row = cur.fetchone()
+        old_stock_id = old_row['stock_id'] if old_row else None
         cur.execute("SELECT name, ticker FROM stocks WHERE id=%s", (data.get('stock_id'),))
         s = cur.fetchone()
         ticker = s['ticker'] if s else ''
         ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
-        realized_pnl = data.get('realized_pnl')
-        if data.get('tx_type') not in ('sell', '매도'):
-            realized_pnl = 0.0
-        elif realized_pnl == "" or realized_pnl is None:
-            realized_pnl = get_default_realized_pnl(db, data.get('stock_id'), data.get('tx_date'), data.get('price', 0), data.get('quantity', 0), data.get('tx_type'), exclude_id=rid)
-        else:
-            realized_pnl = float(realized_pnl)
-
         cur.execute(
-        "UPDATE stock_tx SET stock_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s, realized_pnl=%s WHERE id=%s",
+        "UPDATE stock_tx SET stock_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s WHERE id=%s",
         (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
-        data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, realized_pnl, rid)
+        data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, rid)
         )
         tx_type = data.get('tx_type')
         sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
@@ -1706,13 +1686,21 @@ def api_stock_tx_detail(rid):
             _upsert_cash_adj(cur, 'stock_tx', rid, amt, f"{sname} 매도", data.get('tx_date'))
         else:
             _remove_cash_adj(cur, 'stock_tx', rid)
+        if old_stock_id is not None and old_stock_id != data.get('stock_id'):
+            recalc_realized_pnl(db, old_stock_id)
+        recalc_realized_pnl(db, data.get('stock_id'))
         cur.close()
         db.commit()
         db.close()
         return jsonify({'ok': True})
     cur = db.cursor()
+    cur.execute("SELECT stock_id FROM stock_tx WHERE id=%s", (rid,))
+    old_row = cur.fetchone()
+    old_stock_id = old_row['stock_id'] if old_row else None
     _remove_cash_adj(cur, 'stock_tx', rid)
     cur.execute("DELETE FROM stock_tx WHERE id = %s", (rid,))
+    if old_stock_id is not None:
+        recalc_realized_pnl(db, old_stock_id)
     cur.close()
     db.commit()
     db.close()
@@ -1835,18 +1823,10 @@ def api_etf_tx():
     ticker = e['ticker'] if e else ''
     ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
-    realized_pnl = data.get('realized_pnl')
-    if data.get('tx_type') not in ('sell', '매도'):
-        realized_pnl = 0.0
-    elif realized_pnl == "" or realized_pnl is None:
-        realized_pnl = get_default_realized_pnl(db, data.get('etf_id'), data.get('tx_date'), data.get('price', 0), data.get('quantity', 0), data.get('tx_type'), is_etf=True)
-    else:
-        realized_pnl = float(realized_pnl)
-
     cur.execute(
     "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate, realized_pnl) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
     (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
-    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, realized_pnl)
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, 0.0)
     )
     new_id = cur.fetchone()[0]
     tx_type = data.get('tx_type')
@@ -1857,6 +1837,7 @@ def api_etf_tx():
     elif tx_type in ('sell', '매도'):
         amt = round((float(data.get('price', 0)) * float(data.get('quantity', 0)) - float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'etf_tx', new_id, amt, f"{ename} ETF 매도", data.get('tx_date'))
+    recalc_realized_pnl(db, data.get('etf_id'), is_etf=True)
     cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True}), 201
@@ -1867,30 +1848,30 @@ def api_etf_tx_detail(rid):
     db = get_db()
     if request.method == 'DELETE':
         cur = db.cursor()
+        cur.execute("SELECT etf_id FROM etf_tx WHERE id=%s", (rid,))
+        old_row = cur.fetchone()
+        old_etf_id = old_row['etf_id'] if old_row else None
         _remove_cash_adj(cur, 'etf_tx', rid)
         cur.execute("DELETE FROM etf_tx WHERE id = %s", (rid,))
+        if old_etf_id is not None:
+            recalc_realized_pnl(db, old_etf_id, is_etf=True)
         cur.close()
         db.commit(); db.close()
         return jsonify({'ok': True})
     data = request.json
     cur = db.cursor()
+    cur.execute("SELECT etf_id FROM etf_tx WHERE id=%s", (rid,))
+    old_row = cur.fetchone()
+    old_etf_id = old_row['etf_id'] if old_row else None
     cur.execute("SELECT name, ticker FROM etf WHERE id=%s", (data.get('etf_id'),))
     e = cur.fetchone()
     ticker = e['ticker'] if e else ''
     ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
-    realized_pnl = data.get('realized_pnl')
-    if data.get('tx_type') not in ('sell', '매도'):
-        realized_pnl = 0.0
-    elif realized_pnl == "" or realized_pnl is None:
-        realized_pnl = get_default_realized_pnl(db, data.get('etf_id'), data.get('tx_date'), data.get('price', 0), data.get('quantity', 0), data.get('tx_type'), is_etf=True, exclude_id=rid)
-    else:
-        realized_pnl = float(realized_pnl)
-
     cur.execute(
-    "UPDATE etf_tx SET etf_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s, realized_pnl=%s WHERE id=%s",
+    "UPDATE etf_tx SET etf_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s WHERE id=%s",
     (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
-    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, realized_pnl, rid)
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, rid)
     )
     tx_type = data.get('tx_type')
     ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')
@@ -1902,6 +1883,9 @@ def api_etf_tx_detail(rid):
         _upsert_cash_adj(cur, 'etf_tx', rid, amt, f"{ename} ETF 매도", data.get('tx_date'))
     else:
         _remove_cash_adj(cur, 'etf_tx', rid)
+    if old_etf_id is not None and old_etf_id != data.get('etf_id'):
+        recalc_realized_pnl(db, old_etf_id, is_etf=True)
+    recalc_realized_pnl(db, data.get('etf_id'), is_etf=True)
     cur.close()
     db.commit(); db.close()
     return jsonify({'ok': True})
