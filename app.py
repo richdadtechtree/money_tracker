@@ -159,21 +159,22 @@ def _keep_alive():
         print(f"[scheduler] keep-alive 실패: {e}")
 
 def _scheduled_price_update():
-    """매일 17:00 KST — 주식/ETF/코인 현재가 자동 업데이트"""
+    """매일 09:00, 16:00 KST — 주식/ETF/코인 현재가 자동 업데이트"""
     try:
         with app.app_context():
             _run_price_update_logic()
-            print("[scheduler] 17:00 가격 업데이트 완료")
+            print("[scheduler] 가격 업데이트 완료")
     except Exception as e:
         print(f"[scheduler] 가격 업데이트 실패: {e}")
 
 if HAS_SCHEDULER:
     _scheduler = BackgroundScheduler(timezone='Asia/Seoul')
     _scheduler.add_job(_scheduled_snapshot, CronTrigger(hour=23, minute=59, second=30))
-    _scheduler.add_job(_scheduled_price_update, CronTrigger(hour=17, minute=0, second=0))
+    _scheduler.add_job(_scheduled_price_update, CronTrigger(hour=9, minute=0, second=0))
+    _scheduler.add_job(_scheduled_price_update, CronTrigger(hour=16, minute=0, second=0))
     _scheduler.add_job(_keep_alive, IntervalTrigger(minutes=10))
     _scheduler.start()
-    print("[scheduler] 시작: 매일 17:00 가격 업데이트 + 23:59:30 스냅샷 + 10분 keep-alive")
+    print("[scheduler] 시작: 매일 09:00/16:00 가격 업데이트 + 23:59:30 스냅샷 + 10분 keep-alive")
 
 def _clear_summary_cache():
     """수입/지출/자산 데이터 변경 시 모든 캐시 삭제"""
