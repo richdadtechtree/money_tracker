@@ -1710,11 +1710,11 @@ function renderTxPage(page) {
   tbody.innerHTML = '';
   
   if (pageData.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4">
+    tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4">
       검색 결과가 없습니다.</td></tr>`;
   } else {
     pageData.forEach(t => {
-      const isBuy = t.tx_type === 'buy';
+      const isBuy = t.tx_type === 'buy' || t.tx_type === '매수';
       const totalAmt = t.price * t.quantity;
       tbody.insertAdjacentHTML('beforeend', `
         <tr data-id="${t.id}" class="grid-row">
@@ -1729,6 +1729,7 @@ function renderTxPage(page) {
           <td class="text-end">${t.quantity}</td>
           <td class="text-end"><span class="fw-semibold">${formatKRW(toKrw(totalAmt, t.ticker))}</span></td>
           <td class="text-end text-muted">${isForeign(t.ticker) ? fmtUsd(t.fee) : formatKRW(t.fee)}</td>
+          <td class="text-end">${isBuy ? '-' : pnlHtml(toKrw(t.realized_pnl || 0, t.ticker))}</td>
           <td class="text-muted small">${t.memo || ''}</td>
           <td class="text-center">
             <button class="btn btn-sm btn-outline-danger py-0" data-ga="d" data-id="${t.id}"><i class="bi bi-trash"></i></button>
