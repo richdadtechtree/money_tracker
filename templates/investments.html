@@ -974,7 +974,7 @@ const stockGrid = new GridTable({
       const mul = isForeign(r.ticker) ? usdKrw : 1;
       tv += r.eval_amount * mul;
       tp += r.unrealized_pnl * mul;
-      tr += (r.realized_pnl || 0) * mul;
+      tr += (r.realized_pnl || 0) * (r.realized_pnl_fixed ? 1 : mul);
     });
     _stocksEvalKrw = tv;
     document.getElementById('stocks-total').textContent = fmt(Math.round(tv)) + '원';

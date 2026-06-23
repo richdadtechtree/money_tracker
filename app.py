@@ -1602,7 +1602,8 @@ def api_stocks():
                 s['unrealized_pnl'] = eval_amt - cost_amt
                 s['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
                 override = s.pop('realized_pnl_override', None)
-                s['realized_pnl']   = round(override) if override is not None else round(realized)
+                s['realized_pnl']       = round(override) if override is not None else round(realized)
+                s['realized_pnl_fixed']  = override is not None
                 result.append(s)
         except Exception as e:
             import traceback
