@@ -794,6 +794,7 @@ def init_db():
             UNIQUE(source_type, source_id)
         )""",
         "ALTER TABLE rebalance_assignments ADD COLUMN IF NOT EXISTS cash_amount BIGINT DEFAULT 0",
+        "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS realized_pnl_override REAL",
     ]
     for sql in migrations:
         try:
@@ -815,6 +816,22 @@ def init_db():
                     cur.execute(
                         "UPDATE etf SET memo = %s WHERE UPPER(ticker) = UPPER(%s) AND (memo IS NULL OR memo = '')",
                         (memo_text, ticker)
+                    )
+    except Exception:
+        pass
+
+    # 코카콜라/테슬라 실현손익 수동 보정 (과거 잘못된 거래입력으로 인한 오차, 사용자 확인값으로 강제 고정)
+    _realized_pnl_overrides = {
+        '코카콜라': 332194,
+        '테슬라': -372550,
+    }
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                for stock_name, value in _realized_pnl_overrides.items():
+                    cur.execute(
+                        "UPDATE stocks SET realized_pnl_override = %s WHERE name = %s AND realized_pnl_override IS NULL",
+                        (value, stock_name)
                     )
     except Exception:
         pass

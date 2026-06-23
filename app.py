@@ -1567,7 +1567,7 @@ def api_stocks():
     db = get_db()
     if request.method == 'GET':
         cur = db.cursor()
-        cur.execute("SELECT id, name, ticker, current_price, dividend, memo, category, COALESCE(ath,0) as ath FROM stocks ORDER BY name")
+        cur.execute("SELECT id, name, ticker, current_price, dividend, memo, category, COALESCE(ath,0) as ath, realized_pnl_override FROM stocks ORDER BY name")
         stocks = [dict(r) for r in cur.fetchall()]
         # SQL 기반 qty (대시보드·테크트리와 동일 기준, 음수 0 처리)
         cur.execute("""
@@ -1601,7 +1601,8 @@ def api_stocks():
                 s['eval_amount']    = eval_amt
                 s['unrealized_pnl'] = eval_amt - cost_amt
                 s['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
-                s['realized_pnl']   = round(realized)
+                override = s.pop('realized_pnl_override', None)
+                s['realized_pnl']   = round(override) if override is not None else round(realized)
                 result.append(s)
         except Exception as e:
             import traceback
