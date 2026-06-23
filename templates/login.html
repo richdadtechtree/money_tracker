@@ -156,6 +156,7 @@
          data-callback="handleCredentialResponse"
          data-auto_select="true"
          data-itp_support="true"
+         data-use_fedcm_for_prompt="true"
          data-cancel_on_tap_outside="false">
     </div>
 
@@ -218,14 +219,17 @@
             auto_select: true,
             cancel_on_tap_outside: false,
             itp_support: true,
+            use_fedcm_for_prompt: true,
           });
           // One Tap 프롬프트 자동 호출
           google.accounts.id.prompt((notification) => {
             // One Tap이 표시되지 않으면 (dismissed/skipped/not_displayed) 버튼은 유지
-            if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-              // 자동 로그인 메시지 숨기고 버튼 표시 유지
+            if (notification.isNotDisplayed && notification.isNotDisplayed()) {
+              console.warn('Google One Tap not displayed:', notification.getNotDisplayedReason && notification.getNotDisplayedReason());
               document.getElementById('autoLoginMsg').style.display = 'none';
-            } else if (notification.isDismissedMoment()) {
+            } else if (notification.isSkippedMoment && notification.isSkippedMoment()) {
+              document.getElementById('autoLoginMsg').style.display = 'none';
+            } else if (notification.isDismissedMoment && notification.isDismissedMoment()) {
               document.getElementById('autoLoginMsg').style.display = 'none';
             }
           });
