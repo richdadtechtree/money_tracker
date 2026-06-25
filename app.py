@@ -3566,14 +3566,20 @@ def get_real_estate_value(db):
         rid = prop['id']
         price = float(prop['current_price'] or 0)
         cur.execute(
+            "SELECT COUNT(*) AS c FROM real_estate_payments WHERE real_estate_id=%s AND direction='buy'",
+            (rid,)
+        )
+        has_plan = cur.fetchone()['c'] > 0
+        if not has_plan:
+            # 결제 일정이 전혀 등록되지 않은 매물(레거시 데이터)은 기존처럼 current_price 전액을 반영
+            total += price
+            continue
+        cur.execute(
             "SELECT payment_type, amount FROM real_estate_payments "
             "WHERE real_estate_id=%s AND direction='buy' AND actual_date IS NOT NULL AND actual_date::date <= CURRENT_DATE",
             (rid,)
         )
         payments = cur.fetchall()
-        if not payments:
-            total += price
-            continue
         final_paid = any(p['payment_type'] == '잔금' for p in payments)
         if final_paid:
             total += price
