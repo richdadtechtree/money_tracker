@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify, Response, session, redirect, g
 from flask_cors import CORS
 from database import get_db, init_db
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import json, os, shutil, sqlite3, re, csv, io, math, requests as http_req
 
 try:
@@ -39,6 +39,8 @@ except ImportError:
 app = Flask(__name__)
 CORS(app)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'richdadtechtree-money-secret-key-1029384756!')
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '881691238914-testlocalgoogleclientid.apps.googleusercontent.com')
 
 from flask_caching import Cache
@@ -337,6 +339,7 @@ def api_auth_google():
         if email not in [addr.lower() for addr in ALLOWED_EMAILS]:
             return jsonify({'ok': False, 'error': '승인되지 않은 구글 계정입니다. 접근 권한이 없습니다.'}), 403
         
+        session.permanent = True
         session['user'] = {
             'email': payload.get('email'),
             'name': payload.get('name'),
