@@ -4639,25 +4639,22 @@ def api_recalc_foreign_cash_adj():
     return jsonify({'ok': True, 'fixed': fixed})
 
 # ── API: 구분별 실현손익 ─────────────────────────────────────
-@app.route('/api/stock-category-pnl')
-def api_stock_category_pnl():
-    """구분(category)별 실현손익 – period: monthly(최근12개월) | yearly | all"""
-    category = request.args.get('category', '전체')
-    period   = request.args.get('period', 'monthly')
-
+def _calc_realized_records():
+    """모든 매도(주식/ETF FIFO 평단가 기준) + 공모주 실현손익 원장을 종목/거래 단위로 계산한다.
+    구분별 월간 집계(api_stock_category_pnl)와 특정 기간 상세 내역(api_stock_category_pnl_detail)이 공유한다."""
     db  = get_db()
     ex_rate = get_current_exchange_rate()
     cur = db.cursor()
 
     cur.execute("""
-        SELECT 'stock' as source, t.stock_id as asset_id, t.tx_date::text as tx_date, t.tx_type, t.price, t.quantity, t.fee, s.category, s.ticker, s.name
+        SELECT 'stock' as source, t.id as tx_id, t.stock_id as asset_id, t.tx_date::text as tx_date, t.tx_type, t.price, t.quantity, t.fee, s.category, s.ticker, s.name
         FROM stock_tx t JOIN stocks s ON s.id = t.stock_id
         ORDER BY t.stock_id, t.tx_date, t.id
     """)
     stock_txs = [dict(r) for r in cur.fetchall()]
 
     cur.execute("""
-        SELECT 'etf' as source, t.etf_id as asset_id, t.tx_date::text as tx_date, t.tx_type, t.price, t.quantity, t.fee, e.category, e.ticker, e.name
+        SELECT 'etf' as source, t.id as tx_id, t.etf_id as asset_id, t.tx_date::text as tx_date, t.tx_type, t.price, t.quantity, t.fee, e.category, e.ticker, e.name
         FROM etf_tx t JOIN etf e ON e.id = t.etf_id
         ORDER BY t.etf_id, t.tx_date, t.id
     """)
@@ -4697,8 +4694,15 @@ def api_stock_category_pnl():
                 cost = avg_cost * tq
                 mul = ex_rate if is_foreign_ticker(tx['ticker']) else 1.0
                 realized_records.append({
+                    'source': source,
+                    'asset_id': asset_id,
+                    'tx_id': tx['tx_id'],
+                    'name': tx['name'],
+                    'ticker': tx['ticker'],
                     'date': tx['tx_date'],
                     'category': tx['category'],
+                    'quantity': tq,
+                    'price': tp,
                     'pnl': pnl * mul,
                     'cost': cost * mul
                 })
@@ -4710,11 +4714,30 @@ def api_stock_category_pnl():
         pnl = float(r['realized_pnl'] or 0.0) - float(r['fee'] or 0.0)
         cost = float(r['ipo_price'] or 0.0) * float(r['quantity'] or 0.0)
         realized_records.append({
+            'source': 'ipo',
+            'asset_id': r['id'],
+            'tx_id': None,
+            'name': r['name'],
+            'ticker': None,
             'date': r['listing_date'],
             'category': '공모주',
+            'quantity': float(r['quantity'] or 0.0),
+            'price': float(r['ipo_price'] or 0.0),
             'pnl': pnl,
             'cost': cost
         })
+
+    return realized_records
+
+
+@app.route('/api/stock-category-pnl')
+def api_stock_category_pnl():
+    """구분(category)별 실현손익 – period: monthly(최근12개월) | yearly | all"""
+    category = request.args.get('category', '전체')
+    period   = request.args.get('period', 'monthly')
+
+    from collections import defaultdict
+    realized_records = _calc_realized_records()
 
     # Determine monthly period keys if needed for win/loss filtering
     if period == 'monthly':
@@ -4778,6 +4801,54 @@ def api_stock_category_pnl():
         'win_count': win_count,
         'loss_count': loss_count
     })
+
+
+@app.route('/api/stock-category-pnl-detail')
+def api_stock_category_pnl_detail():
+    """구분별 수익률 차트에서 특정 기간(월/연도)을 클릭했을 때 보여줄 상세 매도 내역.
+    period: monthly | yearly (전체 누계 탭도 월 단위 키를 쓰므로 monthly로 조회), key: 'YYYY-MM' 또는 'YYYY'"""
+    category = request.args.get('category', '전체')
+    period   = request.args.get('period', 'monthly')
+    key      = request.args.get('key', '')
+
+    if not key:
+        return jsonify({'error': 'key is required'}), 400
+
+    key_len = 4 if period == 'yearly' else 7
+    records = _calc_realized_records()
+    filtered = [
+        r for r in records
+        if r['date'][:key_len] == key
+        and (category == '전체' or r['category'] == category)
+    ]
+
+    from collections import defaultdict
+    by_cat = defaultdict(lambda: {'pnl': 0.0, 'count': 0})
+    for r in filtered:
+        c = r['category'] or '기타'
+        by_cat[c]['pnl'] += r['pnl']
+        by_cat[c]['count'] += 1
+
+    categories = [
+        {'category': c, 'pnl': round(v['pnl']), 'count': v['count']}
+        for c, v in sorted(by_cat.items(), key=lambda kv: -kv[1]['pnl'])
+    ]
+
+    items = [
+        {
+            'source':   r['source'],
+            'name':     r['name'],
+            'ticker':   r['ticker'],
+            'category': r['category'],
+            'date':     r['date'],
+            'quantity': r['quantity'],
+            'price':    round(r['price'], 2),
+            'pnl':      round(r['pnl']),
+        }
+        for r in sorted(filtered, key=lambda r: (r['category'] or '', -r['pnl']))
+    ]
+
+    return jsonify({'key': key, 'categories': categories, 'items': items})
 
 
 # ── API: 공모주 실현손익 차트 ──────────────────────────────────

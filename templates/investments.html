@@ -747,6 +747,16 @@
         <div style="position:relative; height:320px">
           <canvas id="catPnlChart"></canvas>
         </div>
+        <div class="small text-muted text-center mt-1">막대를 클릭하면 해당 기간의 매도 내역을 구분별로 볼 수 있습니다.</div>
+
+        <!-- 클릭한 기간의 상세 매도 내역 -->
+        <div id="catPnlDetailPanel" class="mt-3 border-top pt-3" style="display:none">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="fw-semibold" id="catPnlDetailTitle">-</div>
+            <button type="button" class="btn-close" aria-label="닫기" onclick="closeCatPnlDetail()"></button>
+          </div>
+          <div id="catPnlDetailBody"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -1257,6 +1267,7 @@ function openCatPnlModal() {
   sel.innerHTML = '<option value="전체">전체</option>' +
     categories.map(c => `<option value="${c.name}"${c.name === prev ? ' selected' : ''}>${c.name}</option>`).join('') +
     `<option value="공모주"${'공모주' === prev ? ' selected' : ''}>공모주</option>`;
+  closeCatPnlDetail();
   bootstrap.Modal.getOrCreateInstance(document.getElementById('catPnlModal')).show();
   loadCatPnl();
 }
@@ -1288,6 +1299,8 @@ async function loadCatPnl() {
   const data   = res.data;
   const wins   = res.win_count;
   const losses = res.loss_count;
+
+  closeCatPnlDetail();
 
   // 요약 통계
   const totalPnl  = data.reduce((s, d) => s + d.realized_pnl, 0);
@@ -1351,6 +1364,14 @@ async function loadCatPnl() {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
+      onHover: (evt, elements) => {
+        evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      },
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+        const idx = elements[0].index;
+        openCatPnlDetail(labels[idx]);
+      },
       plugins: {
         legend: { position: 'top', labels: { boxWidth: 12, padding: 16 } },
         tooltip: {
@@ -1378,6 +1399,58 @@ async function loadCatPnl() {
       },
     },
   });
+}
+
+// 차트 막대 클릭 → 해당 기간(월/연도)의 실현손익을 구분별로 드릴다운
+function closeCatPnlDetail() {
+  const panel = document.getElementById('catPnlDetailPanel');
+  if (panel) panel.style.display = 'none';
+}
+
+async function openCatPnlDetail(key) {
+  const category = document.getElementById('catPnlCategory').value;
+  const periodForKey = _catPnlPeriod === 'yearly' ? 'yearly' : 'monthly'; // 월별/전체 누계 모두 'YYYY-MM' 키 사용
+  const res = await fetchJSON(
+    `/api/stock-category-pnl-detail?category=${encodeURIComponent(category)}&period=${periodForKey}&key=${encodeURIComponent(key)}`
+  );
+  if (!res) return;
+
+  const panel = document.getElementById('catPnlDetailPanel');
+  const title = document.getElementById('catPnlDetailTitle');
+  const body  = document.getElementById('catPnlDetailBody');
+
+  title.textContent = `${key} 실현손익 상세 (${res.items.length}건)`;
+
+  if (!res.items.length) {
+    body.innerHTML = '<div class="text-muted small text-center py-3">해당 기간에 실현된 매도 내역이 없습니다.</div>';
+  } else {
+    const catBadges = res.categories.map(c => `
+      <span class="badge rounded-pill bg-light text-dark border me-1 mb-1">
+        ${c.category}
+        <span class="${c.pnl >= 0 ? 'text-danger' : 'text-primary'} fw-semibold">${c.pnl >= 0 ? '+' : ''}${fmt(c.pnl)}원</span>
+        <span class="text-muted">(${c.count}건)</span>
+      </span>`).join('');
+
+    const itemRows = res.items.map(it => `
+      <tr>
+        <td><span class="badge bg-secondary-subtle text-secondary">${it.category || '-'}</span></td>
+        <td>${it.name}${it.ticker ? ` <span class="text-muted small">(${it.ticker})</span>` : ''}</td>
+        <td class="text-muted small">${it.date}</td>
+        <td class="text-end small">${it.quantity ? fmt(it.quantity) : '-'}</td>
+        <td class="text-end small">${it.price ? fmt(it.price) : '-'}</td>
+        <td class="text-end fw-semibold ${it.pnl >= 0 ? 'text-danger' : 'text-primary'}">${it.pnl >= 0 ? '+' : ''}${fmt(it.pnl)}원</td>
+      </tr>`).join('');
+
+    body.innerHTML = `
+      <div class="mb-2">${catBadges}</div>
+      <div class="table-responsive" style="max-height:260px; overflow-y:auto">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr><th>구분</th><th>종목</th><th>매도일</th><th class="text-end">수량</th><th class="text-end">매도가</th><th class="text-end">실현손익</th></tr></thead>
+          <tbody>${itemRows}</tbody>
+        </table>
+      </div>`;
+  }
+  panel.style.display = '';
 }
 
 // ── 공모주 수익 현황 차트 ──
