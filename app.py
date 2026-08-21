@@ -2280,29 +2280,69 @@ def api_rebalance_get():
         GROUP BY s.id
     """)
     stocks = rows_to_list(cur.fetchall())
+
+    # 올웨더 ETF/주식 거래내역 조회 (평단가·매입원가 계산용)
+    cur.execute("""
+        SELECT t.etf_id, t.tx_type, t.price, t.quantity
+        FROM etf_tx t
+        JOIN etf e ON e.id = t.etf_id
+        WHERE LOWER(e.category) LIKE '%올웨더%'
+        ORDER BY t.etf_id, t.tx_date, t.id
+    """)
+    etf_tx_rows = cur.fetchall()
+    cur.execute("""
+        SELECT t.stock_id, t.tx_type, t.price, t.quantity
+        FROM stock_tx t
+        JOIN stocks s ON s.id = t.stock_id
+        WHERE LOWER(s.category) LIKE '%올웨더%'
+        ORDER BY t.stock_id, t.tx_date, t.id
+    """)
+    stock_tx_rows = cur.fetchall()
     cur.close()
     db.close()
 
-    # 현재가 × 수량 = 평가액 계산
+    from collections import defaultdict
+    etf_tx_by_id = defaultdict(list)
+    for r in etf_tx_rows:
+        etf_tx_by_id[r['etf_id']].append(r)
+    stock_tx_by_id = defaultdict(list)
+    for r in stock_tx_rows:
+        stock_tx_by_id[r['stock_id']].append(r)
+
+    # 현재가 × 수량 = 평가액, calc_position()으로 평단가·매입원가 계산
     result_items = []
     for item in etfs:
         key = ('etf', item['id'])
         asgn = assignments.get(key, {})
-        eval_amt = round(float(item['qty'] or 0) * float(item['current_price'] or 0))
+        qty = float(item['qty'] or 0)
+        _, avg, _ = calc_position(etf_tx_by_id[item['id']])
+        avg = avg if (avg is not None and avg == avg) else 0.0  # NaN guard
+        eval_amt = round(qty * float(item['current_price'] or 0))
+        cost_amt = round(qty * avg)
         result_items.append({
             'source_type': 'etf', 'source_id': item['id'],
             'name': item['name'], 'ticker': item['ticker'],
             'eval_amount': eval_amt,
+            'cost_amount': cost_amt,
+            'avg_price': avg if qty > 0 else None,
+            'return_rate': round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else None,
             'asset_class': asgn.get('asset_class', ''),
         })
     for item in stocks:
         key = ('stock', item['id'])
         asgn = assignments.get(key, {})
-        eval_amt = round(float(item['qty'] or 0) * float(item['current_price'] or 0))
+        qty = float(item['qty'] or 0)
+        _, avg, _ = calc_position(stock_tx_by_id[item['id']])
+        avg = avg if (avg is not None and avg == avg) else 0.0  # NaN guard
+        eval_amt = round(qty * float(item['current_price'] or 0))
+        cost_amt = round(qty * avg)
         result_items.append({
             'source_type': 'stock', 'source_id': item['id'],
             'name': item['name'], 'ticker': item['ticker'],
             'eval_amount': eval_amt,
+            'cost_amount': cost_amt,
+            'avg_price': avg if qty > 0 else None,
+            'return_rate': round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else None,
             'asset_class': asgn.get('asset_class', ''),
         })
 
