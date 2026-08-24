@@ -949,7 +949,7 @@ function openSellModal(id, name, purchasePrice, realInv) {
     renderSellRows();
   });
 
-  new bootstrap.Modal(document.getElementById('sellModal')).show();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('sellModal')).show();
 }
 
 function renderSellRows() {
@@ -1368,7 +1368,7 @@ async function openSoldDetailModal(id) {
     `).join('');
   }
 
-  const modal = new bootstrap.Modal(document.getElementById('soldDetailModal'));
+  const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('soldDetailModal'));
   modal.show();
 }
 
