@@ -3412,6 +3412,12 @@ def _run_price_update_logic():
                     results['errors'].append(f"분할매수 계획 [{name}({ticker})]: 가격 조회 실패")
                 results['split_plans'].append({'id': pid, 'name': name, 'ticker': ticker, 'price': None, 'ok': False})
 
+        # ── 현금(달러 계좌) 환율 재계산 ──
+        try:
+            _refresh_usd_cash_amounts(db)
+        except Exception as e:
+            results['errors'].append(f"현금 환율 갱신 오류: {e}")
+
         db.commit()
     except Exception as e:
         results['errors'].append(f"서버 오류: {traceback.format_exc()}")
@@ -4422,6 +4428,27 @@ def api_goals_detail(rid):
 
 
 # ── 현금 자동 조정 헬퍼 ─────────────────────────────────────
+def _refresh_usd_cash_amounts(db, ex_rate=None):
+    """현금관리에 달러(USD)로 등록한 계좌의 원화 환산액(amount)을 현재 환율로 갱신한다.
+    가격 자동 업데이트 스케줄(09:00/16:00) 및 관련 화면 조회 시 호출되어,
+    cash_deposits.amount를 그대로 SUM하는 모든 곳(대시보드/테크트리/생애주기 등)이
+    별도 환산 로직 없이 항상 최신 환율 기준 금액을 쓰도록 한다."""
+    if ex_rate is None:
+        ex_rate = get_current_exchange_rate()
+    cur = db.cursor()
+    cur.execute("SELECT id, original_amount FROM cash_deposits WHERE currency = 'USD'")
+    usd_rows = cur.fetchall()
+    cur.close()
+    if not usd_rows:
+        return
+    cur = db.cursor()
+    for row in usd_rows:
+        new_amount = int(round(float(row['original_amount'] or 0) * ex_rate))
+        cur.execute("UPDATE cash_deposits SET amount = %s WHERE id = %s", (new_amount, row['id']))
+    cur.close()
+    db.commit()
+
+
 def _upsert_cash_adj(cur, source_type, source_id, amount, description, adj_date=None):
     """자동조정 기록 후 즉시 현금 잔액에 반영 (잔액 최대 계좌 차감)"""
     if adj_date is None:
@@ -4447,7 +4474,7 @@ def _upsert_cash_adj(cur, source_type, source_id, amount, description, adj_date=
     # 현금 최대 잔액 계좌에 차액 즉시 반영
     delta = amount - prev_amount
     if delta != 0:
-        cur.execute("SELECT id, amount FROM cash_deposits ORDER BY amount DESC LIMIT 1")
+        cur.execute("SELECT id, amount FROM cash_deposits WHERE currency = 'KRW' ORDER BY amount DESC LIMIT 1")
         acct = cur.fetchone()
         if acct:
             cur.execute(
@@ -4464,7 +4491,7 @@ def _remove_cash_adj(cur, source_type, source_id):
     prev = cur.fetchone()
     if prev:
         prev_amount = int(prev['amount'])
-        cur.execute("SELECT id, amount FROM cash_deposits ORDER BY amount DESC LIMIT 1")
+        cur.execute("SELECT id, amount FROM cash_deposits WHERE currency = 'KRW' ORDER BY amount DESC LIMIT 1")
         acct = cur.fetchone()
         if acct:
             cur.execute(
@@ -4478,10 +4505,25 @@ def _remove_cash_adj(cur, source_type, source_id):
 
 
 # ── API: 현금/예금 ───────────────────────────────────────────
+def _resolve_cash_currency_amount(data):
+    """요청 바디에서 currency/original_amount를 받아 (currency, amount, original_amount)를 계산한다.
+    USD면 현재 환율로 즉시 원화 환산, KRW면 amount == original_amount."""
+    currency = data.get('currency', 'KRW')
+    if currency == 'USD':
+        original_amount = float(data.get('original_amount') or 0.0)
+        amount = int(round(original_amount * get_current_exchange_rate()))
+    else:
+        currency = 'KRW'
+        amount = int(data.get('amount') or data.get('original_amount') or 0)
+        original_amount = float(amount)
+    return currency, amount, original_amount
+
+
 @app.route('/api/cash-deposits', methods=['GET', 'POST'])
 def api_cash_deposits():
     db = get_db()
     if request.method == 'GET':
+        _refresh_usd_cash_amounts(db)
         cur = db.cursor()
         cur.execute("SELECT * FROM cash_deposits ORDER BY name")
         rows = cur.fetchall()
@@ -4491,10 +4533,11 @@ def api_cash_deposits():
 
     data = request.json
     today = date.today().isoformat()
+    currency, amount, original_amount = _resolve_cash_currency_amount(data)
     cur = db.cursor()
     cur.execute(
-    "INSERT INTO cash_deposits (name, amount, memo, updated_date) VALUES (%s,%s,%s,%s)",
-    (data.get('name'), data.get('amount', 0), data.get('memo'), today)
+    "INSERT INTO cash_deposits (name, amount, memo, updated_date, currency, original_amount) VALUES (%s,%s,%s,%s,%s,%s)",
+    (data.get('name'), amount, data.get('memo'), today, currency, original_amount)
     )
     cur.close()
     db.commit()
@@ -4508,10 +4551,11 @@ def api_cash_deposits_detail(rid):
     if request.method == 'PUT':
         data = request.json
         today = date.today().isoformat()
+        currency, amount, original_amount = _resolve_cash_currency_amount(data)
         cur = db.cursor()
         cur.execute(
-        "UPDATE cash_deposits SET name=%s, amount=%s, memo=%s, updated_date=%s WHERE id=%s",
-        (data.get('name'), data.get('amount', 0), data.get('memo'), today, rid)
+        "UPDATE cash_deposits SET name=%s, amount=%s, memo=%s, updated_date=%s, currency=%s, original_amount=%s WHERE id=%s",
+        (data.get('name'), amount, data.get('memo'), today, currency, original_amount, rid)
         )
         # 수기 수정 시 자동 조정 전체 초기화 (이미 반영된 것 포함)
         cur.execute("DELETE FROM cash_auto_adjustments")
@@ -4570,7 +4614,7 @@ def api_cash_auto_adj_apply():
         cur.close(); db.close()
         return jsonify({'ok': True, 'message': '반영할 조정 없음'})
 
-    cur.execute("SELECT id, name, amount FROM cash_deposits ORDER BY amount DESC LIMIT 1")
+    cur.execute("SELECT id, name, amount FROM cash_deposits WHERE currency = 'KRW' ORDER BY amount DESC LIMIT 1")
     account = cur.fetchone()
     if not account:
         cur.close(); db.close()
@@ -4985,6 +5029,7 @@ def _save_daily_snapshot(db):
     """
     today_str = date.today().isoformat()
     ex_rate = get_current_exchange_rate()
+    _refresh_usd_cash_amounts(db, ex_rate)
     stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate)
     
     cur = db.cursor()
@@ -5447,6 +5492,7 @@ def api_lifecycle_simulate():
 
     # ── 2. 현재 자산 기준점 ──
     ex_rate = get_current_exchange_rate()
+    _refresh_usd_cash_amounts(db, ex_rate)
     stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate)
     
     cur = db.cursor()
@@ -5717,6 +5763,7 @@ def _api_dashboard_inner():
     cur.close()
 
     ex_rate = get_current_exchange_rate()
+    _refresh_usd_cash_amounts(db, ex_rate)
     stocks_val, stocks_cost, etf_val, etf_cost = get_stocks_etf_totals(db, ex_rate)
 
     # 코인 평가액
@@ -6027,6 +6074,7 @@ def api_tech_tree_data():
 def _api_tech_tree_data_inner():
     db = get_db()
     ex_rate = get_current_exchange_rate()
+    _refresh_usd_cash_amounts(db, ex_rate)
     stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate)
 
     today = date.today()
@@ -6470,6 +6518,7 @@ def _api_tech_tree_yearly_stats_inner():
     
     # 2. 실시간 현재 자산 가져오기
     ex_rate = get_current_exchange_rate()
+    _refresh_usd_cash_amounts(db, ex_rate)
     stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate)
 
     cur = db.cursor()
@@ -6703,6 +6752,7 @@ def api_asset_history():
     p_monthly = float(cur.fetchone()[0] or 0)
     cur.close()
     ex_rate = get_current_exchange_rate()
+    _refresh_usd_cash_amounts(db, ex_rate)
     _sv, _, _ev, _ = get_stocks_etf_totals(db, ex_rate)
     curr_stocks = _sv + _ev
     cur = db.cursor()
@@ -8024,7 +8074,8 @@ def api_assets_detailed():
         db = get_db()
         cur = db.cursor()
         ex_rate = get_current_exchange_rate()
-        
+        _refresh_usd_cash_amounts(db, ex_rate)
+
         # 주식 (수량은 stock_tx 기반 계산)
         cur.execute("""
             SELECT s.name, s.ticker, s.current_price,
