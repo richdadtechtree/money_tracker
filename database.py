@@ -34,6 +34,7 @@ def _make_conn(db_url):
         keepalives_idle=30,
         keepalives_interval=10,
         keepalives_count=5,
+        options='-c TimeZone=Asia/Seoul',
     )
     conn.autocommit = False
     return conn
@@ -59,7 +60,10 @@ def init_pool():
             raise ValueError("DATABASE_URL environment variable is not set")
         _db_url = db_url
         # 최소 1개, 최대 10개 (Render 무료 플랜 커넥션 한도 고려)
-        _pool = ThreadedConnectionPool(1, 10, db_url, cursor_factory=DictCursor)
+        # options='-c TimeZone=Asia/Seoul': DB 서버가 UTC로 동작해도 CURRENT_DATE/NOW()가
+        # 한국 날짜 기준으로 계산되도록 세션 타임존을 고정한다. (자정~오전 9시 사이 UTC가
+        # 아직 전날이라 "오늘" 입력한 데이터가 CURRENT_DATE 비교에서 미래로 취급되던 문제 방지)
+        _pool = ThreadedConnectionPool(1, 10, db_url, cursor_factory=DictCursor, options='-c TimeZone=Asia/Seoul')
 
 class PooledConnectionWrapper:
     def __init__(self, conn, is_request_scoped=False):

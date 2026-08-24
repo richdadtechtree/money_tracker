@@ -241,6 +241,17 @@ function renderIncomeExpenseBar(incomeCats, expenseCats) {
     },
     options: {
       responsive: true,
+      onClick: (evt, elements, chart) => {
+        if (!elements.length) return;
+        const { datasetIndex, index } = elements[0];
+        const category = chart.data.labels[index];
+        if (!category || category === '데이터 없음') return;
+        const kind = datasetIndex === 0 ? 'income' : 'expense';
+        openIncomeExpenseCatDetail(kind, category);
+      },
+      onHover: (evt, elements) => {
+        evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      },
       plugins: { legend: { position: 'top' } },
       scales: {
         x: { grid: { color: 'rgba(0,0,0,0.04)' } },
@@ -251,6 +262,53 @@ function renderIncomeExpenseBar(incomeCats, expenseCats) {
       }
     }
   });
+}
+
+// 수입/지출 카테고리별 막대 클릭 시 해당 카테고리의 개별 내역 팝업
+async function openIncomeExpenseCatDetail(kind, category) {
+  const modal = new bootstrap.Modal(document.getElementById('kpiDetailModal'));
+  const title = document.getElementById('kpiDetailTitle');
+  const body  = document.getElementById('kpiDetailBody');
+
+  title.textContent = `${category} — ${kind === 'income' ? '수입' : '지출'} 내역`;
+  body.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
+  modal.show();
+
+  const { year, month } = getFilter();
+  const url = kind === 'income'
+    ? `/api/income?year=${year}&month=${month}`
+    : `/api/budget?year=${year}&month=${month}`;
+  const rows = await fetchJSON(url);
+  if (!rows) {
+    body.innerHTML = '<p class="text-danger text-center py-3">데이터를 불러올 수 없습니다.</p>';
+    return;
+  }
+
+  const filtered = rows.filter(r => (r.category || '기타') === category);
+  body.innerHTML = renderIncomeExpenseCatDetail(filtered, kind);
+}
+
+function renderIncomeExpenseCatDetail(rows, kind) {
+  if (!rows.length) {
+    return '<p class="text-center text-muted py-4">해당 카테고리의 내역이 없습니다.</p>';
+  }
+  const colorCls = kind === 'income' ? 'text-success' : 'text-danger';
+  const sign = kind === 'income' ? '+' : '-';
+  let total = 0;
+  let html = '';
+  rows.forEach(r => {
+    total += r.amount || 0;
+    html += `
+    <div class="kpi-row">
+      <span>
+        <span class="fw-semibold">${r.name || '(이름없음)'}</span>
+        <span class="text-muted d-block" style="font-size:12px">${r.date || ''}${r.memo ? ' · ' + r.memo : ''}</span>
+      </span>
+      <span class="fw-semibold ${colorCls}">${sign}${fmt(r.amount)}원</span>
+    </div>`;
+  });
+  html += `<div class="kpi-total-row"><span>합계</span><span class="${colorCls}">${sign}${fmt(total)}원</span></div>`;
+  return html;
 }
 
 function renderReturnsChart(returns) {
