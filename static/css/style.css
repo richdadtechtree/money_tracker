@@ -803,19 +803,25 @@ body.dark-mode .badge.bg-success-subtle  { background-color: rgba(34,197,94,0.2)
 body.dark-mode .badge.bg-warning-subtle  { background-color: rgba(234,179,8,0.2) !important;  color: #FCD34D !important; }
 body.dark-mode .badge.bg-secondary-subtle { background-color: rgba(100,116,139,0.25) !important; color: #CBD5E1 !important; }
 
-/* ── 앱 타이틀 고정 레이어 (데스크톱 전용) ── */
+/* ── 앱 타이틀 고정 레이어 (데스크톱 전용, 사이드바 숨김 상태의 탭 핸들) ── */
 #sidebar-title-fixed {
   position: fixed;
   bottom: 0; left: 0;
   width: 232px;
   height: 52px;
-  z-index: 1100;
+  /* 사이드바가 펼쳐진 기본 상태에서는 #sidebar(z-index:100)보다 아래에 두어
+     사이드바 자체 footer(버전 표시 등)를 가리지 않도록 한다.
+     사이드바가 숨겨졌을 때만 body.sidebar-hidden 규칙에서 위로 끌어올린다. */
+  z-index: 50;
   background: var(--sidebar-bg);
   display: flex;
   align-items: center;
   padding: 0 1rem;
   border-top: 1px solid rgba(255,255,255,0.06);
   pointer-events: none;
+}
+body.sidebar-hidden #sidebar-title-fixed {
+  z-index: 1100;
 }
 #sidebar-title-fixed .app-title-text {
   color: rgba(255,255,255,0.5);
