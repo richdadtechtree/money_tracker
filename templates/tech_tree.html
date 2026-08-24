@@ -213,8 +213,9 @@
           <div class="inflow-detail mt-2 pt-2 border-top text-muted" style="font-size: 0.75rem;">
             <div class="d-flex justify-content-between mb-1"><span>근로소득 월평균:</span> <span id="laborMonthlyAvg">-</span></div>
             <div class="d-flex justify-content-between mb-1"><span>자생소득 월평균:</span> <span><span id="passiveMonthlyAvg">-</span> <small class="text-muted" style="font-size: 0.65rem;">(임대/손익 포함)</small></span></div>
+            <div class="d-flex justify-content-between mb-1"><span>지출 월평균:</span> <span class="text-danger" id="expenseMonthlyAvg">-</span></div>
             <hr class="my-1">
-            <div class="d-flex justify-content-between fw-bold text-primary mb-1"><span>연환산 합계:</span> <span id="annualTotalAvg">-</span></div>
+            <div class="d-flex justify-content-between fw-bold text-primary mb-1"><span>연환산 순유입 (물탱크 유입액):</span> <span id="annualTotalAvg">-</span></div>
             <div class="text-muted text-center mt-2" id="reliabilityNote" style="font-size: 0.65rem;"></div>
           </div>
         </div>
@@ -697,15 +698,18 @@ async function loadTechTree() {
   document.getElementById('expenseTotalVal').textContent = fmt(expense) + '원';
   document.getElementById('strawTotalVal').textContent = fmt(straw_total) + '원';
 
-  // 상세 유입 breakdown 업데이트
+  // 상세 유입 breakdown 업데이트 (근로+자생소득 월평균 - 지출 월평균, 모두 최근 기록이
+  // 있는 달들의 평균 기준 — 소득/지출이 매달 들쭉날쭉해도 특정 달에 휘둘리지 않음)
   const laborMonthly = Math.round(income.labor_annual_avg / 12);
   const passiveMonthly = Math.round(income.passive_annual_avg / 12);
-  const annualTotal = income.labor_annual_avg + income.passive_annual_avg;
+  const expenseMonthly = income.expense_monthly_avg || 0;
+  const netAnnualAvg = income.net_annual_avg ?? (income.labor_annual_avg + income.passive_annual_avg - (income.expense_annual_avg || 0));
   const laborMonths = income.labor_months;
 
   document.getElementById('laborMonthlyAvg').textContent = fmt(laborMonthly) + '원';
   document.getElementById('passiveMonthlyAvg').textContent = fmt(passiveMonthly) + '원';
-  document.getElementById('annualTotalAvg').textContent = fmt(annualTotal) + '원';
+  document.getElementById('expenseMonthlyAvg').textContent = '-' + fmt(expenseMonthly) + '원';
+  document.getElementById('annualTotalAvg').textContent = (netAnnualAvg >= 0 ? '+' : '') + fmt(netAnnualAvg) + '원';
 
   // 신뢰도 기준 정의
   let relNote = '';

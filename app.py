@@ -5550,38 +5550,12 @@ def api_lifecycle_simulate():
         loan_repayment = 0.0
     else:
         avg = _calc_annual_avg_income(db)
-        
-        cur = db.cursor()
-        cur.execute("""
-            SELECT COALESCE(AVG(monthly_exp),0) FROM (
-                SELECT to_char(date::date,'YYYY-MM') as ym, SUM(amount) as monthly_exp
-                FROM budget
-                WHERE date >= CURRENT_DATE - INTERVAL '12 months'
-                GROUP BY ym
-            ) sub
-        """)
-        monthly_exp_avg = float(cur.fetchone()[0] or 0)
-        cur.close()
-        
-        cur = db.cursor()
-        cur.execute("""
-            SELECT COALESCE(AVG(monthly_card),0) FROM (
-                SELECT to_char(date::date,'YYYY-MM') as ym, SUM(amount) as monthly_card
-                FROM card_tx
-                WHERE date >= CURRENT_DATE - INTERVAL '12 months' AND budget_id IS NULL
-                GROUP BY ym
-            ) sub
-        """)
-        monthly_card_avg = float(cur.fetchone()[0] or 0)
-        cur.close()
-        
-        cur = db.cursor()
-        cur.execute("SELECT COALESCE(SUM(monthly_payment), 0) FROM loans")
-        loan_repayment = float(cur.fetchone()[0] or 0)
-        cur.close()
+        avg_exp = _calc_annual_avg_expense(db)
+        monthly_exp_avg  = avg_exp['budget_monthly_avg']
+        monthly_card_avg = avg_exp['card_monthly_avg']
+        loan_repayment   = avg_exp['loan_monthly']
 
-        annual_expense_est = (monthly_exp_avg + monthly_card_avg + loan_repayment) * 12
-        annual_net_inflow = (avg['labor_annual'] + avg['passive_annual']) - annual_expense_est
+        annual_net_inflow = (avg['labor_annual'] + avg['passive_annual']) - avg_exp['expense_annual']
 
     # ── 4. 이벤트 로드 ──
     cur = db.cursor()
@@ -6059,6 +6033,65 @@ def _calc_annual_avg_income(db):
     }
 
 
+def _calc_annual_avg_expense(db):
+    """
+    최근 12개월 중 실제 기록이 있는 달의 평균으로 연환산 지출을 계산한다.
+    (가계부 + 카드지출(가계부에 이미 잡힌 건 제외) + 대출 월 상환액)
+    생애주기 시뮬레이터(annual_expense_est)와 동일한 산출 기준을 공유한다.
+    """
+    cur = db.cursor()
+    cur.execute("""
+        SELECT COALESCE(AVG(monthly_exp),0) FROM (
+            SELECT to_char(date::date,'YYYY-MM') as ym, SUM(amount) as monthly_exp
+            FROM budget
+            WHERE date >= CURRENT_DATE - INTERVAL '12 months'
+            GROUP BY ym
+        ) sub
+    """)
+    monthly_exp_avg = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("""
+        SELECT COALESCE(AVG(monthly_card),0) FROM (
+            SELECT to_char(date::date,'YYYY-MM') as ym, SUM(amount) as monthly_card
+            FROM card_tx
+            WHERE date >= CURRENT_DATE - INTERVAL '12 months' AND budget_id IS NULL
+            GROUP BY ym
+        ) sub
+    """)
+    monthly_card_avg = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(monthly_payment), 0) FROM loans")
+    loan_repayment = float(cur.fetchone()[0] or 0)
+    cur.close()
+
+    monthly_total = monthly_exp_avg + monthly_card_avg + loan_repayment
+    return {
+        'budget_monthly_avg': round(monthly_exp_avg),
+        'card_monthly_avg':   round(monthly_card_avg),
+        'loan_monthly':       round(loan_repayment),
+        'expense_monthly_avg': round(monthly_total),
+        'expense_annual':      round(monthly_total * 12),
+    }
+
+
+def _calc_net_annual_inflow(db):
+    """월평균 (근로+자생소득) − 월평균 지출을 연환산한 "실질 순유입".
+    소득이 매달 들쭉날쭉해도 최근 기록이 있는 달들의 평균을 쓰므로 안정적이다.
+    대시보드 KPI, 테크트리 물탱크 유입 속도, 생애주기 시뮬레이터가 모두 이 값을 공유한다."""
+    avg_income  = _calc_annual_avg_income(db)
+    avg_expense = _calc_annual_avg_expense(db)
+    net_annual = (avg_income['labor_annual'] + avg_income['passive_annual']) - avg_expense['expense_annual']
+    return {
+        'income':     avg_income,
+        'expense':    avg_expense,
+        'net_annual': round(net_annual),
+    }
+
+
 @app.route('/api/tech-tree-data')
 @cache.cached(timeout=180)
 def api_tech_tree_data():
@@ -6360,7 +6393,9 @@ def _api_tech_tree_data_inner():
         print(f"Error saving daily snapshot in tech tree: {snapshot_err}")
     db.commit()
 
-    avg_income = _calc_annual_avg_income(db)
+    net_inflow = _calc_net_annual_inflow(db)
+    avg_income = net_inflow['income']
+    avg_expense = net_inflow['expense']
 
     db.close()
     return jsonify({
@@ -6380,7 +6415,10 @@ def _api_tech_tree_data_inner():
             'labor_annual_avg': avg_income['labor_annual'],
             'passive_annual_avg': avg_income['passive_annual'],
             'labor_months': avg_income['labor_months'],
-            'passive_months': avg_income['passive_months']
+            'passive_months': avg_income['passive_months'],
+            'expense_monthly_avg': avg_expense['expense_monthly_avg'],
+            'expense_annual_avg': avg_expense['expense_annual'],
+            'net_annual_avg': net_inflow['net_annual'],
         },
         'expense': int(total_exp or 0),
         'straw_total': int(straw_total or 0),
@@ -6622,60 +6660,13 @@ def _api_tech_tree_yearly_stats_inner():
         yearly_history.append(item)
         
     # 4. 연간 유입 속도 (Flow Rate) 연산
-    flow_rate_amount = 0
-    changes = [h['change_amount'] for h in yearly_history if h['change_amount'] > 0]
-    if len(changes) > 0:
-        flow_rate_amount = sum(changes) / len(changes)
-    else:
-        # 과거 데이터가 없는 경우 이번달 소득/지출 기준 추정
-        ym = today.strftime('%Y-%m')
-        cur = db.cursor()
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category IN ('급여', '사업소득') AND date <= CURRENT_DATE", (ym,))
-        labor_inc = cur.fetchone()[0] or 0
-        cur.close()
-        
-        cur = db.cursor()
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM income WHERE to_char(date::date, 'YYYY-MM') = %s AND category NOT IN ('급여', '사업소득') AND date <= CURRENT_DATE", (ym,))
-        passive_inc = cur.fetchone()[0] or 0
-        cur.close()
-        
-        cur = db.cursor()
-        cur.execute("""
-        SELECT COALESCE(SUM(monthly_rent), 0) FROM tenant_contracts 
-        WHERE contract_type = '월세' AND id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
-        """)
-        rental_inc = cur.fetchone()[0] or 0
-        cur.close()
-        
-        cur = db.cursor()
-        cur.execute("""
-        SELECT COALESCE(SUM(deposit * 0.04 / 12), 0) FROM tenant_contracts 
-        WHERE contract_type = '전세' AND id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)
-        """)
-        leverage_inc = cur.fetchone()[0] or 0
-        cur.close()
-        
-        total_income = labor_inc + passive_inc + rental_inc + leverage_inc
-        
-        cur = db.cursor()
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM budget WHERE to_char(date::date, 'YYYY-MM') = %s", (ym,))
-        expense_total = cur.fetchone()[0] or 0
-        cur.close()
-        
-        cur = db.cursor()
-        cur.execute("SELECT COALESCE(SUM(amount),0) FROM card_tx WHERE to_char(date::date, 'YYYY-MM') = %s AND budget_id IS NULL", (ym,))
-        card_total = cur.fetchone()[0] or 0
-        cur.close()
-        
-        cur = db.cursor()
-        cur.execute("SELECT COALESCE(SUM(monthly_payment), 0) FROM loans")
-        loan_repayment = cur.fetchone()[0] or 0
-        cur.close()
-        
-        total_expense = expense_total + card_total + loan_repayment
-        monthly_net_savings = total_income - total_expense
-        flow_rate_amount = max(monthly_net_savings * 12, 0)
-        
+    # 자산 총액의 전년 대비 증감분(주식/부동산 시세 변동, 일시적 자산 이전 등이 섞여
+    # 들쭉날쭉함) 대신, 대시보드·생애주기 시뮬레이터와 동일하게 "최근 기록이 있는
+    # 달들의 평균 (근로+자생소득) − 평균 지출"을 실질 유입 속도로 사용한다.
+    # 소득이 매달 일정하지 않아도 월평균으로 계산하므로 특정 달의 값에 휘둘리지 않는다.
+    net_inflow = _calc_net_annual_inflow(db)
+    flow_rate_amount = max(net_inflow['net_annual'], 0)
+
     if flow_rate_amount == 0:
         flow_rate_amount = 12000000 # 기본 연 1200만 원 (월 100만 원)
         
