@@ -456,7 +456,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             confirmModal = document.getElementById('_navGuardModal');
         }
 
-        const bsNavModal = new bootstrap.Modal(confirmModal, {
+        const bsNavModal = bootstrap.Modal.getOrCreateInstance(confirmModal, {
             backdrop: true,
             keyboard: true
         });

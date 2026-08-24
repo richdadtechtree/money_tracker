@@ -635,7 +635,7 @@ function _showCloseConfirm(targetModalEl) {
         confirmModal = document.getElementById('_formGuardConfirmModal');
     }
 
-    const bsConfirmModal = new bootstrap.Modal(confirmModal, {
+    const bsConfirmModal = bootstrap.Modal.getOrCreateInstance(confirmModal, {
         backdrop: true,
         keyboard: true
     });

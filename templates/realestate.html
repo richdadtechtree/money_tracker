@@ -834,7 +834,29 @@ const contractGrid = new GridTable({
   apiUrl: '/api/tenant-contracts',
   getQueryParams: () => `real_estate_id=${currentReId}`,
   getExtraData:   () => ({ real_estate_id: currentReId }),
-  onSave:   () => { reGrid.load(); loadSummary(); },
+  onSave:   async (result, method, data) => {
+    reGrid.load(); loadSummary();
+    // 신규 임차 계약 등록 + 보증금이 있으면, 실제로 받은 보증금을 현금 자산에도 반영할지 확인
+    // (안 물어보고 그냥 두면 부동산 자산은 보증금만큼 순가치가 줄어드는데 현금은 그대로라
+    //  순자산이 실제로 받은 적 없는 돈만큼 갑자기 사라진 것처럼 보이는 문제가 있었음)
+    if (method === 'POST' && (data.deposit || 0) > 0) {
+      const depositAmt = data.deposit;
+      const typeLabel  = data.contract_type || '임차';
+      if (confirm(`${typeLabel} 보증금 ${fmt(depositAmt)}원을 실제로 받으셨나요?\n받으셨다면 확인을 눌러 현금 자산에도 반영합니다.`)) {
+        await fetchJSON('/api/cash-deposits', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: `[${typeLabel}보증금] ${currentReName || ''}`,
+            amount: depositAmt,
+            memo: '임차 계약 등록 시 자동 반영 (부동산)',
+            updated_date: new Date().toISOString().slice(0, 10),
+          }),
+        });
+        alert('현금 자산에 반영했습니다. 금액이 다르면 현금관리 메뉴에서 직접 수정해주세요.');
+      }
+    }
+  },
   onDelete: () => { reGrid.load(); loadSummary(); },
 });
 
@@ -957,7 +979,7 @@ function renderSellRows() {
   tbody.innerHTML = _sellRows.map((r, i) => `
     <tr>
       <td>
-        <select class="form-select form-select-sm" onchange="_sellRows[${i}].type=this.value">
+        <select class="form-select form-select-sm" data-no-dirty onchange="_sellRows[${i}].type=this.value">
           ${PAYMENT_TYPES.map(t => `<option${t===r.type?' selected':''}>${t}</option>`).join('')}
         </select>
       </td>
@@ -1157,7 +1179,7 @@ function renderBuyRows() {
   tbody.innerHTML = _buyRows.map((r, i) => `
     <tr>
       <td>
-        <select class="form-select form-select-sm" onchange="_buyRows[${i}].type=this.value">
+        <select class="form-select form-select-sm" data-no-dirty onchange="_buyRows[${i}].type=this.value">
           ${PAYMENT_TYPES.map(t => `<option${t===r.type?' selected':''}>${t}</option>`).join('')}
         </select>
       </td>
