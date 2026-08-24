@@ -69,6 +69,7 @@
               <input type="text" class="form-control" id="overrideInflow" placeholder="미체크 시 테크트리 계산값 사용" disabled>
               <span class="input-group-text">원/년</span>
             </div>
+            <div class="form-text" id="autoInflowDisplay" style="font-size:0.75rem"></div>
           </div>
           <button type="button" class="btn btn-outline-secondary btn-sm w-100 mt-2" onclick="saveSettings()">
             <i class="bi bi-save me-1"></i>설정 임시 저장
@@ -459,7 +460,12 @@ async function runSimulation() {
   // 시뮬레이션 호출
   const res = await fetchJSON('/api/lifecycle-simulate');
   if (!res) return;
-  
+
+  const isOverridden = document.getElementById('enableOverride').checked;
+  document.getElementById('autoInflowDisplay').textContent =
+    (isOverridden ? '자동계산값(참고): ' : '현금에 매년 더해지는 연간 순유입: ') +
+    fmt(res.annual_net_inflow) + '원 (근로+자생소득 − 예상 연지출, 100% 현금으로 누적)';
+
   const sim = res.simulation;
   
   // X축 라벨 생성
