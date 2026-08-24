@@ -745,7 +745,8 @@ async function loadTechTree() {
   mNet.className    = 'fw-bold ' + (netSavings >= 0 ? 'text-info' : 'text-danger');
   const total = assets.cash + assets.stocks + assets.real_estate + assets.crypto + assets.pension;
   const loanTotal = assets.loan_total || 0;
-  const netWorth = total - loanTotal;
+  const tenantDeposit = assets.tenant_deposit || 0;
+  const netWorth = total - loanTotal - tenantDeposit;
   document.getElementById('currentTotalAssets').textContent = fmt(total) + '원';
   document.getElementById('valLoan').textContent  = '-' + fmt(loanTotal) + '원';
   document.getElementById('valNetWorth').textContent = fmt(netWorth) + '원';

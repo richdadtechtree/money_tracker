@@ -6158,10 +6158,12 @@ def _api_tech_tree_data_inner():
     cur.close()
 
     crypto_val = float(row['crypto_val'] or 0)
-    re_total_price = get_real_estate_value(db)
+    re_total_price = float(row['re_total_price'] or 0)
     re_total_deposit = float(row['re_total_deposit'] or 0)
     residence_deposit = float(row['residence_deposit'] or 0)
-    re_val = re_total_price - re_total_deposit + residence_deposit
+    # 대시보드와 동일한 기준: 부동산은 현재가(+거주보증금) 그대로 총자산에 반영하고,
+    # 세입자 보증금은 대출과 함께 순자산 계산에서만 부채로 차감한다 (assets.tenant_deposit).
+    re_val = re_total_price + residence_deposit
 
     cash_val = float(row['cash_val'] or 0)
     pension_val = float(row['pension_val'] or 0)
@@ -6355,6 +6357,7 @@ def _api_tech_tree_data_inner():
             'crypto': int(crypto_val or 0),
             'pension': int(pension_val or 0),
             'loan_total': int(float(row['loan_total'] or 0)),
+            'tenant_deposit': int(re_total_deposit or 0),
         },
         'income': {
             'labor': int(labor_inc or 0),
@@ -6505,7 +6508,10 @@ def _api_tech_tree_yearly_stats_inner():
     crypto_val = float(cur.fetchone()[0] or 0)
     cur.close()
 
-    re_total_price = get_real_estate_value(db)
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price), 0) FROM real_estate")
+    re_total_price = float(cur.fetchone()[0] or 0)
+    cur.close()
 
     cur = db.cursor()
     cur.execute("""
@@ -6519,7 +6525,9 @@ def _api_tech_tree_yearly_stats_inner():
     cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
     residence_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
-    re_val = re_total_price - re_total_deposit + residence_deposit
+    # 대시보드와 동일한 기준: 부동산은 현재가(+거주보증금) 그대로, 세입자 보증금은
+    # 대출과 함께 순자산(current_total) 계산에서만 부채로 차감한다.
+    re_val = re_total_price + residence_deposit
 
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
@@ -6536,7 +6544,7 @@ def _api_tech_tree_yearly_stats_inner():
     loan_total = float(cur.fetchone()[0] or 0)
     cur.close()
 
-    current_total = int(cash_val + stocks_val + etf_val + re_val + crypto_val + pension_val - loan_total)
+    current_total = int(cash_val + stocks_val + etf_val + re_val + crypto_val + pension_val - loan_total - re_total_deposit)
     current_percent = round((current_total / target_amount) * 100, 1) if target_amount > 0 else 0
     
     # 3. 스냅샷 데이터 조회하여 연도별 마지막 스냅샷 추출
@@ -6732,16 +6740,16 @@ def api_asset_history():
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
     curr_crypto = float(cur.fetchone()[0] or 0)
     cur.close()
-    re_price = get_real_estate_value(db)
     cur = db.cursor()
-    cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts WHERE id IN (SELECT MAX(id) FROM tenant_contracts WHERE real_estate_id IS NOT NULL GROUP BY real_estate_id)")
-    re_dep = float(cur.fetchone()[0] or 0)
+    cur.execute("SELECT COALESCE(SUM(current_price), 0) FROM real_estate")
+    re_price = float(cur.fetchone()[0] or 0)
     cur.close()
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
     res_dep = float(cur.fetchone()[0] or 0)
     cur.close()
-    curr_re = re_price - re_dep + res_dep
+    # 대시보드와 동일한 기준: 부동산은 현재가(+거주보증금) 그대로 반영 (세입자 보증금 미차감)
+    curr_re = re_price + res_dep
 
     # 12개월 범위의 연월 리스트 미리 구성
     months_list = []
