@@ -799,6 +799,9 @@ def init_db():
         )""",
         "ALTER TABLE rebalance_assignments ADD COLUMN IF NOT EXISTS cash_amount BIGINT DEFAULT 0",
         "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS realized_pnl_override REAL",
+        "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'KRW'",
+        "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS original_amount REAL NOT NULL DEFAULT 0.0",
+        "UPDATE cash_deposits SET original_amount = amount WHERE currency = 'KRW'",
     ]
     for sql in migrations:
         try:

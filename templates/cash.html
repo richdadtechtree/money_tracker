@@ -25,7 +25,9 @@
                 <thead class="table-light">
                     <tr>
                         <th>통장/기관명</th>
-                        <th class="text-end">잔액</th>
+                        <th>통화</th>
+                        <th class="text-end">입력 금액</th>
+                        <th class="text-end">원화 환산액</th>
                         <th>메모</th>
                         <th>최종 수정일</th>
                         <th class="text-center">작업</th>
@@ -111,8 +113,14 @@ grid = new GridTable({
     apiUrl: '/api/cash-deposits',
     columns: [
         { key: 'name', type: 'text' },
-        { key: 'amount', type: 'number', align: 'end',
-          render: (v) => fmt(v) + ' 원' },
+        { key: 'currency', type: 'select', options: [{value:'KRW', label:'원화(KRW)'}, {value:'USD', label:'달러(USD)'}],
+          render: v => v === 'USD' ? '달러(USD)' : '원화(KRW)' },
+        { key: 'original_amount', type: 'number', align: 'end',
+          render: (v, r) => r.currency === 'USD' ? ('$' + Number(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})) : (fmt(v) + ' 원') },
+        { key: 'amount', type: 'computed', align: 'end',
+          compute: r => r.currency === 'USD'
+            ? `${fmt(r.amount)}원 <small class="text-muted">(현재 환율 반영)</small>`
+            : fmt(r.amount) + '원' },
         { key: 'memo', type: 'text' },
         { key: 'updated_date', type: 'text', readonly: true }
     ],
