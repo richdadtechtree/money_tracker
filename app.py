@@ -4947,58 +4947,19 @@ def api_ipo_pnl():
 # ── API: 월별 실현손익 ───────────────────────────────────────
 @app.route('/api/investment-monthly')
 def api_investment_monthly():
-    """최근 12개월 월별 실현손익 및 누계 (주식+ETF+공모주 합산)"""
-    db = get_db()
-    ex_rate = get_current_exchange_rate()
+    """최근 12개월 월별 실현손익 및 누계 (주식+ETF+공모주 합산).
+    구분별 수익률 차트/매도 내역 드릴다운(_calc_realized_records)과 동일한 이동평균
+    매입단가 기준을 사용해, 대시보드 막대 값과 상세 팝업 합계가 항상 일치하도록 한다.
+    (예전에는 이 엔드포인트만 종목별 "전체 매수 평균단가" 하나로 모든 매도를 계산해,
+    시점별로 평단가가 바뀌는 종목에서 다른 결과가 나왔었다.)"""
+    records = _calc_realized_records()
 
-    cur = db.cursor()
-    cur.execute("""
-        WITH avg_costs AS (
-            SELECT stock_id,
-                SUM(CASE WHEN tx_type IN ('buy','매수') THEN price*quantity ELSE 0 END) /
-                NULLIF(SUM(CASE WHEN tx_type IN ('buy','매수') THEN quantity ELSE 0 END), 0) AS avg_cost
-            FROM stock_tx GROUP BY stock_id
-        )
-        SELECT to_char(t.tx_date::date, 'YYYY-MM') AS ym,
-            COALESCE(SUM(((t.price - ac.avg_cost) * t.quantity - t.fee) * (CASE WHEN s.ticker IS NOT NULL AND s.ticker != '' AND s.ticker !~ '^[0-9]{6}$' THEN %s ELSE 1 END)), 0) AS realized_pnl
-        FROM stock_tx t
-        JOIN avg_costs ac ON ac.stock_id = t.stock_id
-        JOIN stocks s ON s.id = t.stock_id
-        WHERE t.tx_type IN ('sell','매도')
-        GROUP BY ym ORDER BY ym
-    """, (ex_rate,))
-    stocks_by_month = {r['ym']: float(r['realized_pnl']) for r in cur.fetchall()}
-    cur.close()
-
-    cur = db.cursor()
-    cur.execute("""
-        WITH avg_costs AS (
-            SELECT etf_id,
-                SUM(CASE WHEN tx_type IN ('buy','매수') THEN price*quantity ELSE 0 END) /
-                NULLIF(SUM(CASE WHEN tx_type IN ('buy','매수') THEN quantity ELSE 0 END), 0) AS avg_cost
-            FROM etf_tx GROUP BY etf_id
-        )
-        SELECT to_char(t.tx_date::date, 'YYYY-MM') AS ym,
-            COALESCE(SUM(((t.price - ac.avg_cost) * t.quantity - t.fee) * (CASE WHEN e.ticker IS NOT NULL AND e.ticker != '' AND e.ticker !~ '^[0-9]{6}$' THEN %s ELSE 1 END)), 0) AS realized_pnl
-        FROM etf_tx t
-        JOIN avg_costs ac ON ac.etf_id = t.etf_id
-        JOIN etf e ON e.id = t.etf_id
-        WHERE t.tx_type IN ('sell','매도')
-        GROUP BY ym ORDER BY ym
-    """, (ex_rate,))
-    etf_by_month = {r['ym']: float(r['realized_pnl']) for r in cur.fetchall()}
-    cur.close()
-
-    cur = db.cursor()
-    cur.execute("""
-        SELECT to_char(listing_date::date, 'YYYY-MM') AS ym,
-            COALESCE(SUM(realized_pnl), 0) AS realized_pnl
-        FROM ipo
-        GROUP BY ym ORDER BY ym
-    """)
-    ipo_by_month = {r['ym']: float(r['realized_pnl']) for r in cur.fetchall()}
-    cur.close()
-    db.close()
+    from collections import defaultdict
+    pnl_by_month = defaultdict(float)
+    for r in records:
+        ym = (r['date'] or '')[:7]
+        if ym:
+            pnl_by_month[ym] += r['pnl']
 
     today = date.today()
     months = []
@@ -5010,7 +4971,7 @@ def api_investment_monthly():
             mo += 12
             yr -= 1
         ym = f"{yr}-{mo:02d}"
-        pnl = round(stocks_by_month.get(ym, 0) + etf_by_month.get(ym, 0) + ipo_by_month.get(ym, 0))
+        pnl = round(pnl_by_month.get(ym, 0))
         cumulative += pnl
         months.append({'ym': ym, 'realized_pnl': pnl, 'cumulative_pnl': cumulative})
 
