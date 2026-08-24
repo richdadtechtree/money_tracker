@@ -5031,8 +5031,12 @@ def _save_daily_snapshot(db):
     crypto_val = float(cur.fetchone()[0] or 0)
     cur.close()
     
-    re_total_price = get_real_estate_value(db)
-    
+    # 매수 진행 단계와 무관하게 매물별로 지금 기입된 시세(current_price)를 그대로 합산
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price), 0) FROM real_estate")
+    re_total_price = float(cur.fetchone()[0] or 0)
+    cur.close()
+
     cur = db.cursor()
     cur.execute("""
     SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts
@@ -5046,7 +5050,7 @@ def _save_daily_snapshot(db):
     residence_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
 
-    re_val = re_total_price - re_total_deposit + residence_deposit
+    re_val = re_total_price
 
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
@@ -5063,14 +5067,16 @@ def _save_daily_snapshot(db):
     loan_total = float(cur.fetchone()[0] or 0)
     cur.close()
 
-    cash_int = int(cash_val or 0)
+    cash_int = int(cash_val or 0) + int(residence_deposit or 0)
     stocks_int = int(stocks_val or 0) + int(etf_val or 0)
     re_int = int(re_val or 0)
     crypto_int = int(crypto_val or 0)
     pension_int = int(pension_val or 0)
-    
+
+    # 총자산 = 각 자산군의 현재값을 그대로 합산 (대출·보증금 등 상계 없음)
     total = cash_int + stocks_int + re_int + crypto_int + pension_int
-    net_worth = total - int(loan_total or 0)
+    # 순자산 = 총자산에서 대출 잔액과 세입자 보증금(전세자금 등)을 제외
+    net_worth = total - int(loan_total or 0) - int(re_total_deposit or 0)
 
     cur = db.cursor()
     cur.execute("""
@@ -5752,8 +5758,13 @@ def _api_dashboard_inner():
     crypto_val = float(cur.fetchone()['val'] or 0)
     cur.close()
 
-    # 부동산 현재가 (시세 - 임대보증금 + 거주보증금)
-    re_total_price = get_real_estate_value(db)
+    # 부동산 현재가 — 매수 진행 단계와 무관하게 매물별로 지금 기입된 시세(current_price)를 그대로 합산
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price), 0) as v FROM real_estate")
+    re_total_price = float(cur.fetchone()['v'] or 0)
+    cur.close()
+
+    # 세입자 보증금 (순자산 계산 시에만 부채로 차감)
     cur = db.cursor()
     cur.execute("""
     SELECT COALESCE(SUM(deposit), 0) FROM tenant_contracts
@@ -5761,11 +5772,12 @@ def _api_dashboard_inner():
     """)
     re_total_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
+
+    # 내가 거주 중인 곳에 낸 보증금 (돌려받을 자산이므로 총자산에 더함)
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(deposit), 0) FROM residence")
     residence_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
-    re_val = re_total_price - re_total_deposit + residence_deposit
 
     # 연금 누적액
     cur = db.cursor()
@@ -5783,7 +5795,10 @@ def _api_dashboard_inner():
     cash_val = float(cur.fetchone()['val'] or 0)
     cur.close()
 
-    # 부동산 거래 단계 조정
+    # 부동산 거래 단계 조정: 매도 진행 중인 물건은 매도 확정 전까지 시세 전액이 계속
+    # current_price에 잡히므로, 이미 받은 매도대금만큼 빼주지 않으면 "매도대금(현금)"과
+    # "물건 시세"가 동시에 이중 계상된다. buy_paid는 참고용 정보로만 계산하고 총자산에는
+    # 반영하지 않는다 (current_price를 그대로 쓰므로 매수대금을 또 더하면 이중 계상됨).
     sell_received = 0.0
     buy_paid = 0.0
     try:
@@ -5802,14 +5817,7 @@ def _api_dashboard_inner():
         cur.close()
     except Exception:
         db.rollback()  # 테이블 없을 때 트랜잭션 중단 상태 초기화
-    # buy_paid는 더하지 않는다: get_real_estate_value()가 이미 매물별로
-    # "잔금 미납 시 지금까지 낸 금액만, 완납 시 시세 전액"을 반영하고 있어
-    # 여기서 또 더하면 지급된 매수대금이 이중으로 잡힌다.
-    # (예: 잔금까지 완납한 물건은 시세 전액 + 낸 돈 전액이 합산되어 거의 2배로 부풀려짐)
-    # sell_received는 반대로 get_real_estate_value()가 처리하지 않는 값이라 그대로 차감한다:
-    # 매도 진행 중인 물건은 팔리기(매도 확정) 전까지 시세 전액이 계속 잡히므로, 이미 받은
-    # 매도대금만큼 빼주지 않으면 "매도대금(현금)"과 "물건 시세"가 동시에 이중 계상된다.
-    re_val -= sell_received
+    re_val = re_total_price - sell_received
 
     # 대출 잔액
     cur = db.cursor()
@@ -5819,9 +5827,10 @@ def _api_dashboard_inner():
     loan_total = float(cur.fetchone()['total'] or 0)
     cur.close()
 
-    total_assets = stocks_val + etf_val + crypto_val + re_val + pension_val + cash_val
-    net_worth = total_assets - loan_total
-    gross_assets = total_assets + re_total_deposit
+    # 총자산 = 각 자산군에 지금 기입된 현재값을 그대로 합산 (대출·보증금 등 상계 없음)
+    total_assets = stocks_val + etf_val + crypto_val + re_val + pension_val + cash_val + residence_deposit
+    # 순자산 = 총자산에서 대출 잔액과, 세입자에게 돌려줘야 할 보증금(전세자금 등)을 제외
+    net_worth = total_assets - loan_total - re_total_deposit
 
     # 이번달 수입 카테고리별
     cur = db.cursor()
@@ -5918,7 +5927,7 @@ def _api_dashboard_inner():
         'income_total':    income_total,
         'expense_total':   expense_total + card_total,
         'net_worth':       net_worth,
-        'total_assets':    gross_assets,
+        'total_assets':    total_assets,
         'loan_total':      loan_total,
         'asset_breakdown': {
             'stocks_and_etf': stocks_val + etf_val,  # 주식+ETF 합산 (테크트리·투자관리와 동일 기준)
