@@ -5802,7 +5802,14 @@ def _api_dashboard_inner():
         cur.close()
     except Exception:
         db.rollback()  # 테이블 없을 때 트랜잭션 중단 상태 초기화
-    re_val += buy_paid - sell_received
+    # buy_paid는 더하지 않는다: get_real_estate_value()가 이미 매물별로
+    # "잔금 미납 시 지금까지 낸 금액만, 완납 시 시세 전액"을 반영하고 있어
+    # 여기서 또 더하면 지급된 매수대금이 이중으로 잡힌다.
+    # (예: 잔금까지 완납한 물건은 시세 전액 + 낸 돈 전액이 합산되어 거의 2배로 부풀려짐)
+    # sell_received는 반대로 get_real_estate_value()가 처리하지 않는 값이라 그대로 차감한다:
+    # 매도 진행 중인 물건은 팔리기(매도 확정) 전까지 시세 전액이 계속 잡히므로, 이미 받은
+    # 매도대금만큼 빼주지 않으면 "매도대금(현금)"과 "물건 시세"가 동시에 이중 계상된다.
+    re_val -= sell_received
 
     # 대출 잔액
     cur = db.cursor()
