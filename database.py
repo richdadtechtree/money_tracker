@@ -802,6 +802,14 @@ def init_db():
         "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'KRW'",
         "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS original_amount REAL NOT NULL DEFAULT 0.0",
         "UPDATE cash_deposits SET original_amount = amount WHERE currency = 'KRW'",
+        # 한 통장에 원화·달러를 동시에 보유하는 경우를 지원하기 위해
+        # currency(택1)+original_amount 대신 krw_amount/usd_amount를 함께 저장하는 방식으로 전환.
+        "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS krw_amount BIGINT NOT NULL DEFAULT 0",
+        "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS usd_amount REAL NOT NULL DEFAULT 0",
+        """UPDATE cash_deposits SET
+            krw_amount = CASE WHEN currency = 'USD' THEN 0 ELSE original_amount END,
+            usd_amount = CASE WHEN currency = 'USD' THEN original_amount ELSE 0 END
+        WHERE krw_amount = 0 AND usd_amount = 0""",
     ]
     for sql in migrations:
         try:

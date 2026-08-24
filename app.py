@@ -4429,21 +4429,22 @@ def api_goals_detail(rid):
 
 # ── 현금 자동 조정 헬퍼 ─────────────────────────────────────
 def _refresh_usd_cash_amounts(db, ex_rate=None):
-    """현금관리에 달러(USD)로 등록한 계좌의 원화 환산액(amount)을 현재 환율로 갱신한다.
+    """현금관리 계좌의 원화 환산액(amount = krw_amount + usd_amount×환율)을 현재 환율로 갱신한다.
+    한 계좌가 원화·달러를 동시에 보유할 수 있으므로 usd_amount가 있는 계좌만 대상으로 한다.
     가격 자동 업데이트 스케줄(09:00/16:00) 및 관련 화면 조회 시 호출되어,
     cash_deposits.amount를 그대로 SUM하는 모든 곳(대시보드/테크트리/생애주기 등)이
     별도 환산 로직 없이 항상 최신 환율 기준 금액을 쓰도록 한다."""
     if ex_rate is None:
         ex_rate = get_current_exchange_rate()
     cur = db.cursor()
-    cur.execute("SELECT id, original_amount FROM cash_deposits WHERE currency = 'USD'")
+    cur.execute("SELECT id, krw_amount, usd_amount FROM cash_deposits WHERE usd_amount != 0")
     usd_rows = cur.fetchall()
     cur.close()
     if not usd_rows:
         return
     cur = db.cursor()
     for row in usd_rows:
-        new_amount = int(round(float(row['original_amount'] or 0) * ex_rate))
+        new_amount = int(round(float(row['krw_amount'] or 0) + float(row['usd_amount'] or 0) * ex_rate))
         cur.execute("UPDATE cash_deposits SET amount = %s WHERE id = %s", (new_amount, row['id']))
     cur.close()
     db.commit()
@@ -4474,7 +4475,7 @@ def _upsert_cash_adj(cur, source_type, source_id, amount, description, adj_date=
     # 현금 최대 잔액 계좌에 차액 즉시 반영
     delta = amount - prev_amount
     if delta != 0:
-        cur.execute("SELECT id, amount FROM cash_deposits WHERE currency = 'KRW' ORDER BY amount DESC LIMIT 1")
+        cur.execute("SELECT id, amount FROM cash_deposits WHERE usd_amount = 0 ORDER BY amount DESC LIMIT 1")
         acct = cur.fetchone()
         if acct:
             cur.execute(
@@ -4491,7 +4492,7 @@ def _remove_cash_adj(cur, source_type, source_id):
     prev = cur.fetchone()
     if prev:
         prev_amount = int(prev['amount'])
-        cur.execute("SELECT id, amount FROM cash_deposits WHERE currency = 'KRW' ORDER BY amount DESC LIMIT 1")
+        cur.execute("SELECT id, amount FROM cash_deposits WHERE usd_amount = 0 ORDER BY amount DESC LIMIT 1")
         acct = cur.fetchone()
         if acct:
             cur.execute(
@@ -4505,18 +4506,14 @@ def _remove_cash_adj(cur, source_type, source_id):
 
 
 # ── API: 현금/예금 ───────────────────────────────────────────
-def _resolve_cash_currency_amount(data):
-    """요청 바디에서 currency/original_amount를 받아 (currency, amount, original_amount)를 계산한다.
-    USD면 현재 환율로 즉시 원화 환산, KRW면 amount == original_amount."""
-    currency = data.get('currency', 'KRW')
-    if currency == 'USD':
-        original_amount = float(data.get('original_amount') or 0.0)
-        amount = int(round(original_amount * get_current_exchange_rate()))
-    else:
-        currency = 'KRW'
-        amount = int(data.get('amount') or data.get('original_amount') or 0)
-        original_amount = float(amount)
-    return currency, amount, original_amount
+def _resolve_cash_amount(data):
+    """요청 바디에서 krw_amount/usd_amount를 받아 (krw_amount, usd_amount, amount)를 계산한다.
+    한 계좌가 원화·달러를 동시에 보유할 수 있으므로, 원화 환산 총액(amount)은 항상
+    krw_amount + usd_amount×현재환율로 계산한다."""
+    krw_amount = float(data.get('krw_amount') or 0)
+    usd_amount = float(data.get('usd_amount') or 0)
+    amount = int(round(krw_amount + (usd_amount * get_current_exchange_rate() if usd_amount else 0)))
+    return krw_amount, usd_amount, amount
 
 
 @app.route('/api/cash-deposits', methods=['GET', 'POST'])
@@ -4533,11 +4530,11 @@ def api_cash_deposits():
 
     data = request.json
     today = date.today().isoformat()
-    currency, amount, original_amount = _resolve_cash_currency_amount(data)
+    krw_amount, usd_amount, amount = _resolve_cash_amount(data)
     cur = db.cursor()
     cur.execute(
-    "INSERT INTO cash_deposits (name, amount, memo, updated_date, currency, original_amount) VALUES (%s,%s,%s,%s,%s,%s)",
-    (data.get('name'), amount, data.get('memo'), today, currency, original_amount)
+    "INSERT INTO cash_deposits (name, amount, memo, updated_date, krw_amount, usd_amount) VALUES (%s,%s,%s,%s,%s,%s)",
+    (data.get('name'), amount, data.get('memo'), today, krw_amount, usd_amount)
     )
     cur.close()
     db.commit()
@@ -4551,11 +4548,11 @@ def api_cash_deposits_detail(rid):
     if request.method == 'PUT':
         data = request.json
         today = date.today().isoformat()
-        currency, amount, original_amount = _resolve_cash_currency_amount(data)
+        krw_amount, usd_amount, amount = _resolve_cash_amount(data)
         cur = db.cursor()
         cur.execute(
-        "UPDATE cash_deposits SET name=%s, amount=%s, memo=%s, updated_date=%s, currency=%s, original_amount=%s WHERE id=%s",
-        (data.get('name'), amount, data.get('memo'), today, currency, original_amount, rid)
+        "UPDATE cash_deposits SET name=%s, amount=%s, memo=%s, updated_date=%s, krw_amount=%s, usd_amount=%s WHERE id=%s",
+        (data.get('name'), amount, data.get('memo'), today, krw_amount, usd_amount, rid)
         )
         # 수기 수정 시 자동 조정 전체 초기화 (이미 반영된 것 포함)
         cur.execute("DELETE FROM cash_auto_adjustments")
@@ -4614,7 +4611,7 @@ def api_cash_auto_adj_apply():
         cur.close(); db.close()
         return jsonify({'ok': True, 'message': '반영할 조정 없음'})
 
-    cur.execute("SELECT id, name, amount FROM cash_deposits WHERE currency = 'KRW' ORDER BY amount DESC LIMIT 1")
+    cur.execute("SELECT id, name, amount FROM cash_deposits WHERE usd_amount = 0 ORDER BY amount DESC LIMIT 1")
     account = cur.fetchone()
     if not account:
         cur.close(); db.close()
