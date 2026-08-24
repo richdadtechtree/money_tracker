@@ -268,6 +268,14 @@ function renderReturnsChart(returns) {
     calcReturn(returns.pension),
   ];
 
+  // 막대 클릭 시 산출 방식 팝업에 쓸 원본 투자원금/평가금액 저장
+  _lastReturnBars = [
+    { name: labels[0], ...stocksEtfCombined,   pct: pcts[0] },
+    { name: labels[1], ...(returns.crypto      || {}), pct: pcts[1] },
+    { name: labels[2], ...(returns.real_estate || {}), pct: pcts[2] },
+    { name: labels[3], ...(returns.pension     || {}), pct: pcts[3] },
+  ];
+
   const barColors = [COLORS.stocks, COLORS.crypto, COLORS.realestate, COLORS.pension];
   _charts['chartReturns'] = new Chart(document.getElementById('chartReturns'), {
     type: 'bar',
@@ -285,6 +293,13 @@ function renderReturnsChart(returns) {
     },
     options: {
       responsive: true,
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+        openReturnCalcDetail(_lastReturnBars[elements[0].index]);
+      },
+      onHover: (evt, elements) => {
+        evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      },
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -300,6 +315,42 @@ function renderReturnsChart(returns) {
       }
     }
   });
+}
+
+let _lastReturnBars = [];
+
+// 투자수익률 막대 클릭 → 해당 자산군의 수익률 산출 방식(투자원금/평가금액) 팝업
+function openReturnCalcDetail(bar) {
+  const modal = new bootstrap.Modal(document.getElementById('kpiDetailModal'));
+  const title = document.getElementById('kpiDetailTitle');
+  const body  = document.getElementById('kpiDetailBody');
+
+  title.textContent = `${bar.name} 수익률 산출 방식`;
+
+  const cost  = bar.cost  || 0;
+  const value = bar.value || 0;
+  const profit = value - cost;
+  const profitCls = profit >= 0 ? 'text-danger' : 'text-primary';
+
+  if (!cost) {
+    body.innerHTML = '<p class="text-center text-muted py-4">투자원금 데이터가 없어 수익률을 계산할 수 없습니다.</p>';
+    modal.show();
+    return;
+  }
+
+  body.innerHTML = `
+    <div class="kpi-row"><span>투자원금 (매수 시점 기준)</span><span class="fw-semibold">${fmt(cost)}원</span></div>
+    <div class="kpi-row"><span>현재 평가금액</span><span class="fw-semibold">${fmt(value)}원</span></div>
+    <div class="kpi-row"><span>평가손익</span><span class="fw-semibold ${profitCls}">${profit >= 0 ? '+' : ''}${fmt(profit)}원</span></div>
+    <div class="kpi-total-row">
+      <span>수익률</span>
+      <span class="${profitCls}">${bar.pct >= 0 ? '+' : ''}${bar.pct}%</span>
+    </div>
+    <div class="text-muted mt-2" style="font-size:12px">
+      수익률 = (평가금액 − 투자원금) ÷ 투자원금 × 100<br>
+      = (${fmt(value)} − ${fmt(cost)}) ÷ ${fmt(cost)} × 100 = ${bar.pct}%
+    </div>`;
+  modal.show();
 }
 
 function calcReturn(inv) {
@@ -344,6 +395,13 @@ function renderReturnsMonthly(data) {
     },
     options: {
       responsive: true,
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+        openRealizedPnlDetail(data[elements[0].index].ym);
+      },
+      onHover: (evt, elements) => {
+        evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+      },
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -361,6 +419,44 @@ function renderReturnsMonthly(data) {
       },
     }
   });
+}
+
+// 월별 실현손익 막대 클릭 → 해당 월의 매도 내역(종목/수량/매도가/손익) 팝업
+async function openRealizedPnlDetail(ym) {
+  const modal = new bootstrap.Modal(document.getElementById('kpiDetailModal'));
+  const title = document.getElementById('kpiDetailTitle');
+  const body  = document.getElementById('kpiDetailBody');
+
+  title.textContent = `${ym} 실현손익 상세`;
+  body.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
+  modal.show();
+
+  const res = await fetchJSON(`/api/stock-category-pnl-detail?category=${encodeURIComponent('전체')}&period=monthly&key=${encodeURIComponent(ym)}`);
+  if (!res) {
+    body.innerHTML = '<p class="text-danger text-center py-3">데이터를 불러올 수 없습니다.</p>';
+    return;
+  }
+  if (!res.items.length) {
+    body.innerHTML = '<p class="text-center text-muted py-4">해당 월에 실현된 매도 내역이 없습니다.</p>';
+    return;
+  }
+
+  let html = '';
+  res.items.forEach(it => {
+    const cls = it.pnl >= 0 ? 'text-danger' : 'text-primary';
+    html += `
+    <div class="kpi-row">
+      <span>
+        <span class="fw-semibold">${it.name}${it.ticker ? ` <span class="text-muted" style="font-size:11px">(${it.ticker})</span>` : ''}</span>
+        <span class="text-muted d-block" style="font-size:12px">${it.date} · ${it.category || '-'}${it.quantity ? ` · ${fmt(it.quantity)}주 × ${fmt(it.price)}원` : ''}</span>
+      </span>
+      <span class="fw-semibold ${cls}">${it.pnl >= 0 ? '+' : ''}${fmt(it.pnl)}원</span>
+    </div>`;
+  });
+  const total = res.items.reduce((s, it) => s + it.pnl, 0);
+  const totalCls = total >= 0 ? 'text-danger' : 'text-primary';
+  html += `<div class="kpi-total-row"><span>합계</span><span class="${totalCls}">${total >= 0 ? '+' : ''}${fmt(total)}원</span></div>`;
+  body.innerHTML = html;
 }
 
 function renderLoansChart(loans) {
