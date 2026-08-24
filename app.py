@@ -5461,7 +5461,10 @@ def api_lifecycle_simulate():
     base_crypto = float(cur.fetchone()[0] or 0)
     cur.close()
 
-    re_total_price = get_real_estate_value(db)
+    cur = db.cursor()
+    cur.execute("SELECT COALESCE(SUM(current_price), 0) FROM real_estate")
+    re_total_price = float(cur.fetchone()[0] or 0)
+    cur.close()
 
     cur = db.cursor()
     cur.execute("""
@@ -5476,7 +5479,10 @@ def api_lifecycle_simulate():
     residence_deposit = float(cur.fetchone()[0] or 0)
     cur.close()
 
-    base_re = re_total_price - re_total_deposit + residence_deposit
+    # 대시보드와 동일한 기준: 부동산은 현재가(+거주보증금) 그대로 반영하고,
+    # 세입자 보증금은 대출과 함께 순자산 계산에서만 부채로 차감한다 (base_tenant_deposit).
+    base_re = re_total_price + residence_deposit
+    base_tenant_deposit = re_total_deposit
 
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
@@ -5561,6 +5567,7 @@ def api_lifecycle_simulate():
     crypto  = base_crypto
     pension = base_pension
     loans   = base_loans
+    tenant_deposit = base_tenant_deposit
 
     retired = False
 
@@ -5613,7 +5620,7 @@ def api_lifecycle_simulate():
                 current_year_inflow = avg['passive_annual'] - (monthly_exp_avg + monthly_card_avg + loan_repayment) * 12
 
         total = cash + stocks + re + crypto + pension
-        net   = total - loans
+        net   = total - loans - tenant_deposit
 
         result.append({
             'year':         year,
@@ -5624,6 +5631,7 @@ def api_lifecycle_simulate():
             'crypto':       round(crypto),
             'pension':      round(pension),
             'loans':        round(loans),
+            'tenant_deposit': round(tenant_deposit),
             'total_assets': round(total),
             'net_worth':    round(net),
             'events':       year_events,
