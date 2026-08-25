@@ -4,9 +4,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2 class="fw-bold mb-0"><i class="bi bi-person-check me-2 text-purple"></i>연금 관리</h2>
-  <button class="btn btn-primary" onclick="grid.addRow()">
-    <i class="bi bi-plus-lg me-1"></i>행 추가
-  </button>
+  <div class="d-flex gap-2">
+    <button class="btn btn-success" id="pensionPriceUpdateBtn" onclick="updatePensionPrices()">
+      <i class="bi bi-arrow-repeat me-1"></i>현재가 업데이트
+    </button>
+    <button class="btn btn-primary" onclick="grid.addRow()">
+      <i class="bi bi-plus-lg me-1"></i>행 추가
+    </button>
+  </div>
 </div>
 
 <!-- 요약 통계 -->
@@ -31,14 +36,22 @@
   </div>
 </div>
 
+<p class="text-muted small mb-2">
+  <i class="bi bi-info-circle me-1"></i>
+  '종목'으로 등록하면 티커/수량/매입가만 입력하면 되고, 누적액과 수익률은 현재가 기준으로 자동 계산됩니다.
+  매일 09:00·16:00에 자동으로 시세가 갱신되며, <strong>현재가 업데이트</strong> 버튼으로 즉시 갱신할 수도 있습니다.
+</p>
+
 <div class="card border-0 shadow-sm">
   <div class="card-body p-0">
     <div class="table-responsive">
       <table class="table table-hover mb-0" id="dataTable">
         <thead class="table-light">
           <tr>
-            <th>유형</th><th>상품명</th><th>기관</th>
-            <th class="text-end">월 납입</th><th class="text-end">누적액</th>
+            <th>유형</th><th>구분</th><th>상품명</th><th>기관</th>
+            <th class="text-end">월 납입</th>
+            <th>티커</th><th class="text-end">수량</th><th class="text-end">매입가</th><th class="text-end">현재가</th>
+            <th class="text-end">누적액</th>
             <th class="text-end">수익률</th><th>메모</th>
             <th class="text-center">삭제</th>
           </tr>
@@ -62,9 +75,18 @@ const typeColors = {
   '개인연금':     'bg-secondary-subtle text-secondary',
 };
 
+function pnFmt(v) {
+  return v ? fmt(v) + '원' : '-';
+}
+
 const grid = new GridTable({
   tableId: 'dataTable',
   columns: [
+    { key: 'entry_type', type: 'select',
+      options: [{ value: 'cash', label: '현금' }, { value: 'stock', label: '종목' }],
+      render: v => v === 'stock'
+        ? '<span class="badge bg-info-subtle text-info">종목</span>'
+        : '<span class="badge bg-secondary-subtle text-secondary">현금</span>' },
     { key: 'pension_type', type: 'select',
       options: ['국민연금','퇴직연금(DB)','퇴직연금(DC)','IRP','연금저축펀드','연금저축보험','개인연금'],
       render: v => {
@@ -74,6 +96,13 @@ const grid = new GridTable({
     { key: 'name',            type: 'text' },
     { key: 'institution',     type: 'text' },
     { key: 'monthly_payment', type: 'number', align: 'end', render: v => fmt(v) + '원' },
+    { key: 'ticker',        type: 'text', render: (v, r) => r.entry_type === 'stock' ? (v || '-') : '-' },
+    { key: 'quantity',      type: 'number', align: 'end',
+      render: (v, r) => r.entry_type === 'stock' ? (v == null ? '-' : (v % 1 === 0 ? v : Number(v).toFixed(4))) : '-' },
+    { key: 'buy_price',     type: 'number', align: 'end',
+      render: (v, r) => r.entry_type === 'stock' ? pnFmt(v) : '-' },
+    { key: 'current_price', type: 'number', align: 'end',
+      render: (v, r) => r.entry_type === 'stock' ? pnFmt(v) : '-' },
     { key: 'accumulated',     type: 'number', align: 'end',
       render: v => `<span class="fw-semibold text-primary">${fmt(v)}원</span>` },
     { key: 'return_rate',     type: 'number', align: 'end', step: 0.01,
@@ -81,6 +110,33 @@ const grid = new GridTable({
     { key: 'memo',            type: 'text' },
   ],
   apiUrl: '/api/pension',
+  onStartEdit: (tr, r) => {
+    const typeSel = tr.querySelector('[data-key="entry_type"]');
+    const tickerInp = tr.querySelector('[data-key="ticker"]');
+    const qtyInp    = tr.querySelector('[data-key="quantity"]');
+    const buyInp    = tr.querySelector('[data-key="buy_price"]');
+    const curInp    = tr.querySelector('[data-key="current_price"]');
+    const accInp    = tr.querySelector('[data-key="accumulated"]');
+    const rateInp   = tr.querySelector('[data-key="return_rate"]');
+    if (!typeSel) return;
+
+    const numVal = el => parseFloat((el?.value || '0').replace(/,/g, '')) || 0;
+
+    function applyMode() {
+      const isStock = typeSel.value === 'stock';
+      [tickerInp, qtyInp, buyInp, curInp].forEach(el => { if (el) el.disabled = !isStock; });
+      if (accInp)  accInp.disabled  = isStock;
+      if (rateInp) rateInp.disabled = isStock;
+      if (isStock) {
+        const qty = numVal(qtyInp), cur = numVal(curInp), buy = numVal(buyInp);
+        if (accInp)  accInp.value  = fmt(Math.round(qty * cur));
+        if (rateInp) rateInp.value = buy > 0 ? (((cur - buy) / buy) * 100).toFixed(2) : '0';
+      }
+    }
+    applyMode();
+    typeSel.addEventListener('change', applyMode);
+    [qtyInp, buyInp, curInp].forEach(el => el?.addEventListener('input', applyMode));
+  },
   onLoad: rows => {
     let sumA = 0, sumM = 0, sumR = 0;
     rows.forEach(r => { sumA += r.accumulated; sumM += r.monthly_payment; sumR += r.return_rate; });
@@ -91,5 +147,41 @@ const grid = new GridTable({
 });
 
 grid.load();
+
+async function updatePensionPrices() {
+  const btn = document.getElementById('pensionPriceUpdateBtn');
+  const origHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>업데이트 중...';
+
+  try {
+    const startRes = await fetchJSON('/api/price-update', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+    if (!startRes) throw new Error('업데이트 시작 요청 실패');
+
+    let attempts = 0, res = null;
+    while (attempts < 30) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      const statusRes = await fetchJSON('/api/price-update/status');
+      if (statusRes && !statusRes.is_updating) {
+        res = statusRes.last_result;
+        break;
+      }
+      attempts++;
+    }
+    if (!res) throw new Error('업데이트 타임아웃 또는 데이터가 없습니다.');
+
+    await grid.load();
+
+    const okP = res.pension ? res.pension.filter(x => x.ok).length : 0;
+    const totalP = res.pension ? res.pension.length : 0;
+    alert(totalP ? `✅ 연금 종목 ${okP}/${totalP}건 시세 갱신 완료` : '갱신할 연금 종목이 없습니다.');
+  } catch (e) {
+    console.error(e);
+    alert('현재가 업데이트 실패: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origHtml;
+  }
+}
 </script>
 {% endblock %}

@@ -269,7 +269,12 @@ def init_db():
             monthly_payment INTEGER DEFAULT 0,
             accumulated     INTEGER DEFAULT 0,
             return_rate     REAL DEFAULT 0,
-            memo            TEXT
+            memo            TEXT,
+            entry_type      TEXT DEFAULT 'cash',
+            ticker          TEXT,
+            quantity        REAL DEFAULT 0,
+            buy_price       REAL DEFAULT 0,
+            current_price   REAL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS goals (
@@ -810,6 +815,13 @@ def init_db():
             krw_amount = CASE WHEN currency = 'USD' THEN 0 ELSE original_amount END,
             usd_amount = CASE WHEN currency = 'USD' THEN original_amount ELSE 0 END
         WHERE krw_amount = 0 AND usd_amount = 0""",
+        # 연금: 종목(티커)/현금을 직접 입력해 시세 자동반영
+        "ALTER TABLE pension ADD COLUMN IF NOT EXISTS entry_type    TEXT DEFAULT 'cash'",
+        "ALTER TABLE pension ADD COLUMN IF NOT EXISTS ticker        TEXT",
+        "ALTER TABLE pension ADD COLUMN IF NOT EXISTS quantity      REAL DEFAULT 0",
+        "ALTER TABLE pension ADD COLUMN IF NOT EXISTS buy_price     REAL DEFAULT 0",
+        "ALTER TABLE pension ADD COLUMN IF NOT EXISTS current_price REAL DEFAULT 0",
+        "UPDATE pension SET entry_type = 'cash' WHERE entry_type IS NULL",
     ]
     for sql in migrations:
         try:

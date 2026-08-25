@@ -161,7 +161,7 @@ def _keep_alive():
         print(f"[scheduler] keep-alive 실패: {e}")
 
 def _scheduled_price_update():
-    """매일 09:00, 16:00 KST — 주식/ETF/코인 현재가 자동 업데이트"""
+    """매일 09:00, 16:00 KST — 주식/ETF/코인/연금(종목) 현재가 자동 업데이트"""
     try:
         with app.app_context():
             _run_price_update_logic()
@@ -3412,6 +3412,38 @@ def _run_price_update_logic():
                     results['errors'].append(f"분할매수 계획 [{name}({ticker})]: 가격 조회 실패")
                 results['split_plans'].append({'id': pid, 'name': name, 'ticker': ticker, 'price': None, 'ok': False})
 
+        # ── 연금 (종목으로 직접 입력한 항목) ──
+        cur = db.cursor()
+        cur.execute(
+            "SELECT id, name, ticker, quantity, buy_price FROM pension "
+            "WHERE entry_type = 'stock' AND ticker IS NOT NULL AND ticker != ''"
+        )
+        pension_rows = cur.fetchall()
+        cur.close()
+
+        results['pension'] = []
+        for row in pension_rows:
+            pid, name, ticker, qty, buy_price = row['id'], row['name'], row['ticker'], _sf(row['quantity']), _sf(row['buy_price'])
+            try:
+                price = _fetch_stock_price(ticker)
+            except Exception as e:
+                price = None
+                results['errors'].append(f"연금 [{name}({ticker})]: {e}")
+            if price:
+                accumulated = round(qty * price)
+                return_rate = round((price - buy_price) / buy_price * 100, 2) if buy_price > 0 else 0
+                cur = db.cursor()
+                cur.execute(
+                    "UPDATE pension SET current_price=%s, accumulated=%s, return_rate=%s WHERE id=%s",
+                    (price, accumulated, return_rate, pid)
+                )
+                cur.close()
+                results['pension'].append({'id': pid, 'name': name, 'ticker': ticker, 'price': price, 'ok': True})
+            else:
+                if not any(f"연금 [{name}({ticker})]" in e for e in results['errors']):
+                    results['errors'].append(f"연금 [{name}({ticker})]: 가격 조회 실패")
+                results['pension'].append({'id': pid, 'name': name, 'ticker': ticker, 'price': None, 'ok': False})
+
         # ── 현금(달러 계좌) 환율 재계산 ──
         try:
             _refresh_usd_cash_amounts(db)
@@ -4329,6 +4361,27 @@ def api_loans_detail(rid):
     return jsonify({'ok': True})
 
 
+def _pension_fields(data):
+    """연금 저장 데이터 정리: entry_type='stock'이면 수량*현재가로 누적액/수익률을 자동 계산."""
+    entry_type = data.get('entry_type') or 'cash'
+    if entry_type == 'stock':
+        ticker        = (data.get('ticker') or '').strip() or None
+        quantity      = _sf(data.get('quantity', 0))
+        buy_price     = _sf(data.get('buy_price', 0))
+        current_price = _sf(data.get('current_price', 0))
+        accumulated   = round(quantity * current_price)
+        return_rate   = round((current_price - buy_price) / buy_price * 100, 2) if buy_price > 0 else 0
+    else:
+        entry_type    = 'cash'
+        ticker        = None
+        quantity      = 0
+        buy_price     = 0
+        current_price = 0
+        accumulated   = data.get('accumulated', 0)
+        return_rate   = data.get('return_rate', 0)
+    return entry_type, ticker, quantity, buy_price, current_price, accumulated, return_rate
+
+
 # ── API: 연금 ────────────────────────────────────────────────
 @app.route('/api/pension', methods=['GET', 'POST'])
 def api_pension():
@@ -4342,12 +4395,14 @@ def api_pension():
         return jsonify(rows_to_list(rows))
 
     data = request.json
+    entry_type, ticker, quantity, buy_price, current_price, accumulated, return_rate = _pension_fields(data)
     cur = db.cursor()
     cur.execute(
-    "INSERT INTO pension (pension_type, name, institution, monthly_payment, accumulated, return_rate, memo) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+    "INSERT INTO pension (pension_type, name, institution, monthly_payment, accumulated, return_rate, memo, entry_type, ticker, quantity, buy_price, current_price) "
+    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
     (data.get('pension_type'), data.get('name'), data.get('institution'),
-    data.get('monthly_payment', 0), data.get('accumulated', 0),
-    data.get('return_rate', 0), data.get('memo'))
+    data.get('monthly_payment', 0), accumulated, return_rate, data.get('memo'),
+    entry_type, ticker, quantity, buy_price, current_price)
     )
     cur.close()
     db.commit()
@@ -4360,12 +4415,14 @@ def api_pension_detail(rid):
     db = get_db()
     if request.method == 'PUT':
         data = request.json
+        entry_type, ticker, quantity, buy_price, current_price, accumulated, return_rate = _pension_fields(data)
         cur = db.cursor()
         cur.execute(
-        "UPDATE pension SET pension_type=%s, name=%s, institution=%s, monthly_payment=%s, accumulated=%s, return_rate=%s, memo=%s WHERE id=%s",
+        "UPDATE pension SET pension_type=%s, name=%s, institution=%s, monthly_payment=%s, accumulated=%s, return_rate=%s, memo=%s, "
+        "entry_type=%s, ticker=%s, quantity=%s, buy_price=%s, current_price=%s WHERE id=%s",
         (data.get('pension_type'), data.get('name'), data.get('institution'),
-        data.get('monthly_payment', 0), data.get('accumulated', 0),
-        data.get('return_rate', 0), data.get('memo'), rid)
+        data.get('monthly_payment', 0), accumulated, return_rate, data.get('memo'),
+        entry_type, ticker, quantity, buy_price, current_price, rid)
         )
         cur.close()
         db.commit()
