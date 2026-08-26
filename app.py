@@ -366,6 +366,11 @@ def income():
 def budget():
     return render_template('budget.html')
 
+@app.route('/quick')
+def quick_entry():
+    """팝업/사이드바 없이 가계부 입력만 하는 단축 페이지 (홈 화면 바로가기용)"""
+    return render_template('quick_entry.html')
+
 @app.route('/cards')
 def cards():
     return render_template('cards.html')
@@ -7827,7 +7832,7 @@ SOURCE_FILES = [
     'templates/realestate.html', 'templates/loans.html',
     'templates/pension.html', 'templates/goals.html',
     'templates/monthly.html', 'templates/settings.html',
-    'templates/fund_management.html',
+    'templates/fund_management.html', 'templates/quick_entry.html',
     'static/css/style.css', 'static/js/common.js', 'static/js/dashboard.js',
 ]
 
