@@ -822,6 +822,7 @@ def init_db():
         "ALTER TABLE pension ADD COLUMN IF NOT EXISTS buy_price     REAL DEFAULT 0",
         "ALTER TABLE pension ADD COLUMN IF NOT EXISTS current_price REAL DEFAULT 0",
         "UPDATE pension SET entry_type = 'cash' WHERE entry_type IS NULL",
+        "ALTER TABLE lifecycle_settings ADD COLUMN IF NOT EXISTS annual_return_pension NUMERIC(5,2) DEFAULT 3",
     ]
     for sql in migrations:
         try:

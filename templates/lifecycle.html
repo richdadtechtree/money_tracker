@@ -56,6 +56,12 @@
               <input type="number" step="0.1" class="form-control form-control-sm" id="returnCash" value="2.0">
             </div>
             <div class="col-6">
+              <label class="form-label small text-muted">연금 수익률 (%)</label>
+              <input type="number" step="0.1" class="form-control form-control-sm" id="returnPension" value="3.0">
+            </div>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
               <label class="form-label small text-muted">지출 증가율 (%)</label>
               <input type="number" step="0.1" class="form-control form-control-sm" id="expenseGrowth" value="2.0">
             </div>
@@ -285,6 +291,7 @@ async function loadSettings() {
   document.getElementById('returnStocks').value = data.annual_return_stocks || 7.0;
   document.getElementById('returnRE').value = data.annual_return_re || 3.0;
   document.getElementById('returnCash').value = data.annual_return_cash || 2.0;
+  document.getElementById('returnPension').value = data.annual_return_pension || 3.0;
   document.getElementById('expenseGrowth').value = data.annual_expense_growth || 2.0;
   
   if (data.override_annual_inflow) {
@@ -303,6 +310,7 @@ async function saveSettings() {
     annual_return_stocks: parseFloat(document.getElementById('returnStocks').value) || 7.0,
     annual_return_re: parseFloat(document.getElementById('returnRE').value) || 3.0,
     annual_return_cash: parseFloat(document.getElementById('returnCash').value) || 2.0,
+    annual_return_pension: parseFloat(document.getElementById('returnPension').value) || 3.0,
     annual_expense_growth: parseFloat(document.getElementById('expenseGrowth').value) || 2.0,
     override_annual_inflow: overrideVal
   };
@@ -514,7 +522,7 @@ async function runSimulation() {
     data: {
       labels,
       datasets: [
-        { type: 'bar', label: '현금/예금', data: cashData, backgroundColor: 'rgba(20,184,166,0.6)', stack: 'assets' },
+        { type: 'bar', label: '현금/예금', data: cashData, backgroundColor: 'rgba(6,182,212,0.65)', stack: 'assets' },
         { type: 'bar', label: '주식/ETF', data: stocksData, backgroundColor: 'rgba(59,130,246,0.6)', stack: 'assets' },
         { type: 'bar', label: '부동산', data: reData, backgroundColor: 'rgba(16,185,129,0.6)', stack: 'assets' },
         { type: 'bar', label: '코인', data: cryptoData, backgroundColor: 'rgba(245,158,11,0.6)', stack: 'assets' },
