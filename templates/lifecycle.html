@@ -216,7 +216,8 @@
             <select class="form-select form-select-sm" id="eventType" required>
               <option value="sell_realestate">부동산 전체 매도 (부동산→0, 매도가에서 대출·보증금 정산 후 현금)</option>
               <option value="sell_stock">주식/투자 매도 (stocks -> cash)</option>
-              <option value="buy_asset">자산 매수 (cash -> stocks)</option>
+              <option value="buy_asset">주식/투자 매수 (cash -> stocks)</option>
+              <option value="buy_realestate">부동산 매수 (cash -> 부동산)</option>
               <option value="extra_income">일시적 특별 수입 (cash 증가)</option>
               <option value="extra_expense">일시적 특별 지출 (cash 감소)</option>
               <option value="loan_payoff">대출 완납 (cash & loans 감소)</option>
@@ -256,7 +257,8 @@ let eventModal = null;
 const EVENT_LABELS = {
   sell_realestate: '부동산 매도',
   sell_stock: '주식 매도',
-  buy_asset: '자산 매수',
+  buy_asset: '주식/투자 매수',
+  buy_realestate: '부동산 매수',
   extra_income: '특별 수입',
   extra_expense: '특별 지출',
   loan_payoff: '대출 상환',

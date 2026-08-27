@@ -5687,6 +5687,12 @@ def api_lifecycle_simulate():
                 cash   -= amount
                 stocks += amount
                 event_cash_delta -= amount
+            elif etype == 'buy_realestate':
+                # 갈아타기 등으로 부동산 규모 자체가 바뀌는 경우. buy_asset과 동일하게
+                # 매수가 전액이 현금에서 나가고 그만큼 부동산이 늘어나는 것으로 간주한다.
+                cash -= amount
+                re   += amount
+                event_cash_delta -= amount
             elif etype == 'extra_income':
                 cash += amount
                 event_cash_delta += amount
