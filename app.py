@@ -5516,12 +5516,13 @@ def api_lifecycle_settings():
     cur.execute("""
         UPDATE lifecycle_settings SET
             sim_years=%s, annual_return_stocks=%s, annual_return_re=%s,
-            annual_return_cash=%s, annual_expense_growth=%s,
+            annual_return_cash=%s, annual_return_pension=%s, annual_expense_growth=%s,
             override_annual_inflow=%s, updated_at=CURRENT_TIMESTAMP
         WHERE id=1
     """, (
         d.get('sim_years', 30), d.get('annual_return_stocks', 7.00),
         d.get('annual_return_re', 3.00), d.get('annual_return_cash', 2.00),
+        d.get('annual_return_pension', 3.00),
         d.get('annual_expense_growth', 2.00), d.get('override_annual_inflow')
     ))
     cur.close()
@@ -5546,6 +5547,7 @@ def api_lifecycle_simulate():
     r_stocks     = float(settings.get('annual_return_stocks', 7.00)) / 100
     r_re         = float(settings.get('annual_return_re', 3.00)) / 100
     r_cash       = float(settings.get('annual_return_cash', 2.00)) / 100
+    r_pension    = float(settings.get('annual_return_pension', 3.00)) / 100
     exp_growth   = float(settings.get('annual_expense_growth', 2.00)) / 100
     override_inflow = settings.get('override_annual_inflow')
 
@@ -5722,7 +5724,7 @@ def api_lifecycle_simulate():
             stocks  = stocks  * (1 + r_stocks)
             re      = re      * (1 + r_re)
             crypto  = crypto  * (1 + r_stocks)
-            pension = pension + base_pension_monthly * 12
+            pension = pension * (1 + r_pension) + base_pension_monthly * 12
             annual_net_inflow *= (1 - exp_growth)
 
     db.close()
