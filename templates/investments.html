@@ -2481,7 +2481,7 @@ function rbChipHtml(it, inBucket) {
     data-key="${rbKey(it)}"
     data-src-type="${it.source_type}"
     data-src-id="${it.source_id}"
-    style="background:#e0e7ff;color:#3730a3;font-size:.8rem;cursor:grab;user-select:none;pointer-events:auto"
+    style="background:#e0e7ff!important;color:#3730a3!important;font-size:.8rem;cursor:grab;user-select:none;pointer-events:auto"
     title="${it.name} | ${eval_fmt}">
     <span style="pointer-events:none;display:inline-block">${it.name}${it.ticker ? ` (${it.ticker})` : ''} <small>${eval_fmt}</small>${remove}</span>
   </span>`;
