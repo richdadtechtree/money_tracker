@@ -2582,6 +2582,11 @@ function updateRbChart() {
     el.textContent = pct + '%';
   });
 
+  // 현금을 리밸런싱 대상에서 제외했을 때의 재분배 목표 비중 (많이 오른 자산을 팔아
+  // 현금을 늘려둔 뒤, 그 현금을 어느 자산에 얼마나 더 태워야 하는지 보기 위한 참고치)
+  const exCashDenom = 100 - (RB_TARGETS.cash || 0);
+  const exCashTarget = cls => (cls === 'cash' || exCashDenom <= 0) ? null : RB_TARGETS[cls] / exCashDenom * 100;
+
   const rows = Object.keys(RB_TARGETS).map(cls => {
     const actual = grandTotal > 0 ? (totals[cls] / grandTotal * 100) : 0;
     const target = RB_TARGETS[cls];
@@ -2605,21 +2610,39 @@ function updateRbChart() {
           ? rateHtml((totals[cls] - costTotals[cls]) / costTotals[cls] * 100)
           : '<span class="text-muted">-</span>');
 
+    // 목표 옆 괄호: 현금 제외 시 재분배 비중
+    const exTarget = exCashTarget(cls);
+    const targetHtml = exTarget != null
+      ? `${target}% <span class="text-muted small">(${exTarget.toFixed(2)}%)</span>`
+      : `${target}%`;
+
+    // 현금 제외 비중 열: 재분배 목표 비중 + 그 기준의 기준금액/과부족
+    let exCashCell = '<span class="text-muted">-</span>';
+    if (exTarget != null && grandTotal > 0) {
+      const exTargetAmt = Math.round(grandTotal * exTarget / 100);
+      const exGapAmt = totals[cls] - exTargetAmt;
+      const exGapHtml = `<span class="small ${exGapAmt >= 0 ? 'text-danger' : 'text-primary'}">${exGapAmt >= 0 ? '+' : ''}${fmt(exGapAmt)}</span>`;
+      exCashCell = `<span class="small text-muted">${exTarget.toFixed(2)}% · ${fmt(exTargetAmt)}원</span><br>${exGapHtml}`;
+    }
+
     return `<tr>
       <td><span class="badge rounded-pill" style="background:${RB_COLORS[cls]}">${RB_LABELS[cls]}</span></td>
       <td class="text-end fw-semibold">${actual.toFixed(1)}%</td>
-      <td class="text-muted text-end">${target}%</td>
+      <td class="text-muted text-end">${targetHtml}</td>
       <td class="text-end fw-semibold ${diffClass}">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%</td>
       <td style="width:120px">${bar}</td>
       <td class="text-end small text-muted">${fmt(totals[cls])}원 ${rateStr}</td>
       <td class="text-end small text-muted">${fmt(targetAmt)}원<br>${gapHtml}</td>
+      <td class="text-end">${exCashCell}</td>
     </tr>`;
   }).join('');
   document.getElementById('rb-compare-table').innerHTML = `
-    <table class="table table-sm mb-0">
-      <thead><tr><th>자산군</th><th class="text-end">현재</th><th class="text-end">목표</th><th class="text-end">차이</th><th></th><th class="text-end">현재금액(등락률)</th><th class="text-end">기준금액(과부족)</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+    <div class="table-responsive">
+      <table class="table table-sm mb-0">
+        <thead><tr><th>자산군</th><th class="text-end">현재</th><th class="text-end">목표</th><th class="text-end">차이</th><th></th><th class="text-end">현재금액(등락률)</th><th class="text-end">기준금액(과부족)</th><th class="text-end">현금 제외 비중(과부족)</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 
   const ctx = document.getElementById('rbChart').getContext('2d');
   if (rbChartInst) rbChartInst.destroy();
