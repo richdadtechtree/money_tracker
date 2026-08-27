@@ -5670,9 +5670,15 @@ def api_lifecycle_simulate():
             etype  = evt['event_type']
             amount = float(evt['amount'] or 0)
             if etype == 'sell_realestate':
-                re   -= amount
-                cash += amount
-                event_cash_delta += amount
+                # 부동산 매도(re -> cash)는 보유 부동산 전체를 처분하는 것으로 간주한다.
+                # 매도가에서 대출 잔액과 세입자 보증금(전세 등)을 먼저 정산하고
+                # 남은 순수익만 현금으로 들어온다. 부동산/대출/보증금은 모두 0으로 정리.
+                net_cash = amount - loans - tenant_deposit
+                cash += net_cash
+                event_cash_delta += net_cash
+                re = 0.0
+                loans = 0.0
+                tenant_deposit = 0.0
             elif etype == 'sell_stock':
                 stocks -= amount
                 cash   += amount
