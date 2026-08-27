@@ -2586,6 +2586,9 @@ function updateRbChart() {
   // 현금을 늘려둔 뒤, 그 현금을 어느 자산에 얼마나 더 태워야 하는지 보기 위한 참고치)
   const exCashDenom = 100 - (RB_TARGETS.cash || 0);
   const exCashTarget = cls => (cls === 'cash' || exCashDenom <= 0) ? null : RB_TARGETS[cls] / exCashDenom * 100;
+  // 기준금액도 전체 자산이 아니라 "현금을 뺀 실제 보유액" 기준으로 재분배해야
+  // 실제로 지금 들고 있는 투자자산끼리 얼마나 쏠려 있는지가 정확히 나온다.
+  const nonCashTotal = grandTotal - (totals.cash || 0);
 
   const rows = Object.keys(RB_TARGETS).map(cls => {
     const actual = grandTotal > 0 ? (totals[cls] / grandTotal * 100) : 0;
@@ -2617,9 +2620,10 @@ function updateRbChart() {
       : `${target}%`;
 
     // 현금 제외 비중 열: 재분배 목표 비중 + 그 기준의 기준금액/과부족
+    // (기준금액 = 현금을 뺀 실제 보유액 × 재분배 비중)
     let exCashCell = '<span class="text-muted">-</span>';
-    if (exTarget != null && grandTotal > 0) {
-      const exTargetAmt = Math.round(grandTotal * exTarget / 100);
+    if (exTarget != null && nonCashTotal > 0) {
+      const exTargetAmt = Math.round(nonCashTotal * exTarget / 100);
       const exGapAmt = totals[cls] - exTargetAmt;
       const exGapHtml = `<span class="small ${exGapAmt >= 0 ? 'text-danger' : 'text-primary'}">${exGapAmt >= 0 ? '+' : ''}${fmt(exGapAmt)}</span>`;
       exCashCell = `<span class="small text-muted">${exTarget.toFixed(2)}% · ${fmt(exTargetAmt)}원</span><br>${exGapHtml}`;
