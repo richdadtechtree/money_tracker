@@ -1059,52 +1059,28 @@ function showAssetDetail(row) {
   panel.style.display = '';
 }
 
-// 자산군 카드 클릭 → 해당 자산군을 구성하는 개별 항목(종목/계좌 등) 상세 팝업
-async function openAssetClassDetail(key, name, label, total, diff) {
+// 자산군 카드 클릭 → 해당 자산군의 변동액(오른/내린 정도)만 팝업으로 표시
+function openAssetClassDetail(key, name, label, total, diff) {
   const modal = new bootstrap.Modal(document.getElementById('kpiDetailModal'));
   const title = document.getElementById('kpiDetailTitle');
   const body  = document.getElementById('kpiDetailBody');
 
-  title.textContent = `${label} — ${name} 상세내역`;
-  body.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
-  modal.show();
+  title.textContent = `${label} — ${name} 변동 내역`;
 
-  const res = await fetchJSON(`/api/asset-class-detail?category=${encodeURIComponent(key)}`);
-  if (!res || res.error) {
-    body.innerHTML = '<p class="text-danger text-center py-3">데이터를 불러올 수 없습니다.</p>';
-    return;
-  }
-
-  const diffCls = diff > 0 ? 'text-success' : diff < 0 ? 'text-danger' : 'text-muted';
+  const prev = total - diff;
+  const pct  = prev ? (diff / Math.abs(prev) * 100) : 0;
+  const diffCls  = diff > 0 ? 'text-success' : diff < 0 ? 'text-danger' : 'text-muted';
   const diffSign = diff > 0 ? '+' : '';
-  let html = `
-    <div class="kpi-row">
-      <span>${label} 기준 평가금액</span>
-      <span class="fw-semibold">${fmt(total)}원</span>
-    </div>
-    <div class="kpi-row">
-      <span>전 구간 대비 변동</span>
-      <span class="fw-semibold ${diffCls}">${diffSign}${fmt(diff)}원</span>
+
+  body.innerHTML = `
+    <div class="text-center py-2">
+      <div class="text-muted small mb-1">${label} 기준</div>
+      <div class="fw-bold ${diffCls}" style="font-size:28px">${diffSign}${fmt(diff)}원</div>
+      <div class="fw-semibold ${diffCls} mb-3">${diffSign}${pct.toFixed(2)}%</div>
+      <div class="kpi-row"><span>현재 평가금액</span><span class="fw-semibold">${fmt(total)}원</span></div>
+      <div class="kpi-row"><span>직전 평가금액</span><span class="fw-semibold">${fmt(prev)}원</span></div>
     </div>`;
-
-  if (!res.items.length) {
-    html += '<p class="text-center text-muted py-4">등록된 보유 항목이 없습니다.</p>';
-  } else {
-    html += '<div class="kpi-cat-header" style="border-color:#0d6efd">보유 구성 내역</div>';
-    res.items.forEach(it => {
-      html += `
-      <div class="kpi-row">
-        <span>
-          <span class="fw-semibold">${it.name}</span>
-          <span class="text-muted d-block" style="font-size:12px">${it.sub || ''}</span>
-        </span>
-        <span class="fw-semibold">${fmt(it.value)}원</span>
-      </div>`;
-    });
-    html += `<div class="kpi-total-row"><span>보유 합계</span><span>${fmt(res.total)}원</span></div>`;
-  }
-
-  body.innerHTML = html;
+  modal.show();
 }
 
 // ── 자정 직전 자동 스냅샷 저장 ────────────────────────────
