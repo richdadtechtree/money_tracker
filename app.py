@@ -5081,6 +5081,103 @@ def api_investment_monthly():
     return jsonify(months)
 
 
+def _compute_asset_class_items(db, category, ex_rate):
+    """
+    자산군(category)을 구성하는 개별 항목의 현재 평가금액 목록을 반환.
+    daily_snapshots의 카테고리 합계와 동일한 기준으로 계산하며,
+    asset_item_snapshots에 일별로 저장해 항목별 변동(어떤 종목이 얼마나
+    움직였는지)을 추적할 수 있도록 item_key(항목별 고유키)를 함께 반환한다.
+    """
+    items = []
+
+    if category == 'stocks':
+        cur = db.cursor()
+        cur.execute("""
+            SELECT s.id, s.name, s.ticker, s.current_price,
+                COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+                COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty
+            FROM stocks s LEFT JOIN stock_tx t ON t.stock_id = s.id
+            GROUP BY s.id, s.name, s.ticker, s.current_price
+        """)
+        for r in cur.fetchall():
+            qty = max(0.0, _sf(r['buy_qty']) - _sf(r['sell_qty']))
+            if qty <= 0:
+                continue
+            mul = ex_rate if is_foreign_ticker(r['ticker']) else 1.0
+            value = round(qty * _sf(r['current_price'])) * mul
+            items.append({'item_key': f"stock:{r['id']}", 'name': r['name'], 'sub': '주식', 'value': value})
+        cur.close()
+
+        cur = db.cursor()
+        cur.execute("""
+            SELECT e.id, e.name, e.ticker, e.current_price,
+                COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+                COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty
+            FROM etf e LEFT JOIN etf_tx t ON t.etf_id = e.id
+            GROUP BY e.id, e.name, e.ticker, e.current_price
+        """)
+        for r in cur.fetchall():
+            qty = max(0.0, _sf(r['buy_qty']) - _sf(r['sell_qty']))
+            if qty <= 0:
+                continue
+            mul = ex_rate if is_foreign_ticker(r['ticker']) else 1.0
+            value = round(qty * _sf(r['current_price'])) * mul
+            items.append({'item_key': f"etf:{r['id']}", 'name': r['name'], 'sub': 'ETF', 'value': value})
+        cur.close()
+
+    elif category == 'cash':
+        cur = db.cursor()
+        cur.execute("SELECT id, name, amount FROM cash_deposits")
+        for r in cur.fetchall():
+            items.append({'item_key': f"cash:{r['id']}", 'name': r['name'], 'sub': '현금', 'value': _sf(r['amount'])})
+        cur.close()
+
+        cur = db.cursor()
+        cur.execute("SELECT COALESCE(SUM(deposit), 0) AS v FROM residence")
+        residence_deposit = _sf(cur.fetchone()['v'])
+        cur.close()
+        if residence_deposit:
+            items.append({'item_key': 'residence', 'name': '거주 보증금', 'sub': '현금성 자산', 'value': residence_deposit})
+
+    elif category == 'real_estate':
+        cur = db.cursor()
+        cur.execute("SELECT id, name, re_type, current_price FROM real_estate")
+        for r in cur.fetchall():
+            items.append({'item_key': f"re:{r['id']}", 'name': r['name'], 'sub': r['re_type'] or '부동산', 'value': _sf(r['current_price'])})
+        cur.close()
+
+    elif category == 'crypto':
+        cur = db.cursor()
+        cur.execute("SELECT id, name, symbol, current_price, quantity FROM crypto")
+        for r in cur.fetchall():
+            value = _sf(r['current_price']) * _sf(r['quantity'])
+            items.append({'item_key': f"crypto:{r['id']}", 'name': r['name'], 'sub': r['symbol'] or '코인', 'value': value})
+        cur.close()
+
+    elif category == 'pension':
+        cur = db.cursor()
+        cur.execute("SELECT id, name, pension_type, institution, accumulated FROM pension")
+        for r in cur.fetchall():
+            items.append({'item_key': f"pension:{r['id']}", 'name': r['name'], 'sub': r['institution'] or r['pension_type'] or '연금', 'value': _sf(r['accumulated'])})
+        cur.close()
+
+    return [it for it in items if it['value']]
+
+
+def _save_asset_item_snapshots(db, today_str, ex_rate):
+    """자산군별 개별 항목의 오늘자 평가금액을 asset_item_snapshots에 upsert."""
+    cur = db.cursor()
+    for category in ('stocks', 'cash', 'real_estate', 'crypto', 'pension'):
+        for it in _compute_asset_class_items(db, category, ex_rate):
+            cur.execute("""
+                INSERT INTO asset_item_snapshots (day, category, item_key, name, sub, value)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (day, category, item_key) DO UPDATE SET
+                    name=excluded.name, sub=excluded.sub, value=excluded.value
+            """, (today_str, category, it['item_key'], it['name'], it['sub'], it['value']))
+    cur.close()
+
+
 def _save_daily_snapshot(db):
     """
     오늘 날짜의 순자산을 계산하여 daily_snapshots에 upsert.
@@ -5154,6 +5251,8 @@ def _save_daily_snapshot(db):
             net_worth=excluded.net_worth, updated_at=excluded.updated_at
     """, (today_str, cash_int, stocks_int, re_int, crypto_int, pension_int, total, net_worth))
     cur.close()
+
+    _save_asset_item_snapshots(db, today_str, ex_rate)
 
 
 @app.route('/api/networth-history')
@@ -5310,6 +5409,77 @@ def api_networth_history():
             'change_amt': total_change,
             'change_pct': total_change_pct,
         }
+    })
+
+
+@app.route('/api/asset-class-item-diff')
+def api_asset_class_item_diff():
+    """
+    순자산 차트의 자산군 카드(주식·ETF/현금/부동산/코인/연금) 클릭 시,
+    그 시점 기준으로 어떤 개별 항목이 얼마나 변동했는지 asset_item_snapshots에서
+    가장 가까운 두 스냅샷을 비교해 반환한다. (스냅샷이 쌓이기 전 과거 날짜는
+    항목별 이력이 없을 수 있음 — has_history=False)
+    """
+    category = request.args.get('category', '')
+    day_param = request.args.get('day', '')
+    if category not in ('stocks', 'cash', 'real_estate', 'crypto', 'pension') or not day_param:
+        return jsonify({'error': 'invalid params'}), 400
+
+    # 차트 라벨은 기간에 따라 'YYYY-MM-DD'(일/주간), 'YYYY-MM'(월간), 'YYYY'(연간) 형태라
+    # 실제 날짜 비교가 가능하도록 해당 기간의 마지막 날짜로 정규화한다.
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', day_param):
+        day = day_param
+    elif re.match(r'^\d{4}-\d{2}$', day_param):
+        y, m = (int(x) for x in day_param.split('-'))
+        day = f"{y:04d}-{m:02d}-{_cal.monthrange(y, m)[1]:02d}"
+    elif re.match(r'^\d{4}$', day_param):
+        day = f"{day_param}-12-31"
+    else:
+        return jsonify({'items': [], 'has_history': False})
+
+    db = get_db()
+    cur = db.cursor()
+
+    cur.execute("SELECT MAX(day) AS d FROM asset_item_snapshots WHERE category=%s AND day<=%s", (category, day))
+    cur_day = cur.fetchone()['d']
+    if not cur_day:
+        cur.close()
+        db.close()
+        return jsonify({'items': [], 'has_history': False})
+
+    cur.execute("SELECT MAX(day) AS d FROM asset_item_snapshots WHERE category=%s AND day<%s", (category, cur_day))
+    prev_day = cur.fetchone()['d']
+
+    cur.execute("SELECT item_key, name, sub, value FROM asset_item_snapshots WHERE category=%s AND day=%s", (category, cur_day))
+    cur_items = {r['item_key']: r for r in cur.fetchall()}
+
+    prev_items = {}
+    if prev_day:
+        cur.execute("SELECT item_key, name, sub, value FROM asset_item_snapshots WHERE category=%s AND day=%s", (category, prev_day))
+        prev_items = {r['item_key']: r for r in cur.fetchall()}
+
+    cur.close()
+    db.close()
+
+    result = []
+    for key in set(cur_items) | set(prev_items):
+        c = cur_items.get(key)
+        p = prev_items.get(key)
+        cur_val  = float(c['value']) if c else 0.0
+        prev_val = float(p['value']) if p else 0.0
+        diff = cur_val - prev_val
+        if not diff:
+            continue
+        src = c or p
+        result.append({'name': src['name'], 'sub': src['sub'], 'value': cur_val, 'diff': diff})
+
+    result.sort(key=lambda it: -abs(it['diff']))
+
+    return jsonify({
+        'items': result,
+        'has_history': bool(prev_day),
+        'cur_day':  cur_day.isoformat()  if cur_day  else None,
+        'prev_day': prev_day.isoformat() if prev_day else None,
     })
 
 

@@ -391,6 +391,17 @@ def init_db():
             updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS asset_item_snapshots (
+            id          SERIAL PRIMARY KEY,
+            day         DATE    NOT NULL,
+            category    TEXT    NOT NULL,
+            item_key    TEXT    NOT NULL,
+            name        TEXT,
+            sub         TEXT,
+            value       BIGINT  DEFAULT 0,
+            UNIQUE(day, category, item_key)
+        );
+
         CREATE TABLE IF NOT EXISTS lifecycle_profile (
             id         SERIAL PRIMARY KEY,
             role       VARCHAR(20) NOT NULL,
@@ -823,6 +834,16 @@ def init_db():
         "ALTER TABLE pension ADD COLUMN IF NOT EXISTS current_price REAL DEFAULT 0",
         "UPDATE pension SET entry_type = 'cash' WHERE entry_type IS NULL",
         "ALTER TABLE lifecycle_settings ADD COLUMN IF NOT EXISTS annual_return_pension NUMERIC(5,2) DEFAULT 3",
+        """CREATE TABLE IF NOT EXISTS asset_item_snapshots (
+            id          SERIAL PRIMARY KEY,
+            day         DATE    NOT NULL,
+            category    TEXT    NOT NULL,
+            item_key    TEXT    NOT NULL,
+            name        TEXT,
+            sub         TEXT,
+            value       BIGINT  DEFAULT 0,
+            UNIQUE(day, category, item_key)
+        )""",
     ]
     for sql in migrations:
         try:

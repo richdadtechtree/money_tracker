@@ -1059,8 +1059,8 @@ function showAssetDetail(row) {
   panel.style.display = '';
 }
 
-// 자산군 카드 클릭 → 해당 자산군의 변동액(오른/내린 정도)만 팝업으로 표시
-function openAssetClassDetail(key, name, label, total, diff) {
+// 자산군 카드 클릭 → 변동액(오른/내린 정도)과 어떤 항목이 그 변동을 견인했는지 팝업으로 표시
+async function openAssetClassDetail(key, name, label, total, diff) {
   const modal = new bootstrap.Modal(document.getElementById('kpiDetailModal'));
   const title = document.getElementById('kpiDetailTitle');
   const body  = document.getElementById('kpiDetailBody');
@@ -1072,7 +1072,7 @@ function openAssetClassDetail(key, name, label, total, diff) {
   const diffCls  = diff > 0 ? 'text-success' : diff < 0 ? 'text-danger' : 'text-muted';
   const diffSign = diff > 0 ? '+' : '';
 
-  body.innerHTML = `
+  const summaryHtml = `
     <div class="text-center py-2">
       <div class="text-muted small mb-1">${label} 기준</div>
       <div class="fw-bold ${diffCls}" style="font-size:28px">${diffSign}${fmt(diff)}원</div>
@@ -1080,7 +1080,33 @@ function openAssetClassDetail(key, name, label, total, diff) {
       <div class="kpi-row"><span>현재 평가금액</span><span class="fw-semibold">${fmt(total)}원</span></div>
       <div class="kpi-row"><span>직전 평가금액</span><span class="fw-semibold">${fmt(prev)}원</span></div>
     </div>`;
+
+  body.innerHTML = summaryHtml +
+    '<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
   modal.show();
+
+  const res = await fetchJSON(`/api/asset-class-item-diff?category=${encodeURIComponent(key)}&day=${encodeURIComponent(label)}`);
+
+  let detailHtml;
+  if (!res || !res.has_history || !res.items.length) {
+    detailHtml = '<p class="text-center text-muted py-3" style="font-size:13px">항목별 변동 이력이 아직 없습니다.<br>내일부터 어떤 항목이 변동을 견인했는지 확인할 수 있어요.</p>';
+  } else {
+    detailHtml = '<div class="kpi-cat-header" style="border-color:#0d6efd">항목별 변동 (많이 움직인 순)</div>';
+    res.items.forEach(it => {
+      const cls  = it.diff > 0 ? 'text-success' : it.diff < 0 ? 'text-danger' : 'text-muted';
+      const sign = it.diff > 0 ? '+' : '';
+      detailHtml += `
+      <div class="kpi-row">
+        <span>
+          <span class="fw-semibold">${it.name}</span>
+          <span class="text-muted d-block" style="font-size:12px">${it.sub || ''}</span>
+        </span>
+        <span class="fw-semibold ${cls}">${sign}${fmt(it.diff)}원</span>
+      </div>`;
+    });
+  }
+
+  body.innerHTML = summaryHtml + detailHtml;
 }
 
 // ── 자정 직전 자동 스냅샷 저장 ────────────────────────────
