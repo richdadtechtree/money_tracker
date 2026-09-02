@@ -1047,7 +1047,8 @@ function showAssetDetail(row) {
     var color = diff > 0 ? '#10b981' : diff < 0 ? '#f43f5e' : '#94a3b8';
     var sign  = diff > 0 ? '+' : '';
     return '<div class="col-6 col-md-4 col-lg-2">' +
-      '<div class="border rounded p-2 text-center" style="font-size:0.82rem">' +
+      '<div class="border rounded p-2 text-center nw-asset-card" style="font-size:0.82rem;cursor:pointer" ' +
+        'onclick="openAssetClassDetail(\'' + a.key + '\', \'' + a.name + '\', \'' + row.label + '\', ' + cur + ', ' + diff + ')" title="상세 보기">' +
         '<div class="mb-1">' + a.icon + ' ' + a.name + '</div>' +
         '<div class="fw-semibold">' + formatKRW(cur) + '</div>' +
         '<div style="color:' + color + ';font-size:0.78rem">' + sign + formatKRW(diff) + '</div>' +
@@ -1056,6 +1057,54 @@ function showAssetDetail(row) {
   }).join('');
 
   panel.style.display = '';
+}
+
+// 자산군 카드 클릭 → 해당 자산군을 구성하는 개별 항목(종목/계좌 등) 상세 팝업
+async function openAssetClassDetail(key, name, label, total, diff) {
+  const modal = new bootstrap.Modal(document.getElementById('kpiDetailModal'));
+  const title = document.getElementById('kpiDetailTitle');
+  const body  = document.getElementById('kpiDetailBody');
+
+  title.textContent = `${label} — ${name} 상세내역`;
+  body.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
+  modal.show();
+
+  const res = await fetchJSON(`/api/asset-class-detail?category=${encodeURIComponent(key)}`);
+  if (!res || res.error) {
+    body.innerHTML = '<p class="text-danger text-center py-3">데이터를 불러올 수 없습니다.</p>';
+    return;
+  }
+
+  const diffCls = diff > 0 ? 'text-success' : diff < 0 ? 'text-danger' : 'text-muted';
+  const diffSign = diff > 0 ? '+' : '';
+  let html = `
+    <div class="kpi-row">
+      <span>${label} 기준 평가금액</span>
+      <span class="fw-semibold">${fmt(total)}원</span>
+    </div>
+    <div class="kpi-row">
+      <span>전 구간 대비 변동</span>
+      <span class="fw-semibold ${diffCls}">${diffSign}${fmt(diff)}원</span>
+    </div>`;
+
+  if (!res.items.length) {
+    html += '<p class="text-center text-muted py-4">등록된 보유 항목이 없습니다.</p>';
+  } else {
+    html += '<div class="kpi-cat-header" style="border-color:#0d6efd">보유 구성 내역</div>';
+    res.items.forEach(it => {
+      html += `
+      <div class="kpi-row">
+        <span>
+          <span class="fw-semibold">${it.name}</span>
+          <span class="text-muted d-block" style="font-size:12px">${it.sub || ''}</span>
+        </span>
+        <span class="fw-semibold">${fmt(it.value)}원</span>
+      </div>`;
+    });
+    html += `<div class="kpi-total-row"><span>보유 합계</span><span>${fmt(res.total)}원</span></div>`;
+  }
+
+  body.innerHTML = html;
 }
 
 // ── 자정 직전 자동 스냅샷 저장 ────────────────────────────
