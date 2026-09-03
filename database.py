@@ -844,6 +844,13 @@ def init_db():
             value       BIGINT  DEFAULT 0,
             UNIQUE(day, category, item_key)
         )""",
+        # 올웨더 비중 계산기 (보유 종목 연동 없이 직접 입력한 금액으로 계산, 리밸런싱 탭과 별도 저장)
+        """CREATE TABLE IF NOT EXISTS awc_calculator (
+            asset_class TEXT PRIMARY KEY,
+            target_pct  NUMERIC(6,2) NOT NULL DEFAULT 0,
+            amount      BIGINT NOT NULL DEFAULT 0,
+            updated_at  TIMESTAMP DEFAULT NOW()
+        )""",
     ]
     for sql in migrations:
         try:

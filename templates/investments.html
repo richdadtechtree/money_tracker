@@ -544,6 +544,9 @@
           <span class="badge fs-6 px-3 py-2" style="background:#f59e0b">미국 단기채 15%</span>
           <span class="badge fs-6 px-3 py-2" style="background:#f97316">금 7.5%</span>
           <span class="badge fs-6 px-3 py-2" style="background:#6b7280">현금 7.5%</span>
+          <button type="button" class="btn btn-sm btn-outline-primary ms-auto" onclick="openAwcModal()">
+            <i class="bi bi-calculator me-1"></i>🧮 올웨더 계산기
+          </button>
         </div>
       </div>
     </div>
@@ -666,6 +669,135 @@
     </div>
   </div>
 
+</div>
+
+<!-- 올웨더 비중 계산기 모달 (보유 종목 연동 없이 직접 입력해서 계산, 값은 서버에 별도 저장) -->
+<div class="modal fade" id="awcModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold"><i class="bi bi-calculator me-2 text-primary"></i>올웨더 비중 계산기</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="text-muted small mb-3">보유 종목과 연동되지 않고, 자산군별 금액을 직접 입력해 목표 비중 대비 부족/초과 금액을 계산합니다. 입력값은 이 계산기 전용으로 별도 저장됩니다.</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" id="awc-table">
+            <thead>
+              <tr>
+                <th>자산군</th>
+                <th style="width:100px">목표비중</th>
+                <th style="width:170px">현재 보유금액</th>
+                <th class="text-end">현재비중</th>
+                <th class="text-end">차이</th>
+                <th class="text-end">목표금액</th>
+                <th class="text-end" style="min-width:140px">과부족(매수/매도)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr data-class="long_bond">
+                <td><span class="badge rounded-pill" style="background:#3b82f6">📘 미국 장기채</span></td>
+                <td>
+                  <div class="input-group input-group-sm">
+                    <input type="text" inputmode="decimal" class="form-control awc-target-input" id="awc-target-long_bond" value="43.24">
+                    <span class="input-group-text">%</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="input-group input-group-sm">
+                    <input type="text" inputmode="numeric" class="form-control" id="awc-amt-long_bond" placeholder="0">
+                    <span class="input-group-text">원</span>
+                  </div>
+                </td>
+                <td class="text-end" id="awc-pct-long_bond">-</td>
+                <td class="text-end" id="awc-diff-long_bond">-</td>
+                <td class="text-end text-muted" id="awc-target-amt-long_bond">0원</td>
+                <td class="text-end" id="awc-gap-long_bond">-</td>
+              </tr>
+              <tr data-class="equity">
+                <td><span class="badge rounded-pill" style="background:#10b981">📗 주식(S&amp;P)</span></td>
+                <td>
+                  <div class="input-group input-group-sm">
+                    <input type="text" inputmode="decimal" class="form-control awc-target-input" id="awc-target-equity" value="32.43">
+                    <span class="input-group-text">%</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="input-group input-group-sm">
+                    <input type="text" inputmode="numeric" class="form-control" id="awc-amt-equity" placeholder="0">
+                    <span class="input-group-text">원</span>
+                  </div>
+                </td>
+                <td class="text-end" id="awc-pct-equity">-</td>
+                <td class="text-end" id="awc-diff-equity">-</td>
+                <td class="text-end text-muted" id="awc-target-amt-equity">0원</td>
+                <td class="text-end" id="awc-gap-equity">-</td>
+              </tr>
+              <tr data-class="short_bond">
+                <td><span class="badge rounded-pill" style="background:#f59e0b">📒 미국 단기채</span></td>
+                <td>
+                  <div class="input-group input-group-sm">
+                    <input type="text" inputmode="decimal" class="form-control awc-target-input" id="awc-target-short_bond" value="16.22">
+                    <span class="input-group-text">%</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="input-group input-group-sm">
+                    <input type="text" inputmode="numeric" class="form-control" id="awc-amt-short_bond" placeholder="0">
+                    <span class="input-group-text">원</span>
+                  </div>
+                </td>
+                <td class="text-end" id="awc-pct-short_bond">-</td>
+                <td class="text-end" id="awc-diff-short_bond">-</td>
+                <td class="text-end text-muted" id="awc-target-amt-short_bond">0원</td>
+                <td class="text-end" id="awc-gap-short_bond">-</td>
+              </tr>
+              <tr data-class="gold">
+                <td><span class="badge rounded-pill" style="background:#f97316">🥇 금</span></td>
+                <td>
+                  <div class="input-group input-group-sm">
+                    <input type="text" inputmode="decimal" class="form-control awc-target-input" id="awc-target-gold" value="8.11">
+                    <span class="input-group-text">%</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="input-group input-group-sm">
+                    <input type="text" inputmode="numeric" class="form-control" id="awc-amt-gold" placeholder="0">
+                    <span class="input-group-text">원</span>
+                  </div>
+                </td>
+                <td class="text-end" id="awc-pct-gold">-</td>
+                <td class="text-end" id="awc-diff-gold">-</td>
+                <td class="text-end text-muted" id="awc-target-amt-gold">0원</td>
+                <td class="text-end" id="awc-gap-gold">-</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr class="fw-semibold table-light">
+                <td>합계</td>
+                <td class="text-end" id="awc-target-sum">100.00%</td>
+                <td class="text-end" id="awc-total-amt">0원</td>
+                <td colspan="4"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="mt-3 d-flex align-items-center gap-2 flex-wrap">
+          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="resetAwcTargets()">목표비중 기본값으로 초기화 (43.24/32.43/16.22/8.11)</button>
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearAwcInputs()">입력값 지우기</button>
+        </div>
+
+        <div class="alert alert-primary mt-3 mb-0 py-2 px-3 small" id="awc-recommend" style="display:none"></div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">닫기</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="saveAwcCalculator()">
+          <i class="bi bi-save me-1"></i>저장
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- 리밸런싱 알림 모달 -->
@@ -2670,6 +2802,129 @@ async function saveRebalance() {
 }
 
 document.querySelector('[href="#tab-rebalance"]').addEventListener('shown.bs.tab', loadRebalance);
+
+// ── 올웨더 비중 계산기 (팝업 전용 · 보유 종목 연동 없이 직접 입력, 서버에 별도 저장) ─────────
+const AWC_CLASSES = ['long_bond', 'equity', 'short_bond', 'gold'];
+const AWC_DEFAULT_TARGETS = { long_bond: 43.24, equity: 32.43, short_bond: 16.22, gold: 8.11 };
+const AWC_LABELS = { long_bond: '미국 장기채', equity: '주식(S&P)', short_bond: '미국 단기채', gold: '금' };
+
+let awcModalInst = null;
+let _awcListenersReady = false;
+
+function openAwcModal() {
+  if (!_awcListenersReady) {
+    AWC_CLASSES.forEach(cls => {
+      _initNumInput('awc-amt-' + cls);
+      document.getElementById('awc-amt-' + cls).addEventListener('input', updateAwcCalc);
+      document.getElementById('awc-target-' + cls).addEventListener('input', updateAwcCalc);
+    });
+    _awcListenersReady = true;
+  }
+  awcModalInst = bootstrap.Modal.getOrCreateInstance(document.getElementById('awcModal'));
+  awcModalInst.show();
+  loadAwcCalculator();
+}
+
+async function loadAwcCalculator() {
+  const data = await fetchJSON('/api/awc-calculator');
+  const items = data?.items || [];
+  const byClass = {};
+  items.forEach(it => { byClass[it.asset_class] = it; });
+  AWC_CLASSES.forEach(cls => {
+    const amtEl = document.getElementById('awc-amt-' + cls);
+    const tgtEl = document.getElementById('awc-target-' + cls);
+    const saved = byClass[cls];
+    amtEl.value = saved && saved.amount ? fmt(saved.amount) : '';
+    tgtEl.value = saved && saved.target_pct != null ? saved.target_pct : AWC_DEFAULT_TARGETS[cls];
+  });
+  updateAwcCalc();
+}
+
+async function saveAwcCalculator() {
+  const items = AWC_CLASSES.map(cls => ({
+    asset_class: cls,
+    target_pct: parseFloat(document.getElementById('awc-target-' + cls).value) || 0,
+    amount: _numInputParse(document.getElementById('awc-amt-' + cls)),
+  }));
+  const res = await fetchJSON('/api/awc-calculator', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
+  });
+  if (res?.ok) showToast('올웨더 계산기 입력값이 저장되었습니다.');
+}
+
+function resetAwcTargets() {
+  AWC_CLASSES.forEach(cls => {
+    document.getElementById('awc-target-' + cls).value = AWC_DEFAULT_TARGETS[cls];
+  });
+  updateAwcCalc();
+}
+
+function clearAwcInputs() {
+  AWC_CLASSES.forEach(cls => {
+    document.getElementById('awc-amt-' + cls).value = '';
+  });
+  updateAwcCalc();
+}
+
+function updateAwcCalc() {
+  const amounts = {};
+  const targets = {};
+  let targetSum = 0;
+  AWC_CLASSES.forEach(cls => {
+    amounts[cls] = _numInputParse(document.getElementById('awc-amt-' + cls));
+    const t = parseFloat(document.getElementById('awc-target-' + cls).value) || 0;
+    targets[cls] = t;
+    targetSum += t;
+  });
+  const grandTotal = AWC_CLASSES.reduce((s, cls) => s + amounts[cls], 0);
+
+  let bestBuyCls = null, bestBuyGap = 0;
+  AWC_CLASSES.forEach(cls => {
+    const actualPct = grandTotal > 0 ? (amounts[cls] / grandTotal * 100) : 0;
+    const diff = actualPct - targets[cls];
+    const targetAmt = grandTotal > 0 ? Math.round(grandTotal * targets[cls] / 100) : 0;
+    const gapAmt = targetAmt - amounts[cls]; // 양수 = 매수 필요, 음수 = 초과 보유
+
+    document.getElementById('awc-pct-' + cls).textContent = grandTotal > 0 ? actualPct.toFixed(2) + '%' : '-';
+
+    const diffEl = document.getElementById('awc-diff-' + cls);
+    if (grandTotal > 0) {
+      const diffCls = Math.abs(diff) < 2 ? 'text-success' : (Math.abs(diff) < 5 ? 'text-warning' : 'text-danger');
+      diffEl.innerHTML = `<span class="${diffCls} fw-semibold">${diff >= 0 ? '+' : ''}${diff.toFixed(2)}%</span>`;
+    } else {
+      diffEl.textContent = '-';
+    }
+
+    document.getElementById('awc-target-amt-' + cls).textContent = fmt(targetAmt) + '원';
+
+    const gapEl = document.getElementById('awc-gap-' + cls);
+    if (grandTotal === 0) {
+      gapEl.textContent = '-';
+    } else if (gapAmt > 0) {
+      gapEl.innerHTML = `<span class="text-primary fw-semibold">+${fmt(gapAmt)}원 매수 필요</span>`;
+    } else if (gapAmt < 0) {
+      gapEl.innerHTML = `<span class="text-danger fw-semibold">${fmt(Math.abs(gapAmt))}원 초과 보유</span>`;
+    } else {
+      gapEl.innerHTML = '<span class="text-muted">균형</span>';
+    }
+
+    if (grandTotal > 0 && gapAmt > bestBuyGap) { bestBuyGap = gapAmt; bestBuyCls = cls; }
+  });
+
+  document.getElementById('awc-target-sum').textContent = targetSum.toFixed(2) + '%';
+  document.getElementById('awc-total-amt').textContent = fmt(grandTotal) + '원';
+
+  const recEl = document.getElementById('awc-recommend');
+  if (grandTotal > 0 && bestBuyCls) {
+    recEl.style.display = '';
+    recEl.innerHTML = `💡 <strong>${AWC_LABELS[bestBuyCls]}</strong>이(가) 목표 비중 대비 가장 부족합니다. 약 <strong>${fmt(bestBuyGap)}원</strong> 매수를 검토하세요.`;
+  } else if (grandTotal > 0) {
+    recEl.style.display = '';
+    recEl.innerHTML = `✅ 모든 자산군이 목표 비중 이상으로 보유되어 있습니다.`;
+  } else {
+    recEl.style.display = 'none';
+  }
+}
 
 // ── 리밸런싱 알림 ─────────────────────────────────────────
 const RB_ALERT_KEY = 'rb_alert_levels';

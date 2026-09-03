@@ -2385,6 +2385,56 @@ def api_rebalance_save():
     return jsonify({'ok': True})
 
 
+AWC_DEFAULT_TARGETS = {
+    'long_bond': 43.24, 'equity': 32.43, 'short_bond': 16.22, 'gold': 8.11,
+}
+
+
+@app.route('/api/awc-calculator', methods=['GET'])
+def api_awc_calculator_get():
+    """올웨더 비중 계산기 - 저장된 목표비중/입력금액 조회 (실제 보유 종목과 무관, 별도 저장)"""
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT asset_class, target_pct, amount FROM awc_calculator")
+    saved = {r['asset_class']: dict(r) for r in cur.fetchall()}
+    cur.close()
+    db.close()
+
+    items = []
+    for cls, default_pct in AWC_DEFAULT_TARGETS.items():
+        row = saved.get(cls)
+        items.append({
+            'asset_class': cls,
+            'target_pct': float(row['target_pct']) if row else default_pct,
+            'amount': int(row['amount']) if row else 0,
+        })
+    return jsonify({'items': items})
+
+
+@app.route('/api/awc-calculator', methods=['POST'])
+def api_awc_calculator_save():
+    """올웨더 비중 계산기 - 목표비중/입력금액 저장"""
+    db = get_db()
+    d = request.json or {}
+    items = d.get('items', [])  # [{asset_class, target_pct, amount}]
+    cur = db.cursor()
+    for it in items:
+        cls = it.get('asset_class')
+        if cls not in AWC_DEFAULT_TARGETS:
+            continue
+        target_pct = float(it.get('target_pct') or 0)
+        amount = int(it.get('amount') or 0)
+        cur.execute("""
+            INSERT INTO awc_calculator (asset_class, target_pct, amount, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (asset_class)
+            DO UPDATE SET target_pct = EXCLUDED.target_pct, amount = EXCLUDED.amount, updated_at = NOW()
+        """, (cls, target_pct, amount))
+    cur.close()
+    db.commit(); db.close()
+    return jsonify({'ok': True})
+
+
 @app.route('/api/invest-plans', methods=['GET', 'POST'])
 def api_invest_plans():
     db = get_db()
