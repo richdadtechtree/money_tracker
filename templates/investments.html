@@ -544,6 +544,9 @@
           <span class="badge fs-6 px-3 py-2" style="background:#f59e0b">미국 단기채 15%</span>
           <span class="badge fs-6 px-3 py-2" style="background:#f97316">금 7.5%</span>
           <span class="badge fs-6 px-3 py-2" style="background:#6b7280">현금 7.5%</span>
+          <button type="button" class="btn btn-sm btn-outline-primary ms-auto" onclick="openAwcModal()">
+            <i class="bi bi-calculator me-1"></i>🧮 올웨더 계산기
+          </button>
         </div>
       </div>
     </div>
@@ -664,14 +667,20 @@
         <div class="mt-2 text-end text-muted small">총 자산: <strong id="rb-total-amt">-</strong></div>
       </div>
     </div>
+  </div>
 
-    <!-- 올웨더 비중 계산기 (보유 종목 연동 없이 금액을 직접 입력해서 계산) -->
-    <div class="card border-0 shadow-sm mt-4">
-      <div class="card-header bg-white border-0 pt-3 pb-2">
-        <div class="fw-semibold"><i class="bi bi-calculator me-2"></i>🧮 올웨더 비중 계산기 <small class="text-muted fw-normal">(직접 입력 · 위 포트폴리오와 별도로 계산)</small></div>
-        <div class="text-muted small mt-1">자산군별 현재 보유 금액을 입력하면 목표 비중 대비 부족/초과 금액을 계산해 무엇을 더 사야 하는지 알려줍니다.</div>
+</div>
+
+<!-- 올웨더 비중 계산기 모달 (보유 종목 연동 없이 직접 입력해서 계산, 값은 서버에 별도 저장) -->
+<div class="modal fade" id="awcModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h5 class="modal-title fw-bold"><i class="bi bi-calculator me-2 text-primary"></i>올웨더 비중 계산기</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
-      <div class="card-body">
+      <div class="modal-body">
+        <div class="text-muted small mb-3">보유 종목과 연동되지 않고, 자산군별 금액을 직접 입력해 목표 비중 대비 부족/초과 금액을 계산합니다. 입력값은 이 계산기 전용으로 별도 저장됩니다.</div>
         <div class="table-responsive">
           <table class="table table-sm align-middle mb-0" id="awc-table">
             <thead>
@@ -781,9 +790,14 @@
 
         <div class="alert alert-primary mt-3 mb-0 py-2 px-3 small" id="awc-recommend" style="display:none"></div>
       </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">닫기</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="saveAwcCalculator()">
+          <i class="bi bi-save me-1"></i>저장
+        </button>
+      </div>
     </div>
   </div>
-
 </div>
 
 <!-- 리밸런싱 알림 모달 -->
@@ -2789,32 +2803,53 @@ async function saveRebalance() {
 
 document.querySelector('[href="#tab-rebalance"]').addEventListener('shown.bs.tab', loadRebalance);
 
-// ── 올웨더 비중 계산기 (직접 입력, 보유 종목 연동 없음) ─────────
+// ── 올웨더 비중 계산기 (팝업 전용 · 보유 종목 연동 없이 직접 입력, 서버에 별도 저장) ─────────
 const AWC_CLASSES = ['long_bond', 'equity', 'short_bond', 'gold'];
 const AWC_DEFAULT_TARGETS = { long_bond: 43.24, equity: 32.43, short_bond: 16.22, gold: 8.11 };
 const AWC_LABELS = { long_bond: '미국 장기채', equity: '주식(S&P)', short_bond: '미국 단기채', gold: '금' };
-const AWC_STORAGE_KEY = 'awc_calculator_state';
 
-function awcSaveState() {
-  const state = { amounts: {}, targets: {} };
-  AWC_CLASSES.forEach(cls => {
-    state.amounts[cls] = _numInputParse(document.getElementById('awc-amt-' + cls));
-    state.targets[cls] = parseFloat(document.getElementById('awc-target-' + cls).value) || 0;
-  });
-  try { localStorage.setItem(AWC_STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
+let awcModalInst = null;
+let _awcListenersReady = false;
+
+function openAwcModal() {
+  if (!_awcListenersReady) {
+    AWC_CLASSES.forEach(cls => {
+      _initNumInput('awc-amt-' + cls);
+      document.getElementById('awc-amt-' + cls).addEventListener('input', updateAwcCalc);
+      document.getElementById('awc-target-' + cls).addEventListener('input', updateAwcCalc);
+    });
+    _awcListenersReady = true;
+  }
+  awcModalInst = bootstrap.Modal.getOrCreateInstance(document.getElementById('awcModal'));
+  awcModalInst.show();
+  loadAwcCalculator();
 }
 
-function awcLoadState() {
-  let state = null;
-  try { state = JSON.parse(localStorage.getItem(AWC_STORAGE_KEY) || 'null'); } catch (e) {}
+async function loadAwcCalculator() {
+  const data = await fetchJSON('/api/awc-calculator');
+  const items = data?.items || [];
+  const byClass = {};
+  items.forEach(it => { byClass[it.asset_class] = it; });
   AWC_CLASSES.forEach(cls => {
     const amtEl = document.getElementById('awc-amt-' + cls);
     const tgtEl = document.getElementById('awc-target-' + cls);
-    const savedAmt = state?.amounts?.[cls];
-    const savedTgt = state?.targets?.[cls];
-    amtEl.value = savedAmt ? fmt(savedAmt) : '';
-    tgtEl.value = (savedTgt != null && !isNaN(savedTgt) && savedTgt > 0) ? savedTgt : AWC_DEFAULT_TARGETS[cls];
+    const saved = byClass[cls];
+    amtEl.value = saved && saved.amount ? fmt(saved.amount) : '';
+    tgtEl.value = saved && saved.target_pct != null ? saved.target_pct : AWC_DEFAULT_TARGETS[cls];
   });
+  updateAwcCalc();
+}
+
+async function saveAwcCalculator() {
+  const items = AWC_CLASSES.map(cls => ({
+    asset_class: cls,
+    target_pct: parseFloat(document.getElementById('awc-target-' + cls).value) || 0,
+    amount: _numInputParse(document.getElementById('awc-amt-' + cls)),
+  }));
+  const res = await fetchJSON('/api/awc-calculator', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
+  });
+  if (res?.ok) showToast('올웨더 계산기 입력값이 저장되었습니다.');
 }
 
 function resetAwcTargets() {
@@ -2889,23 +2924,7 @@ function updateAwcCalc() {
   } else {
     recEl.style.display = 'none';
   }
-
-  awcSaveState();
 }
-
-let _awcInited = false;
-function awcInit() {
-  AWC_CLASSES.forEach(cls => {
-    _initNumInput('awc-amt-' + cls);
-    document.getElementById('awc-amt-' + cls).addEventListener('input', updateAwcCalc);
-    document.getElementById('awc-target-' + cls).addEventListener('input', updateAwcCalc);
-  });
-  awcLoadState();
-  updateAwcCalc();
-}
-document.querySelector('[href="#tab-rebalance"]').addEventListener('shown.bs.tab', () => {
-  if (!_awcInited) { awcInit(); _awcInited = true; }
-});
 
 // ── 리밸런싱 알림 ─────────────────────────────────────────
 const RB_ALERT_KEY = 'rb_alert_levels';
