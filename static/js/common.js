@@ -8,12 +8,30 @@ function fmt(n) {
   return Math.round(n).toLocaleString('ko-KR');
 }
 
-/** JSON fetch 래퍼 */
+/**
+ * JSON fetch 래퍼
+ *
+ * 실패하면 기존과 동일하게 null 을 돌려주되(호출부 호환), 서버가 보낸 에러 메시지를
+ * fetchJSON.lastError 에 담아둔다. 그래야 화면에서 "왜 저장이 안 됐는지"를
+ * 사용자에게 보여줄 수 있다. (예: "보유 수량(0)보다 많은 수량을 매도할 수 없습니다.")
+ */
 async function fetchJSON(url, opts = {}) {
-  const res = await fetch(url, opts);
+  fetchJSON.lastError = null;
+  let res;
+  try {
+    res = await fetch(url, opts);
+  } catch (e) {
+    // 네트워크 자체가 끊긴 경우
+    fetchJSON.lastError = '서버에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.';
+    console.error('Network error:', url, e);
+    return null;
+  }
   if (!res.ok) {
-    const err = await res.text();
-    console.error('API error:', res.status, err);
+    const raw = await res.text();
+    let msg = '';
+    try { msg = (JSON.parse(raw) || {}).error || ''; } catch { /* JSON 이 아니면 무시 */ }
+    fetchJSON.lastError = msg || `요청이 실패했습니다. (오류 코드 ${res.status})`;
+    console.error('API error:', res.status, raw);
     return null;
   }
   return res.json();
@@ -374,6 +392,12 @@ class GridTable {
     const method = id === 'new' ? 'POST' : 'PUT';
     const url    = id === 'new' ? this.apiUrl : `${this.apiUrl}/${id}`;
     const result = await fetchJSON(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    // 저장 실패를 조용히 넘기면 사용자는 "왜 입력이 사라졌는지" 알 수 없다
+    if (result === null) {
+      alert(fetchJSON.lastError || '저장하지 못했습니다.');
+      await this.load();
+      return;
+    }
     await this.load();
     this.onSave?.(result, method, data);
   }
@@ -392,7 +416,8 @@ class GridTable {
       return;
     }
     if (!confirm('삭제하시겠습니까?')) return;
-    await fetchJSON(`${this.apiUrl}/${id}`, { method: 'DELETE' });
+    const res = await fetchJSON(`${this.apiUrl}/${id}`, { method: 'DELETE' });
+    if (res === null) alert(fetchJSON.lastError || '삭제하지 못했습니다.');
     await this.load();
     this.onDelete?.();
   }
