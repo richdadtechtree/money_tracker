@@ -822,6 +822,12 @@ def init_db():
         "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS avg_price_override REAL",
         "ALTER TABLE etf    ADD COLUMN IF NOT EXISTS qty_override REAL",
         "ALTER TABLE etf    ADD COLUMN IF NOT EXISTS avg_price_override REAL",
+        # 강제 지정값을 저장한 "시점"을 기록하는 기준점(anchor).
+        #  - 그 시점의 최신 거래 id 를 담아두고, 이후에 입력된 거래(id > anchor)만
+        #    강제값 위에 순차 적용한다. 덕분에 100주로 맞춰둔 뒤 30주를 매도하면
+        #    자동으로 70주가 되고, 그 매도를 삭제하면 다시 100주로 돌아온다.
+        "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS override_anchor_tx_id INTEGER",
+        "ALTER TABLE etf    ADD COLUMN IF NOT EXISTS override_anchor_tx_id INTEGER",
         "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'KRW'",
         "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS original_amount REAL NOT NULL DEFAULT 0.0",
         "UPDATE cash_deposits SET original_amount = amount WHERE currency = 'KRW'",
