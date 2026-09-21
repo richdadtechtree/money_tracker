@@ -24,7 +24,9 @@ async function fetchJSON(url, opts = {}) {
  *
  * columns 정의:
  *   { key, type:'text|date|number|select|computed',
- *     options:[]/fn, compute:fn, render:fn, align:'end', step }
+ *     options:[]/fn, compute:fn, render:fn, align:'end', step,
+ *     nullable:true  → 편집 시 입력칸을 비우면 0이 아니라 null 로 저장 (값 해제용)
+ *     placeholder:'문자열' 또는 fn(row) → 편집 입력칸의 안내 문구 }
  */
 class GridTable {
   constructor({ tableId, columns, apiUrl, getQueryParams, onLoad, getExtraData, onSave, onDelete, onStartEdit, selectable, onSelectChange, onBeforeDelete }) {
@@ -97,7 +99,8 @@ class GridTable {
     try { if (typeof usdKrw !== 'undefined') rate = usdKrw; } catch {}
     if (typeof window.usdKrw === 'number') rate = window.usdKrw;
 
-    const noRateFields = new Set(['quantity', 'return_rate', 'installment', '_qty', '_rate', '_return', 'sort_order']);
+    // 환율 환산 대상이 아닌(= $ 기호가 붙어도 원화로 곱하면 안 되는) 필드들
+    const noRateFields = new Set(['quantity', 'return_rate', 'installment', '_qty', 'qty_override', '_rate', '_return', 'sort_order']);
 
     let valStr = '';
     if (col.compute) {
@@ -274,6 +277,10 @@ class GridTable {
       const v = (col.type === 'date' && raw === '')
         ? new Date().toISOString().split('T')[0]
         : raw;
+      // placeholder: 문자열 또는 행(row)을 받는 함수 모두 지원
+      const phRaw = typeof col.placeholder === 'function' ? col.placeholder(r) : col.placeholder;
+      const phAttr = (phRaw == null || phRaw === '')
+        ? '' : ` placeholder="${String(phRaw).replace(/"/g, '&quot;')}"`;
       let inp;
       if (col.type === 'select') {
         const opts = (typeof col.options === 'function' ? col.options() : col.options || [])
@@ -284,12 +291,13 @@ class GridTable {
           }).join('');
         inp = `<select class="form-select form-select-sm" data-key="${col.key}"><option value=""></option>${opts}</select>`;
       } else if (col.type === 'number') {
+        // maximumFractionDigits 기본값(3) 때문에 소수점이 잘리는 것을 방지 (코인 수량, 달러 평단가 등)
         const fmtd = (v !== '' && v != null && !isNaN(v))
-          ? Number(v).toLocaleString('ko-KR') : '';
-        inp = `<input type="text" inputmode="decimal" class="form-control form-control-sm" data-key="${col.key}" data-numeric="true" value="${fmtd}">`;
+          ? Number(v).toLocaleString('ko-KR', { maximumFractionDigits: 8 }) : '';
+        inp = `<input type="text" inputmode="decimal" class="form-control form-control-sm" data-key="${col.key}" data-numeric="true" value="${fmtd}"${phAttr}>`;
       } else {
         const t = {text:'text', date:'date'}[col.type] || 'text';
-        inp = `<input type="${t}" class="form-control form-control-sm" data-key="${col.key}" value="${v}">`;
+        inp = `<input type="${t}" class="form-control form-control-sm" data-key="${col.key}" value="${v}"${phAttr}>`;
       }
       return `<td>${inp}</td>`;
     });
@@ -353,7 +361,13 @@ class GridTable {
     const data = { ...this.getExtraData() };
     tr.querySelectorAll('[data-key]').forEach(el => {
       const col = this.columns.find(c => c.key === el.dataset.key);
-      data[el.dataset.key] = col?.type === 'number' ? (parseFloat(el.value.replace(/,/g, '')) || 0) : el.value;
+      if (col?.type === 'number') {
+        const raw = el.value.replace(/,/g, '').trim();
+        // nullable 컬럼은 빈칸을 null 로 보내 서버에서 '값 해제(자동계산 복귀)'로 처리하게 한다
+        data[el.dataset.key] = (raw === '' && col.nullable) ? null : (parseFloat(raw) || 0);
+      } else {
+        data[el.dataset.key] = el.value;
+      }
     });
     tr.removeEventListener('keydown', this._keyFn);
     this._tr = null;

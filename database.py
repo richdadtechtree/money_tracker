@@ -815,6 +815,13 @@ def init_db():
         )""",
         "ALTER TABLE rebalance_assignments ADD COLUMN IF NOT EXISTS cash_amount BIGINT DEFAULT 0",
         "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS realized_pnl_override REAL",
+        # 보유수량/평균단가 강제 지정값(override)
+        #  - NULL 이면 거래내역(stock_tx/etf_tx) 기반 자동 계산값을 사용하고,
+        #    값이 들어있으면 그 값을 "강제"로 사용한다. (증권사 실제 잔고와 어긋날 때 보정용)
+        "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS qty_override REAL",
+        "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS avg_price_override REAL",
+        "ALTER TABLE etf    ADD COLUMN IF NOT EXISTS qty_override REAL",
+        "ALTER TABLE etf    ADD COLUMN IF NOT EXISTS avg_price_override REAL",
         "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'KRW'",
         "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS original_amount REAL NOT NULL DEFAULT 0.0",
         "UPDATE cash_deposits SET original_amount = amount WHERE currency = 'KRW'",
