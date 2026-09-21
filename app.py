@@ -1576,7 +1576,8 @@ def api_stocks():
     db = get_db()
     if request.method == 'GET':
         cur = db.cursor()
-        cur.execute("SELECT id, name, ticker, current_price, dividend, memo, category, COALESCE(ath,0) as ath, realized_pnl_override FROM stocks ORDER BY name")
+        cur.execute("SELECT id, name, ticker, current_price, dividend, memo, category, COALESCE(ath,0) as ath, "
+                    "realized_pnl_override, qty_override, avg_price_override FROM stocks ORDER BY name")
         stocks = [dict(r) for r in cur.fetchall()]
         # SQL 기반 qty (대시보드·테크트리와 동일 기준, 음수 0 처리)
         cur.execute("""
@@ -1600,13 +1601,20 @@ def api_stocks():
         result = []
         try:
             for s in stocks:
-                qty      = sql_qty.get(s['id'], 0.0)
-                _, avg, realized = calc_position(tx_by_stock[s['id']])
-                avg      = avg if (avg is not None and avg == avg) else 0.0  # NaN guard
+                qty_calc = sql_qty.get(s['id'], 0.0)
+                _, avg_calc, realized = calc_position(tx_by_stock[s['id']])
+                avg_calc = avg_calc if (avg_calc is not None and avg_calc == avg_calc) else 0.0  # NaN guard
+                # 사용자가 강제 입력한 수량/평단가가 있으면 그 값을 우선 사용
+                qty, avg, qty_forced, avg_forced = _eff_position(qty_calc, avg_calc, s)
                 eval_amt = round(qty * _sf(s['current_price']))
                 cost_amt = round(qty * avg)
                 s['quantity']       = qty
-                s['avg_price']      = avg if qty > 0 else None
+                s['avg_price']      = avg if (qty > 0 or avg_forced) else None
+                # 자동 계산값도 함께 내려보내 화면에서 "원래 값"을 안내할 수 있게 한다
+                s['auto_quantity']  = qty_calc
+                s['auto_avg_price'] = avg_calc if qty_calc > 0 else None
+                s['qty_override']       = qty if qty_forced else None
+                s['avg_price_override'] = avg if avg_forced else None
                 s['eval_amount']    = eval_amt
                 s['unrealized_pnl'] = eval_amt - cost_amt
                 s['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
@@ -1621,12 +1629,15 @@ def api_stocks():
         db.close()
         return jsonify(result)
 
-    data = request.json
+    data = request.json or {}
     cur = db.cursor()
+    # 신규 등록 시에도 보유수량/평단가를 바로 강제 지정할 수 있게 한다 (거래내역 없이 잔고만 반영하는 경우)
     cur.execute(
-    "INSERT INTO stocks (name, ticker, current_price, dividend, memo, category) VALUES (%s,%s,%s,%s,%s,%s)",
+    "INSERT INTO stocks (name, ticker, current_price, dividend, memo, category, qty_override, avg_price_override)"
+    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
     (data.get('name'), data.get('ticker'),
-    data.get('current_price', 0), data.get('dividend', 0), data.get('memo'), data.get('category'))
+    data.get('current_price', 0), data.get('dividend', 0), data.get('memo'), data.get('category'),
+    _override_val(data.get('qty_override')), _override_val(data.get('avg_price_override')))
     )
     cur.close()
     db.commit()
@@ -1638,12 +1649,15 @@ def api_stocks():
 def api_stocks_detail(rid):
     db = get_db()
     if request.method == 'PUT':
-        data = request.json
+        data = request.json or {}
         cur = db.cursor()
+        ov_clause, ov_params = _override_set_clause(data)
         cur.execute(
-        "UPDATE stocks SET name=%s, ticker=%s, current_price=%s, dividend=%s, memo=%s, category=%s WHERE id=%s",
-        (data.get('name'), data.get('ticker'),
-        data.get('current_price', 0), data.get('dividend', 0), data.get('memo'), data.get('category'), rid)
+        "UPDATE stocks SET name=%s, ticker=%s, current_price=%s, dividend=%s, memo=%s, category=%s"
+        + ov_clause + " WHERE id=%s",
+        [data.get('name'), data.get('ticker'),
+        data.get('current_price', 0), data.get('dividend', 0), data.get('memo'), data.get('category')]
+        + ov_params + [rid]
         )
         cur.close()
         db.commit()
@@ -1809,7 +1823,8 @@ def api_etf():
     db = get_db()
     if request.method == 'GET':
         cur = db.cursor()
-        cur.execute("SELECT id, name, ticker, current_price, etf_type, category, memo, COALESCE(ath,0) as ath FROM etf ORDER BY name")
+        cur.execute("SELECT id, name, ticker, current_price, etf_type, category, memo, COALESCE(ath,0) as ath, "
+                    "qty_override, avg_price_override FROM etf ORDER BY name")
         etfs = [dict(r) for r in cur.fetchall()]
         # SQL 기반 qty (대시보드·테크트리와 동일 기준, 음수 0 처리)
         cur.execute("""
@@ -1836,13 +1851,19 @@ def api_etf():
         try:
             for e in etfs:
                 info     = sql_etf.get(e['id'], {'qty': 0.0, 'buy_qty': 0.0, 'sell_qty': 0.0})
-                qty      = info['qty']
-                _, avg, realized = calc_position(tx_by_etf[e['id']])
-                avg      = avg if (avg is not None and avg == avg) else 0.0  # NaN guard
+                qty_calc = info['qty']
+                _, avg_calc, realized = calc_position(tx_by_etf[e['id']])
+                avg_calc = avg_calc if (avg_calc is not None and avg_calc == avg_calc) else 0.0  # NaN guard
+                # 사용자가 강제 입력한 수량/평단가가 있으면 그 값을 우선 사용
+                qty, avg, qty_forced, avg_forced = _eff_position(qty_calc, avg_calc, e)
                 eval_amt = round(qty * _sf(e['current_price']))
                 cost_amt = round(qty * avg)
                 e['quantity']       = qty
-                e['avg_price']      = avg if qty > 0 else None
+                e['avg_price']      = avg if (qty > 0 or avg_forced) else None
+                e['auto_quantity']  = qty_calc
+                e['auto_avg_price'] = avg_calc if qty_calc > 0 else None
+                e['qty_override']       = qty if qty_forced else None
+                e['avg_price_override'] = avg if avg_forced else None
                 e['eval_amount']    = eval_amt
                 e['unrealized_pnl'] = eval_amt - cost_amt
                 e['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
@@ -1857,12 +1878,15 @@ def api_etf():
         db.close()
         return jsonify(result)
 
-    data = request.json
+    data = request.json or {}
     cur = db.cursor()
+    # 신규 등록 시에도 보유수량/평단가를 바로 강제 지정할 수 있게 한다 (거래내역 없이 잔고만 반영하는 경우)
     cur.execute(
-    "INSERT INTO etf (name, ticker, current_price, etf_type, category, memo) VALUES (%s,%s,%s,%s,%s,%s)",
+    "INSERT INTO etf (name, ticker, current_price, etf_type, category, memo, qty_override, avg_price_override)"
+    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
     (data.get('name'), data.get('ticker'),
-    data.get('current_price', 0), data.get('etf_type'), data.get('category'), data.get('memo'))
+    data.get('current_price', 0), data.get('etf_type'), data.get('category'), data.get('memo'),
+    _override_val(data.get('qty_override')), _override_val(data.get('avg_price_override')))
     )
     cur.close()
     db.commit()
@@ -1874,12 +1898,15 @@ def api_etf():
 def api_etf_detail(rid):
     db = get_db()
     if request.method == 'PUT':
-        data = request.json
+        data = request.json or {}
         cur = db.cursor()
+        ov_clause, ov_params = _override_set_clause(data)
         cur.execute(
-        "UPDATE etf SET name=%s, ticker=%s, current_price=%s, etf_type=%s, category=%s, memo=%s WHERE id=%s",
-        (data.get('name'), data.get('ticker'),
-        data.get('current_price', 0), data.get('etf_type'), data.get('category'), data.get('memo'), rid)
+        "UPDATE etf SET name=%s, ticker=%s, current_price=%s, etf_type=%s, category=%s, memo=%s"
+        + ov_clause + " WHERE id=%s",
+        [data.get('name'), data.get('ticker'),
+        data.get('current_price', 0), data.get('etf_type'), data.get('category'), data.get('memo')]
+        + ov_params + [rid]
         )
         cur.close()
         db.commit()
@@ -2261,6 +2288,7 @@ def api_rebalance_get():
     # 올웨더 ETF 조회 (현재 평가액 포함)
     cur.execute("""
         SELECT e.id, e.name, e.ticker, e.current_price, e.category,
+               e.qty_override, e.avg_price_override,
                GREATEST(0,
                  COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END),0)
                - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END),0)
@@ -2275,6 +2303,7 @@ def api_rebalance_get():
     # 올웨더 주식 조회
     cur.execute("""
         SELECT s.id, s.name, s.ticker, s.current_price, s.category,
+               s.qty_override, s.avg_price_override,
                GREATEST(0,
                  COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END),0)
                - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END),0)
@@ -2319,9 +2348,9 @@ def api_rebalance_get():
     for item in etfs:
         key = ('etf', item['id'])
         asgn = assignments.get(key, {})
-        qty = float(item['qty'] or 0)
-        _, avg, _ = calc_position(etf_tx_by_id[item['id']])
-        avg = avg if (avg is not None and avg == avg) else 0.0  # NaN guard
+        _, avg_calc, _ = calc_position(etf_tx_by_id[item['id']])
+        avg_calc = avg_calc if (avg_calc is not None and avg_calc == avg_calc) else 0.0  # NaN guard
+        qty, avg, _qf, _af = _eff_position(float(item['qty'] or 0), avg_calc, item)
         eval_amt = round(qty * float(item['current_price'] or 0))
         cost_amt = round(qty * avg)
         result_items.append({
@@ -2336,9 +2365,9 @@ def api_rebalance_get():
     for item in stocks:
         key = ('stock', item['id'])
         asgn = assignments.get(key, {})
-        qty = float(item['qty'] or 0)
-        _, avg, _ = calc_position(stock_tx_by_id[item['id']])
-        avg = avg if (avg is not None and avg == avg) else 0.0  # NaN guard
+        _, avg_calc, _ = calc_position(stock_tx_by_id[item['id']])
+        avg_calc = avg_calc if (avg_calc is not None and avg_calc == avg_calc) else 0.0  # NaN guard
+        qty, avg, _qf, _af = _eff_position(float(item['qty'] or 0), avg_calc, item)
         eval_amt = round(qty * float(item['current_price'] or 0))
         cost_amt = round(qty * avg)
         result_items.append({
@@ -3638,13 +3667,75 @@ def _sf(v):
     except (TypeError, ValueError):
         return 0.0
 
+
+def _override_val(v):
+    """
+    보유수량/평균단가 '강제 지정값'(override) 컬럼을 해석한다.
+
+    반환값
+      - None  : 지정값 없음 → 거래내역 기반 자동 계산값을 그대로 사용
+      - float : 사용자가 강제로 넣은 값 (음수는 0으로 보정)
+
+    NULL·빈 문자열·NaN·Inf 같은 비정상 값은 모두 None(자동 계산)으로 처리해서
+    잘못된 값이 평가액 계산에 섞이지 않도록 방어한다.
+    """
+    if v is None or v == '':
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(f) or math.isinf(f):
+        return None
+    return max(0.0, f)
+
+
+def _eff_position(qty_calc, avg_calc, row):
+    """
+    (자동계산 수량, 자동계산 평단가) + override 컬럼을 받아
+    실제로 화면/집계에 쓸 (수량, 평단가)를 돌려주는 공통 함수.
+
+    row 는 qty_override / avg_price_override 키를 가진 dict 또는 DB row.
+    이 함수를 모든 집계 지점에서 함께 사용해야 투자관리·대시보드·테크트리의
+    평가액이 서로 어긋나지 않는다.
+    """
+    try:
+        qty_ov = _override_val(row['qty_override'])
+        avg_ov = _override_val(row['avg_price_override'])
+    except (KeyError, IndexError, TypeError):
+        qty_ov = avg_ov = None
+    qty = qty_ov if qty_ov is not None else _sf(qty_calc)
+    avg = avg_ov if avg_ov is not None else _sf(avg_calc)
+    return qty, avg, (qty_ov is not None), (avg_ov is not None)
+
+
+def _override_set_clause(data):
+    """
+    PUT 본문(data)에 qty_override / avg_price_override 키가 들어있을 때만
+    UPDATE 문 뒤에 붙일 SET 절과 파라미터를 만들어 준다.
+
+      - 키가 없으면        → 기존 값 그대로 유지(부분 수정 안전)
+      - 값이 빈값/None 이면 → NULL 저장 = 자동 계산으로 복귀
+      - 숫자면             → 그 값으로 강제 고정
+
+    컬럼명은 아래 고정 튜플에서만 나오므로 SQL 인젝션 위험이 없다.
+    """
+    clause, params = '', []
+    for key in ('qty_override', 'avg_price_override'):
+        if key in data:
+            clause += f", {key}=%s"
+            params.append(_override_val(data.get(key)))
+    return clause, params
+
 def _calc_asset_totals(rows, ex_rate):
-    """(val, cost) 계산 공통 로직 — qty 음수 방지(GREATEST 0) 포함."""
+    """(val, cost) 계산 공통 로직 — qty 음수 방지(GREATEST 0) + 강제 지정값(override) 반영."""
     val = 0.0; cost = 0.0
     for r in rows:
-        qty = max(0.0, _sf(r['buy_qty']) - _sf(r['sell_qty']))
+        qty_calc = max(0.0, _sf(r['buy_qty']) - _sf(r['sell_qty']))
         buy_qty_f = _sf(r['buy_qty'])
-        avg = _sf(r['total_buy_amt']) / buy_qty_f if buy_qty_f > 0 else 0.0
+        avg_calc = _sf(r['total_buy_amt']) / buy_qty_f if buy_qty_f > 0 else 0.0
+        # 투자관리 화면에서 강제 입력한 수량/평단가가 있으면 대시보드 집계에도 동일하게 반영
+        qty, avg, _qf, _af = _eff_position(qty_calc, avg_calc, r)
         eval_amt = round(qty * _sf(r['current_price']))
         cost_amt = round(qty * avg)
         mul = ex_rate if is_foreign_ticker(r['ticker']) else 1.0
@@ -3655,7 +3746,7 @@ def _calc_asset_totals(rows, ex_rate):
 def _fetch_stock_rows(db):
     cur = db.cursor()
     cur.execute("""
-        SELECT s.ticker, s.current_price,
+        SELECT s.ticker, s.current_price, s.qty_override, s.avg_price_override,
             COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
             COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty,
             COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
@@ -3668,7 +3759,7 @@ def _fetch_stock_rows(db):
 def _fetch_etf_rows(db):
     cur = db.cursor()
     cur.execute("""
-        SELECT e.ticker, e.current_price,
+        SELECT e.ticker, e.current_price, e.qty_override, e.avg_price_override,
             COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
             COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty,
             COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
@@ -5143,14 +5234,14 @@ def _compute_asset_class_items(db, category, ex_rate):
     if category == 'stocks':
         cur = db.cursor()
         cur.execute("""
-            SELECT s.id, s.name, s.ticker, s.current_price,
+            SELECT s.id, s.name, s.ticker, s.current_price, s.qty_override, s.avg_price_override,
                 COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
                 COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty
             FROM stocks s LEFT JOIN stock_tx t ON t.stock_id = s.id
-            GROUP BY s.id, s.name, s.ticker, s.current_price
+            GROUP BY s.id, s.name, s.ticker, s.current_price, s.qty_override, s.avg_price_override
         """)
         for r in cur.fetchall():
-            qty = max(0.0, _sf(r['buy_qty']) - _sf(r['sell_qty']))
+            qty, _avg, _qf, _af = _eff_position(max(0.0, _sf(r['buy_qty']) - _sf(r['sell_qty'])), 0.0, r)
             if qty <= 0:
                 continue
             mul = ex_rate if is_foreign_ticker(r['ticker']) else 1.0
@@ -5160,14 +5251,14 @@ def _compute_asset_class_items(db, category, ex_rate):
 
         cur = db.cursor()
         cur.execute("""
-            SELECT e.id, e.name, e.ticker, e.current_price,
+            SELECT e.id, e.name, e.ticker, e.current_price, e.qty_override, e.avg_price_override,
                 COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
                 COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty
             FROM etf e LEFT JOIN etf_tx t ON t.etf_id = e.id
-            GROUP BY e.id, e.name, e.ticker, e.current_price
+            GROUP BY e.id, e.name, e.ticker, e.current_price, e.qty_override, e.avg_price_override
         """)
         for r in cur.fetchall():
-            qty = max(0.0, _sf(r['buy_qty']) - _sf(r['sell_qty']))
+            qty, _avg, _qf, _af = _eff_position(max(0.0, _sf(r['buy_qty']) - _sf(r['sell_qty'])), 0.0, r)
             if qty <= 0:
                 continue
             mul = ex_rate if is_foreign_ticker(r['ticker']) else 1.0
@@ -7376,7 +7467,7 @@ def api_tech_tree_detail():
         ex_rate = get_current_exchange_rate()
         cur = db.cursor()
         cur.execute("""
-        SELECT s.name, s.ticker, s.current_price,
+        SELECT s.name, s.ticker, s.current_price, s.qty_override, s.avg_price_override,
         COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
         COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty
         FROM stocks s
@@ -7386,7 +7477,7 @@ def api_tech_tree_detail():
         s_rows = cur.fetchall()
         cur.close()
         for r in s_rows:
-            qty = float(r['buy_qty'] - r['sell_qty'])
+            qty, _avg, _qf, _af = _eff_position(float(r['buy_qty'] - r['sell_qty']), 0.0, r)
             if qty > 0:
                 eval_amt = round(qty * float(r['current_price'] or 0))
                 mul = ex_rate if is_foreign_ticker(r['ticker']) else 1
@@ -7394,7 +7485,7 @@ def api_tech_tree_detail():
 
         cur = db.cursor()
         cur.execute("""
-        SELECT e.name, e.ticker, e.current_price,
+        SELECT e.name, e.ticker, e.current_price, e.qty_override, e.avg_price_override,
         COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
         COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty
         FROM etf e
@@ -7404,7 +7495,7 @@ def api_tech_tree_detail():
         e_rows = cur.fetchall()
         cur.close()
         for r in e_rows:
-            qty = float(r['buy_qty'] - r['sell_qty'])
+            qty, _avg, _qf, _af = _eff_position(float(r['buy_qty'] - r['sell_qty']), 0.0, r)
             if qty > 0:
                 eval_amt = round(qty * float(r['current_price'] or 0))
                 mul = ex_rate if is_foreign_ticker(r['ticker']) else 1
@@ -8361,19 +8452,21 @@ def api_assets_detailed():
         _refresh_usd_cash_amounts(db, ex_rate)
 
         # 주식 (수량은 stock_tx 기반 계산)
+        # 강제 지정 수량(qty_override)도 잡아내야 하므로 HAVING 대신 파이썬에서 0 이하를 걸러낸다
         cur.execute("""
-            SELECT s.name, s.ticker, s.current_price,
+            SELECT s.name, s.ticker, s.current_price, s.qty_override, s.avg_price_override,
                 COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0)
               - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS qty
             FROM stocks s
             LEFT JOIN stock_tx t ON t.stock_id = s.id
-            GROUP BY s.id, s.name, s.ticker, s.current_price
-            HAVING (COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0)
-                  - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0)) > 0
+            GROUP BY s.id, s.name, s.ticker, s.current_price, s.qty_override, s.avg_price_override
         """)
         stocks = []
         for r in cur.fetchall():
-            val = float(r['current_price'] or 0) * float(r['qty'] or 0)
+            qty, _avg, _qf, _af = _eff_position(float(r['qty'] or 0), 0.0, r)
+            if qty <= 0:
+                continue
+            val = float(r['current_price'] or 0) * qty
             ticker = str(r['ticker'] or '')
             is_foreign = ticker and not re.match(r'^[0-9]{6}$', ticker)
             if is_foreign: val *= ex_rate
@@ -8381,18 +8474,19 @@ def api_assets_detailed():
 
         # ETF (수량은 etf_tx 기반 계산)
         cur.execute("""
-            SELECT e.name, e.ticker, e.current_price,
+            SELECT e.name, e.ticker, e.current_price, e.qty_override, e.avg_price_override,
                 COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0)
               - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS qty
             FROM etf e
             LEFT JOIN etf_tx t ON t.etf_id = e.id
-            GROUP BY e.id, e.name, e.ticker, e.current_price
-            HAVING (COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0)
-                  - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0)) > 0
+            GROUP BY e.id, e.name, e.ticker, e.current_price, e.qty_override, e.avg_price_override
         """)
         etfs = []
         for r in cur.fetchall():
-            val = float(r['current_price'] or 0) * float(r['qty'] or 0)
+            qty, _avg, _qf, _af = _eff_position(float(r['qty'] or 0), 0.0, r)
+            if qty <= 0:
+                continue
+            val = float(r['current_price'] or 0) * qty
             ticker = str(r['ticker'] or '')
             is_foreign = ticker and not re.match(r'^[0-9]{6}$', ticker)
             if is_foreign: val *= ex_rate

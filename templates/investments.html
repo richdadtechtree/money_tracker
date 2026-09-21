@@ -48,8 +48,12 @@
 
     <!-- 포지션 현황 -->
     <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white border-0 pt-3 pb-2 fw-semibold">
-        <i class="bi bi-bar-chart-fill me-2 text-primary"></i>포지션 현황
+      <div class="card-header bg-white border-0 pt-3 pb-2">
+        <span class="fw-semibold"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>포지션 현황</span>
+        <div class="text-muted" style="font-size:.75rem">
+          <i class="bi bi-info-circle me-1"></i>보유수량·평균단가는 행을 클릭해 <b>강제로 수정</b>할 수 있습니다.
+          입력칸을 비워두면 매매 거래내역 기준 자동 계산값이 사용됩니다.
+        </div>
       </div>
       <div class="card-body p-0">
         <div class="table-responsive">
@@ -57,8 +61,8 @@
             <thead class="table-light">
               <tr>
                 <th>종목명</th><th>티커</th><th>구분</th>
-                <th class="text-end">보유수량</th>
-                <th class="text-end">평균단가</th>
+                <th class="text-end">보유수량 <i class="bi bi-pencil-square text-warning" title="행을 클릭하면 강제로 수정할 수 있습니다"></i></th>
+                <th class="text-end">평균단가 <i class="bi bi-pencil-square text-warning" title="행을 클릭하면 강제로 수정할 수 있습니다"></i></th>
                 <th class="text-end">현재가</th>
                 <th class="text-end">평가액</th>
                 <th class="text-end">미실현손익</th>
@@ -202,8 +206,12 @@
 
     <!-- 포지션 현황 -->
     <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white border-0 pt-3 pb-2 fw-semibold">
-        <i class="bi bi-bar-chart-fill me-2 text-primary"></i>포지션 현황
+      <div class="card-header bg-white border-0 pt-3 pb-2">
+        <span class="fw-semibold"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>포지션 현황</span>
+        <div class="text-muted" style="font-size:.75rem">
+          <i class="bi bi-info-circle me-1"></i>보유수량·평균단가는 행을 클릭해 <b>강제로 수정</b>할 수 있습니다.
+          입력칸을 비워두면 매매 거래내역 기준 자동 계산값이 사용됩니다.
+        </div>
       </div>
       <div class="card-body p-0">
         <div class="table-responsive">
@@ -211,8 +219,8 @@
             <thead class="table-light">
               <tr>
                 <th>ETF명</th><th>티커</th><th>유형</th><th>구분</th>
-                <th class="text-end">보유수량</th>
-                <th class="text-end">평균단가</th>
+                <th class="text-end">보유수량 <i class="bi bi-pencil-square text-warning" title="행을 클릭하면 강제로 수정할 수 있습니다"></i></th>
+                <th class="text-end">평균단가 <i class="bi bi-pencil-square text-warning" title="행을 클릭하면 강제로 수정할 수 있습니다"></i></th>
                 <th class="text-end">현재가</th>
                 <th class="text-end">평가액</th>
                 <th class="text-end">미실현손익</th>
@@ -1025,6 +1033,52 @@ function rateHtml(pct) {
   return `<span class="${cls} fw-semibold">${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%</span>`;
 }
 
+// ── 보유수량 / 평균단가 "강제 수정" 지원 ────────────────────────
+// 기본값은 매매 거래내역으로 자동 계산되지만, 증권사 실제 잔고와 어긋날 때
+// 포지션 현황 행을 클릭해 값을 직접 덮어쓸 수 있다(override).
+// 입력칸을 비우고 저장하면 다시 자동 계산값으로 되돌아간다.
+const FORCED_MARK = '<i class="bi bi-pencil-fill text-warning ms-1" style="font-size:.65rem"></i>';
+
+/** 수량 표시 — 정수는 그대로, 소수는 최대 4자리 */
+function fmtQtyVal(q) {
+  if (q == null || isNaN(q)) return '-';
+  const n = Number(q);
+  return n % 1 === 0 ? n : Number(n.toFixed(4));
+}
+/** 평단가 표시 — 해외 종목은 달러, 국내는 원화 */
+function fmtAvgVal(v, ticker) {
+  if (v == null || isNaN(v)) return '-';
+  return isForeign(ticker) ? fmtUsd(v) : fmt(v);
+}
+/** 강제 지정된 값이면 연필 아이콘 + 원래 자동계산값을 툴팁으로 표시 */
+function forcedCellHtml(text, isForced, autoText) {
+  if (!isForced) return text;
+  return `<span class="fw-semibold text-warning-emphasis"
+    title="강제 입력값입니다. 거래내역 기준 자동계산값: ${autoText}">${text}${FORCED_MARK}</span>`;
+}
+function qtyCellHtml(r) {
+  return forcedCellHtml(fmtQtyVal(r.quantity), r.qty_override != null, fmtQtyVal(r.auto_quantity));
+}
+function avgCellHtml(r) {
+  return forcedCellHtml(fmtAvgVal(r.avg_price, r.ticker), r.avg_price_override != null,
+                        fmtAvgVal(r.auto_avg_price, r.ticker));
+}
+/** 편집 입력칸 안내문구 — 비워두면 쓰이게 될 자동계산값을 미리 보여준다 */
+function qtyPlaceholder(r) {
+  return r.auto_quantity == null ? '자동 계산' : `자동 ${fmtQtyVal(r.auto_quantity)}`;
+}
+function avgPlaceholder(r) {
+  return r.auto_avg_price == null ? '자동 계산' : `자동 ${fmtAvgVal(r.auto_avg_price, r.ticker)}`;
+}
+
+/** 보유수량/평균단가 강제 수정 컬럼 정의 (주식·ETF 그리드 공용) */
+const POSITION_OVERRIDE_COLUMNS = [
+  { key: 'qty_override', type: 'number', align: 'end', step: 0.0001, nullable: true,
+    placeholder: qtyPlaceholder, render: (v, r) => qtyCellHtml(r) },
+  { key: 'avg_price_override', type: 'number', align: 'end', step: 0.0001, nullable: true,
+    placeholder: avgPlaceholder, render: (v, r) => avgCellHtml(r) },
+];
+
 function bindTxEditFields(tr, r, isEtf) {
   const typeSelect = tr.querySelector('[data-key="tx_type"]');
   const pnlInput   = tr.querySelector('[data-key="realized_pnl"]');
@@ -1081,10 +1135,7 @@ const stockGrid = new GridTable({
     { key: 'category', type: 'select',
       options: () => allStockCategories.map(c => c.name),
       render: v => v ? `<span class="badge bg-secondary-subtle text-secondary-emphasis">${v}</span>` : '-' },
-    { key: '_qty',    type: 'computed', align: 'end',
-      compute: r => (r.quantity == null ? '-' : r.quantity % 1 === 0 ? r.quantity : r.quantity.toFixed(4)) },
-    { key: '_avg',    type: 'computed', align: 'end',
-      compute: r => r.avg_price == null ? '-' : isForeign(r.ticker) ? fmtUsd(r.avg_price) : fmt(r.avg_price) },
+    ...POSITION_OVERRIDE_COLUMNS,
     { key: 'current_price', type: 'number', align: 'end',
       render: (v, r) => isForeign(r?.ticker) ? fmtUsd(v) : fmt(v) },
     { key: '_eval',   type: 'computed', align: 'end',
@@ -1188,10 +1239,7 @@ const etfGrid = new GridTable({
     { key: 'category', type: 'select',
       options: () => allStockCategories.map(c => c.name),
       render: v => v ? `<span class="badge bg-secondary-subtle text-secondary-emphasis">${v}</span>` : '-' },
-    { key: '_qty',    type: 'computed', align: 'end',
-      compute: r => (r.quantity == null ? '-' : r.quantity % 1 === 0 ? r.quantity : r.quantity.toFixed(4)) },
-    { key: '_avg',    type: 'computed', align: 'end',
-      compute: r => r.avg_price == null ? '-' : isForeign(r.ticker) ? fmtUsd(r.avg_price) : fmt(r.avg_price) },
+    ...POSITION_OVERRIDE_COLUMNS,
     { key: 'current_price', type: 'number', align: 'end',
       render: (v, r) => isForeign(r?.ticker) ? fmtUsd(v) : fmt(v) },
     { key: '_eval',   type: 'computed', align: 'end',
