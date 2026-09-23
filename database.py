@@ -111,6 +111,47 @@ def get_db():
         return PooledConnectionWrapper(conn, is_request_scoped=False)
 
 
+# ── 날짜 컬럼 타입 정렬 (TEXT → DATE) ────────────────────────────────────
+# 일부 쿼리는 날짜 컬럼을 CURRENT_DATE 와 직접 비교한다. 컬럼이 TEXT 로 만들어지면
+# "operator does not exist: text <= date" 로 조회가 통째로 실패한다(가계부 월별 요약,
+# 테크트리, 임대차 만기 조회 등). 운영 DB 는 이미 DATE 라 아래 구문은 아무 일도
+# 하지 않지만, 새로 만든 DB 는 TEXT 로 생성되므로 타입을 맞춰 준다.
+_TEXT_DATE_COLUMNS = [
+    ('budget', 'date'),
+    ('income', 'date'),
+    ('card_tx', 'date'),
+    ('tenant_contracts', 'start_date'),
+    ('tenant_contracts', 'end_date'),
+    ('real_estate_payments', 'scheduled_date'),
+    ('real_estate_payments', 'actual_date'),
+]
+
+
+def _date_to_date_sql(table, column):
+    """
+    해당 컬럼이 '문자열 타입일 때만' DATE 로 바꾸는 SQL 을 만든다.
+
+    조건 없이 ALTER 하면 이미 DATE 인 컬럼에서는 NULLIF(col,'') 가 빈 문자열을
+    날짜로 캐스팅하려다 에러가 나므로, 타입을 먼저 확인하고 실행한다.
+    빈 문자열은 NULL 로 변환하며, 날짜로 읽을 수 없는 값이 섞여 있으면 구문이
+    실패하고 무시되므로(컬럼은 TEXT 유지) 기존 데이터가 손상되지 않는다.
+    """
+    return f"""
+        DO $do$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = '{table}' AND column_name = '{column}'
+                  AND data_type IN ('text', 'character varying', 'character')
+            ) THEN
+                EXECUTE $ddl$ALTER TABLE {table} ALTER COLUMN {column}
+                             TYPE DATE USING NULLIF({column}, '')::date$ddl$;
+            END IF;
+        END
+        $do$;
+    """
+
+
 def init_db():
     conn = get_db()
     c = conn.cursor()
@@ -828,6 +869,12 @@ def init_db():
         #    자동으로 70주가 되고, 그 매도를 삭제하면 다시 100주로 돌아온다.
         "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS override_anchor_tx_id INTEGER",
         "ALTER TABLE etf    ADD COLUMN IF NOT EXISTS override_anchor_tx_id INTEGER",
+        # 거래별 적용 환율 (해외 주식/ETF 의 원화 환산에 사용).
+        # 기존 운영 DB 에는 수동으로 추가돼 있었지만 init_db() 에는 빠져 있어서,
+        # 새 환경에서 처음 띄우면 거래 입력이 곧바로 실패했다.
+        "ALTER TABLE stock_tx ADD COLUMN IF NOT EXISTS exchange_rate REAL NOT NULL DEFAULT 1.0",
+        "ALTER TABLE etf_tx   ADD COLUMN IF NOT EXISTS exchange_rate REAL NOT NULL DEFAULT 1.0",
+        # 날짜 컬럼 타입 정렬(TEXT → DATE) — _date_to_date_sql() 로 생성해 아래에서 덧붙인다.
         "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT 'KRW'",
         "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS original_amount REAL NOT NULL DEFAULT 0.0",
         "UPDATE cash_deposits SET original_amount = amount WHERE currency = 'KRW'",
@@ -865,6 +912,8 @@ def init_db():
             updated_at  TIMESTAMP DEFAULT NOW()
         )""",
     ]
+    migrations += [_date_to_date_sql(t, c) for t, c in _TEXT_DATE_COLUMNS]
+
     for sql in migrations:
         try:
             with conn:

@@ -1651,11 +1651,15 @@ def api_stocks():
         cur.execute("""
             SELECT s.id,
                 GREATEST(0, COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0)
-                          - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0)) AS qty
+                          - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0)) AS qty,
+                COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
+                COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty
             FROM stocks s LEFT JOIN stock_tx t ON t.stock_id = s.id
             GROUP BY s.id
         """)
-        sql_qty = {r['id']: float(r['qty'] or 0) for r in cur.fetchall()}
+        # 화면의 '실현손익' 칸은 sell_qty > 0 일 때만 값을 보여주므로 ETF API 와 동일하게 함께 내려준다
+        sql_qty = {r['id']: {'qty': float(r['qty'] or 0), 'buy_qty': float(r['buy_qty'] or 0),
+                             'sell_qty': float(r['sell_qty'] or 0)} for r in cur.fetchall()}
         # avg_price / realized_pnl 은 calc_position(FIFO) 사용
         cur.execute("SELECT id, stock_id, tx_type, price, quantity, COALESCE(fee,0) as fee, COALESCE(realized_pnl,0) as realized_pnl FROM stock_tx ORDER BY stock_id, tx_date, id")
         all_tx = cur.fetchall()
@@ -1669,7 +1673,8 @@ def api_stocks():
         result = []
         try:
             for s in stocks:
-                qty_calc = sql_qty.get(s['id'], 0.0)
+                info     = sql_qty.get(s['id'], {'qty': 0.0, 'buy_qty': 0.0, 'sell_qty': 0.0})
+                qty_calc = info['qty']
                 _, avg_calc, _ = calc_position(tx_by_stock[s['id']])   # 강제값 없는 '원래' 평단가
                 avg_calc = avg_calc if (avg_calc is not None and avg_calc == avg_calc) else 0.0  # NaN guard
                 # 강제 지정값이 있으면 기준점에서 포지션을 그 값으로 덮어쓰고 이후 거래를 적용.
@@ -1685,6 +1690,8 @@ def api_stocks():
                 s['auto_avg_price'] = avg_calc if qty_calc > 0 else None
                 s['qty_override']       = qty if qty_forced else None
                 s['avg_price_override'] = avg if avg_forced else None
+                s['buy_qty']        = info['buy_qty']
+                s['sell_qty']       = info['sell_qty']
                 s['eval_amount']    = eval_amt
                 s['unrealized_pnl'] = eval_amt - cost_amt
                 s['return_rate']    = round((eval_amt - cost_amt) / cost_amt * 100, 2) if cost_amt else 0
@@ -3746,6 +3753,18 @@ def get_current_exchange_rate():
 
 def is_foreign_ticker(ticker):
     return bool(ticker) and not bool(re.match(r'^\d{6}$', str(ticker)))
+
+# crypto.buy_date 는 DATE 가 아니라 TEXT 컬럼이라 빈 문자열이나 형식이 다른 값이
+# 섞일 수 있다. CASE 로 'YYYY-MM-DD' 형식을 먼저 확인한 뒤에만 날짜로 변환해,
+# 잘못된 값 하나 때문에 조회 전체가 500 으로 실패하지 않도록 한다.
+# (CASE 는 조건에 맞는 가지만 평가하므로 형식이 맞는 행에서만 캐스팅이 일어난다)
+_CRYPTO_BUY_DT_SQL = """
+        SELECT CASE WHEN buy_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                    THEN LEFT(buy_date, 10)::date END AS buy_dt,
+               buy_price, quantity
+        FROM crypto
+"""
+
 
 def _sf(v):
     """NaN/Inf/None 을 0.0으로 안전 변환."""
@@ -7452,9 +7471,9 @@ def api_asset_history():
 
     cur = db.cursor()
     cur.execute("""
-        SELECT to_char(buy_date::date, 'YYYY-MM') as ym, COALESCE(SUM(buy_price*quantity), 0)
-        FROM crypto
-        WHERE buy_date >= %s AND buy_date < %s
+        SELECT to_char(buy_dt, 'YYYY-MM') as ym, COALESCE(SUM(buy_price*quantity), 0)
+        FROM (""" + _CRYPTO_BUY_DT_SQL + """) c
+        WHERE buy_dt IS NOT NULL AND buy_dt >= %s::date AND buy_dt < %s::date
         GROUP BY ym
     """, (start_date, end_date))
     crypto_map = {r[0]: r[1] for r in cur.fetchall()}
@@ -7462,9 +7481,9 @@ def api_asset_history():
 
     cur = db.cursor()
     cur.execute("""
-        SELECT to_char(buy_date::date, 'YYYY-MM') as ym, COALESCE(SUM(buy_price*quantity), 0)
-        FROM crypto
-        WHERE buy_date <= CURRENT_DATE
+        SELECT to_char(buy_dt, 'YYYY-MM') as ym, COALESCE(SUM(buy_price*quantity), 0)
+        FROM (""" + _CRYPTO_BUY_DT_SQL + """) c
+        WHERE buy_dt IS NOT NULL AND buy_dt <= CURRENT_DATE
         GROUP BY ym
     """)
     crypto_monthly_buy = {r[0]: float(r[1]) for r in cur.fetchall()}
