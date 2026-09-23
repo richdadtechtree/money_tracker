@@ -1469,65 +1469,132 @@ def calc_position(transactions):
     return qty, avg_cost, realized
 
 
-def recalc_realized_pnl(db, item_id, is_etf=False):
-    """해당 종목의 모든 거래를 날짜순으로 다시 훑어 매도 건의 실현손익을 일괄 재계산/저장한다.
-    과거 거래 하나를 수정/삭제해도 이후 매도 건들의 실현손익이 항상 정합성을 유지하도록 한다."""
-    cur = db.cursor()
-    table = 'etf_tx' if is_etf else 'stock_tx'
-    col = 'etf_id' if is_etf else 'stock_id'
-    cur.execute(f"SELECT id, tx_date, tx_type, price, quantity FROM {table} WHERE {col} = %s ORDER BY tx_date, id", (item_id,))
-    txs = cur.fetchall()
+def _override_seed(row):
+    """
+    종목 row 에서 (강제수량, 강제평단, 기준점 tx id) 를 뽑는다.
+    강제 지정값이 전혀 없으면 None (= 거래내역만으로 계산).
+    """
+    qty_ov = _override_val(_row_get(row, 'qty_override'))
+    avg_ov = _override_val(_row_get(row, 'avg_price_override'))
+    if qty_ov is None and avg_ov is None:
+        return None
+    return (qty_ov, avg_ov, int(_sf(_row_get(row, 'override_anchor_tx_id', 0))))
 
-    qty = 0.0
-    avg_cost = 0.0
+
+def _override_seed_map(db, table):
+    """강제 지정값이 있는 종목들의 seed 맵 {종목 id: (수량, 평단, 기준점)}."""
+    cur = db.cursor()
+    cur.execute(f"SELECT id, qty_override, avg_price_override, override_anchor_tx_id FROM {table} "
+                f"WHERE qty_override IS NOT NULL OR avg_price_override IS NOT NULL")
+    seeds = {}
+    for r in cur.fetchall():
+        seed = _override_seed(r)
+        if seed:
+            seeds[r['id']] = seed
+    cur.close()
+    return seeds
+
+
+def _walk_positions(txs, seed=None):
+    """
+    한 종목의 거래를 날짜·id 순으로 훑으며 이동평균 포지션을 굴린다.
+    실현손익 계산과 포지션(수량·평단가) 계산을 한 곳에서 처리하는 공용 함수.
+
+    seed = (강제수량, 강제평단, 기준점 tx id) — 수기로 수정한 종목에만 주어진다.
+    기준점(anchor)을 지나는 첫 거래 직전에 포지션을 강제값으로 덮어쓰므로,
+    그 이후 매도는 '강제 평단가 대비' 수익으로 계산된다.
+    (이 seed 가 없으면 원가를 0으로 보고 매도금액 전체가 수익으로 잡혀버린다)
+
+    매수는 평단가를 가중평균으로 갱신하고, 매도는 평단가를 유지한다.
+
+    반환: (tx id -> 매도 실현손익, 최종 수량, 최종 평단가)
+    """
+    qty_ov = avg_ov = None
+    anchor = -1
+    if seed:
+        qty_ov, avg_ov, anchor = seed
+
+    qty, avg = 0.0, 0.0
+    seeded = seed is None          # seed 가 없으면 덮어쓸 것이 없다
+    out = {}
+
+    def apply_seed():
+        nonlocal qty, avg, seeded
+        if qty_ov is not None:
+            qty = qty_ov
+        if avg_ov is not None:
+            avg = avg_ov
+        seeded = True
+
     for tx in txs:
-        tq = float(tx['quantity'] or 0)
-        tp = float(tx['price'] or 0)
+        # 기준점 이전 거래는 이미 강제값에 반영된 것으로 보고 평소대로 굴리다가,
+        # 기준점을 넘는 첫 거래 직전에 포지션을 강제값으로 교체한다.
+        if not seeded and _sf(tx['id']) > anchor:
+            apply_seed()
+        tq = _sf(tx['quantity'])
+        tp = _sf(tx['price'])
         if tq <= 0:
+            out[tx['id']] = 0.0
             continue
         if tx['tx_type'] in ('buy', '매수'):
             new_qty = qty + tq
-            avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
+            avg = (qty * avg + tq * tp) / new_qty if new_qty > 0 else 0.0
             qty = new_qty
+            out[tx['id']] = 0.0
         elif tx['tx_type'] in ('sell', '매도'):
-            realized = (tp - avg_cost) * tq
-            cur.execute(f"UPDATE {table} SET realized_pnl = %s WHERE id = %s", (realized, tx['id']))
+            out[tx['id']] = (tp - avg) * tq
             qty = max(0.0, qty - tq)
             if qty == 0.0:
-                avg_cost = 0.0
+                avg = 0.0
+        else:
+            out[tx['id']] = 0.0
+
+    if not seeded:      # 기준점 이후 거래가 하나도 없는 경우
+        apply_seed()
+    return out, qty, avg
+
+
+def recalc_realized_pnl(db, item_id, is_etf=False):
+    """해당 종목의 모든 거래를 날짜순으로 다시 훑어 매도 건의 실현손익을 일괄 재계산/저장한다.
+    과거 거래 하나를 수정/삭제해도 이후 매도 건들의 실현손익이 항상 정합성을 유지하도록 한다.
+    수기로 수량·평단가를 수정한 종목은 그 강제값을 출발점으로 삼아 계산한다."""
+    cur = db.cursor()
+    table = 'etf_tx' if is_etf else 'stock_tx'
+    col = 'etf_id' if is_etf else 'stock_id'
+    master = 'etf' if is_etf else 'stocks'
+
+    cur.execute(f"SELECT id, qty_override, avg_price_override, override_anchor_tx_id FROM {master} WHERE id = %s",
+                (item_id,))
+    seed = _override_seed(cur.fetchone())
+
+    cur.execute(f"SELECT id, tx_date, tx_type, price, quantity FROM {table} WHERE {col} = %s ORDER BY tx_date, id",
+                (item_id,))
+    txs = cur.fetchall()
+
+    pnl_map, _qty, _avg = _walk_positions(txs, seed)
+    for tx in txs:
+        if tx['tx_type'] in ('sell', '매도'):
+            cur.execute(f"UPDATE {table} SET realized_pnl = %s WHERE id = %s",
+                        (pnl_map.get(tx['id'], 0.0), tx['id']))
     cur.close()
 
 
-def compute_realized_pnl_map(rows, key_col):
+def compute_realized_pnl_map(rows, key_col, seeds=None):
     """주어진 거래 목록을 종목별로 묶어 날짜순으로 재계산한 매도 건 실현손익 맵(tx id -> 값)을 반환한다.
-    저장된 컬럼값에 의존하지 않고 항상 거래내역 자체에서 다시 계산하므로 쓰기 경합/누락에도 안전하다."""
+    저장된 컬럼값에 의존하지 않고 항상 거래내역 자체에서 다시 계산하므로 쓰기 경합/누락에도 안전하다.
+
+    seeds: {종목 id: (강제수량, 강제평단, 기준점)} — 수기로 수정한 종목은 그 평단가를
+    출발점으로 삼아야 매도 수익이 '매도금액 전체'로 잡히지 않는다."""
     from collections import defaultdict
+    seeds = seeds or {}
     groups = defaultdict(list)
     for r in rows:
         groups[r[key_col]].append(r)
     result = {}
-    for grp in groups.values():
+    for item_id, grp in groups.items():
         grp_sorted = sorted(grp, key=lambda r: (r['tx_date'], r['id']))
-        qty = 0.0
-        avg_cost = 0.0
-        for tx in grp_sorted:
-            tq = float(tx['quantity'] or 0)
-            tp = float(tx['price'] or 0)
-            if tq <= 0:
-                result[tx['id']] = 0.0
-                continue
-            if tx['tx_type'] in ('buy', '매수'):
-                new_qty = qty + tq
-                avg_cost = (qty * avg_cost + tq * tp) / new_qty if new_qty > 0 else 0.0
-                qty = new_qty
-                result[tx['id']] = 0.0
-            elif tx['tx_type'] in ('sell', '매도'):
-                result[tx['id']] = (tp - avg_cost) * tq
-                qty = max(0.0, qty - tq)
-                if qty == 0.0:
-                    avg_cost = 0.0
-            else:
-                result[tx['id']] = 0.0
+        pnl_map, _qty, _avg = _walk_positions(grp_sorted, seeds.get(item_id))
+        result.update(pnl_map)
     return result
 
 
@@ -1603,12 +1670,12 @@ def api_stocks():
         try:
             for s in stocks:
                 qty_calc = sql_qty.get(s['id'], 0.0)
-                _, avg_calc, realized = calc_position(tx_by_stock[s['id']])
+                _, avg_calc, _ = calc_position(tx_by_stock[s['id']])   # 강제값 없는 '원래' 평단가
                 avg_calc = avg_calc if (avg_calc is not None and avg_calc == avg_calc) else 0.0  # NaN guard
-                # 강제 지정값이 있으면 그 값을 '시작 포지션'으로 두고, 기준점 이후에
-                # 입력된 거래만 순차 적용한다 (100주 강제 → 30주 매도 → 70주)
-                qty, avg, qty_forced, avg_forced = _position_with_overrides(
-                    s, qty_calc, avg_calc, tx_by_stock[s['id']])
+                # 강제 지정값이 있으면 기준점에서 포지션을 그 값으로 덮어쓰고 이후 거래를 적용.
+                # 매수 → 평단가 가중평균 갱신, 매도 → 강제 평단가 대비 실현손익
+                qty, avg, realized, qty_forced, avg_forced = _position_with_overrides(
+                    s, qty_calc, tx_by_stock[s['id']])
                 eval_amt = round(qty * _sf(s['current_price']))
                 cost_amt = round(qty * avg)
                 s['quantity']       = qty
@@ -1723,7 +1790,7 @@ def api_stock_tx():
         rows = [dict(r) for r in cur.fetchall()]
         cur.close()
         db.close()
-        pnl_map = compute_realized_pnl_map(rows, 'stock_id')
+        pnl_map = compute_realized_pnl_map(rows, 'stock_id', _override_seed_map(db, 'stocks'))
         for r in rows:
             r['realized_pnl'] = pnl_map.get(r['id'], 0.0)
         return jsonify(rows_to_list(rows))
@@ -1855,12 +1922,12 @@ def api_etf():
             for e in etfs:
                 info     = sql_etf.get(e['id'], {'qty': 0.0, 'buy_qty': 0.0, 'sell_qty': 0.0})
                 qty_calc = info['qty']
-                _, avg_calc, realized = calc_position(tx_by_etf[e['id']])
+                _, avg_calc, _ = calc_position(tx_by_etf[e['id']])     # 강제값 없는 '원래' 평단가
                 avg_calc = avg_calc if (avg_calc is not None and avg_calc == avg_calc) else 0.0  # NaN guard
-                # 강제 지정값이 있으면 그 값을 '시작 포지션'으로 두고, 기준점 이후에
-                # 입력된 거래만 순차 적용한다 (100주 강제 → 30주 매도 → 70주)
-                qty, avg, qty_forced, avg_forced = _position_with_overrides(
-                    e, qty_calc, avg_calc, tx_by_etf[e['id']])
+                # 강제 지정값이 있으면 기준점에서 포지션을 그 값으로 덮어쓰고 이후 거래를 적용.
+                # 매수 → 평단가 가중평균 갱신, 매도 → 강제 평단가 대비 실현손익
+                qty, avg, realized, qty_forced, avg_forced = _position_with_overrides(
+                    e, qty_calc, tx_by_etf[e['id']])
                 eval_amt = round(qty * _sf(e['current_price']))
                 cost_amt = round(qty * avg)
                 e['quantity']       = qty
@@ -1942,7 +2009,7 @@ def api_etf_tx():
         cur.execute(query, params)
         rows = [dict(r) for r in cur.fetchall()]
         cur.close(); db.close()
-        pnl_map = compute_realized_pnl_map(rows, 'etf_id')
+        pnl_map = compute_realized_pnl_map(rows, 'etf_id', _override_seed_map(db, 'etf'))
         for r in rows:
             r['realized_pnl'] = pnl_map.get(r['id'], 0.0)
         return jsonify(rows_to_list(rows))
@@ -2294,6 +2361,10 @@ def api_rebalance_get():
     cur.execute("""
         SELECT e.id, e.name, e.ticker, e.current_price, e.category,
                e.qty_override, e.avg_price_override,
+               COALESCE(SUM(CASE WHEN t.id > COALESCE(e.override_anchor_tx_id, 0)
+                   AND t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS post_anchor_buy_qty,
+               COALESCE(SUM(CASE WHEN t.id > COALESCE(e.override_anchor_tx_id, 0)
+                   AND t.tx_type IN ('buy','매수') THEN t.price * t.quantity ELSE 0 END), 0) AS post_anchor_buy_amt,
                COALESCE(SUM(CASE WHEN t.id > COALESCE(e.override_anchor_tx_id, 0) THEN
                    (CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity
                          WHEN t.tx_type IN ('sell','매도') THEN -t.quantity ELSE 0 END)
@@ -2313,6 +2384,10 @@ def api_rebalance_get():
     cur.execute("""
         SELECT s.id, s.name, s.ticker, s.current_price, s.category,
                s.qty_override, s.avg_price_override,
+               COALESCE(SUM(CASE WHEN t.id > COALESCE(s.override_anchor_tx_id, 0)
+                   AND t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS post_anchor_buy_qty,
+               COALESCE(SUM(CASE WHEN t.id > COALESCE(s.override_anchor_tx_id, 0)
+                   AND t.tx_type IN ('buy','매수') THEN t.price * t.quantity ELSE 0 END), 0) AS post_anchor_buy_amt,
                COALESCE(SUM(CASE WHEN t.id > COALESCE(s.override_anchor_tx_id, 0) THEN
                    (CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity
                          WHEN t.tx_type IN ('sell','매도') THEN -t.quantity ELSE 0 END)
@@ -3712,34 +3787,6 @@ def _row_get(row, key, default=None):
     return default if v is None else v
 
 
-def _apply_txs_to_position(qty, avg, txs):
-    """
-    (시작 수량, 시작 평단가)에 거래 목록을 날짜순으로 순차 적용해
-    (수량, 평단가, 실현손익)을 돌려준다. calc_position() 과 동일한 이동평균 방식.
-
-    강제 지정값을 '시작 포지션'으로 놓고 그 뒤 거래만 적용하는 데 쓴다.
-    (매수 → 가중평균으로 평단가 갱신, 매도 → 수량만 감소하고 평단가는 유지)
-    """
-    qty = _sf(qty)
-    avg = _sf(avg)
-    realized = 0.0
-    for tx in txs:
-        tq = _sf(tx['quantity'])
-        tp = _sf(tx['price'])
-        if tq <= 0:
-            continue
-        if tx['tx_type'] in ('buy', '매수'):
-            new_qty = qty + tq
-            avg = (qty * avg + tq * tp) / new_qty if new_qty > 0 else 0.0
-            qty = new_qty
-        elif tx['tx_type'] in ('sell', '매도'):
-            realized += (tp - avg) * tq
-            qty = max(0.0, qty - tq)
-            if qty == 0.0:
-                avg = 0.0
-    return qty, avg, realized
-
-
 def _eff_position(qty_calc, avg_calc, row):
     """
     (자동계산 수량, 자동계산 평단가) + override 컬럼을 받아
@@ -3759,7 +3806,18 @@ def _eff_position(qty_calc, avg_calc, row):
         qty = max(0.0, qty_ov + _sf(_row_get(row, 'post_anchor_qty', 0)))
     else:
         qty = _sf(qty_calc)
-    avg = avg_ov if avg_ov is not None else _sf(avg_calc)
+
+    if avg_ov is None:
+        avg = _sf(avg_calc)
+    else:
+        # 강제 평단가를 정한 뒤 추가 매수가 있었다면 가중평균으로 섞는다.
+        # (매도는 평단가를 바꾸지 않으므로 매수분만 본다)
+        # 집계용 근사치이며, 정확한 순차 계산은 상세 API 의 _walk_positions 가 한다.
+        base_qty = qty_ov if qty_ov is not None else _sf(qty_calc)
+        pb_qty = _sf(_row_get(row, 'post_anchor_buy_qty', 0))
+        pb_amt = _sf(_row_get(row, 'post_anchor_buy_amt', 0))
+        denom = base_qty + pb_qty
+        avg = (base_qty * avg_ov + pb_amt) / denom if denom > 0 else avg_ov
     return qty, avg, (qty_ov is not None), (avg_ov is not None)
 
 
@@ -3799,26 +3857,24 @@ def _override_set_clause(data, tx_table, tx_col, item_id):
     return clause, params
 
 
-def _position_with_overrides(row, qty_calc, avg_calc, txs):
+def _position_with_overrides(row, qty_calc, txs):
     """
     거래내역 전체를 들고 있는 상세 API(/api/stocks, /api/etf)용 포지션 계산.
 
-    강제값이 없으면 기존 자동 계산값을 그대로 쓰고, 강제값이 있으면 그 값을
-    시작 포지션으로 놓은 뒤 기준점(anchor) 이후에 입력된 거래만 순차 적용한다.
+    강제 지정값이 있으면 기준점(anchor)에서 포지션을 그 값으로 덮어쓰고 이후 거래를
+    순차 적용한다. 매수가 들어오면 평단가가 가중평균으로 계속 갱신되고, 매도 수익은
+    그 평단가 대비로 계산된다.
 
-    반환: (수량, 평단가, 수량이 강제값 기반인지, 평단가가 강제값 기반인지)
+    반환: (수량, 평단가, 실현손익합, 수량이 강제값 기반인지, 평단가가 강제값 기반인지)
     """
-    qty_ov = _override_val(_row_get(row, 'qty_override'))
-    avg_ov = _override_val(_row_get(row, 'avg_price_override'))
-    if qty_ov is None and avg_ov is None:
-        return _sf(qty_calc), _sf(avg_calc), False, False
-
-    anchor_id = _sf(_row_get(row, 'override_anchor_tx_id', 0))
-    post_txs = [t for t in txs if _sf(t['id']) > anchor_id]
-    start_qty = qty_ov if qty_ov is not None else _sf(qty_calc)
-    start_avg = avg_ov if avg_ov is not None else _sf(avg_calc)
-    qty, avg, _realized = _apply_txs_to_position(start_qty, start_avg, post_txs)
-    return qty, avg, (qty_ov is not None), (avg_ov is not None)
+    seed = _override_seed(row)
+    pnl_map, wqty, wavg = _walk_positions(txs, seed)
+    realized = sum(pnl_map.values())
+    qty_forced = seed is not None and seed[0] is not None
+    avg_forced = seed is not None and seed[1] is not None
+    # 강제 수량이 없는 종목은 대시보드와 동일한 SQL 기준 수량을 그대로 쓴다
+    qty = wqty if qty_forced else _sf(qty_calc)
+    return qty, wavg, realized, qty_forced, avg_forced
 
 
 def _held_qty_now(db, item_id, table, tx_table, tx_col, exclude_id=None):
@@ -3911,6 +3967,10 @@ def _fetch_stock_rows(db):
     cur = db.cursor()
     cur.execute("""
         SELECT s.ticker, s.current_price, s.qty_override, s.avg_price_override,
+            COALESCE(SUM(CASE WHEN t.id > COALESCE(s.override_anchor_tx_id, 0)
+                AND t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS post_anchor_buy_qty,
+            COALESCE(SUM(CASE WHEN t.id > COALESCE(s.override_anchor_tx_id, 0)
+                AND t.tx_type IN ('buy','매수') THEN t.price * t.quantity ELSE 0 END), 0) AS post_anchor_buy_amt,
             COALESCE(SUM(CASE WHEN t.id > COALESCE(s.override_anchor_tx_id, 0) THEN
                 (CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity
                       WHEN t.tx_type IN ('sell','매도') THEN -t.quantity ELSE 0 END)
@@ -3928,6 +3988,10 @@ def _fetch_etf_rows(db):
     cur = db.cursor()
     cur.execute("""
         SELECT e.ticker, e.current_price, e.qty_override, e.avg_price_override,
+            COALESCE(SUM(CASE WHEN t.id > COALESCE(e.override_anchor_tx_id, 0)
+                AND t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS post_anchor_buy_qty,
+            COALESCE(SUM(CASE WHEN t.id > COALESCE(e.override_anchor_tx_id, 0)
+                AND t.tx_type IN ('buy','매수') THEN t.price * t.quantity ELSE 0 END), 0) AS post_anchor_buy_amt,
             COALESCE(SUM(CASE WHEN t.id > COALESCE(e.override_anchor_tx_id, 0) THEN
                 (CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity
                       WHEN t.tx_type IN ('sell','매도') THEN -t.quantity ELSE 0 END)
