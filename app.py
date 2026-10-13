@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, jsonify, Response, session, r
 from flask_cors import CORS
 from database import get_db, init_db
 from datetime import datetime, date, timedelta
-import json, os, shutil, sqlite3, re, csv, io, math, requests as http_req
+import json, os, sys, shutil, sqlite3, re, csv, io, math, requests as http_req
 
 try:
     import yfinance as yf
@@ -2727,6 +2727,50 @@ def api_invest_plan_steps(plan_id):
     rows = rows_to_list(cur.fetchall())
     cur.close(); db.close()
     return jsonify(rows)
+
+
+@app.route('/api/invest-plan-steps/<int:step_id>/trigger', methods=['PATCH'])
+def api_invest_plan_step_trigger(step_id):
+    """차수별 트리거 가격 수기 수정 (예정 주수는 투자금/새 가격으로 재계산)"""
+    d = request.json or {}
+    try:
+        new_price = float(d.get('trigger_price'))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': '트리거 가격이 올바르지 않습니다.'}), 400
+    if new_price <= 0:
+        return jsonify({'ok': False, 'error': '트리거 가격은 0보다 커야 합니다.'}), 400
+    usd_krw = float(d['usd_krw']) if d.get('usd_krw') else None  # 해외 종목: 투자금(원)->USD 환산용
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT target_amount FROM invest_plan_steps WHERE id=%s", (step_id,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); db.close()
+        return jsonify({'ok': False, 'error': '차수를 찾을 수 없습니다.'}), 404
+    amount = float(row['target_amount'] or 0)
+    krw_price = new_price * usd_krw if usd_krw and usd_krw > 1 else new_price
+    shares = round(amount / krw_price, 4)
+    cur.execute("UPDATE invest_plan_steps SET trigger_price=%s, target_shares=%s WHERE id=%s",
+                (new_price, shares, step_id))
+    cur.close(); db.commit(); db.close()
+    return jsonify({'ok': True, 'trigger_price': new_price, 'target_shares': shares})
+
+
+@app.route('/api/index-levels', methods=['GET'])
+def api_index_levels():
+    """레버리지 ETF 표시용 기초지수 현재값 (KOSPI200, KOSDAQ150). 조회 실패 시 해당 값은 null."""
+    out = {'KOSPI200': None, 'KOSDAQ150': None}
+    if not HAS_YFINANCE:
+        return jsonify(out)
+    for key, sym in (('KOSPI200', '^KS200'), ('KOSDAQ150', '^KQ150')):
+        try:
+            h = yf.Ticker(sym).history(period='5d')
+            out[key] = round(float(h['Close'].dropna().iloc[-1]), 2) if len(h) else None
+        except Exception as e:
+            print(f'[index] {sym} error: {e}', file=sys.stderr)
+            out[key] = None
+    return jsonify(out)
 
 
 @app.route('/api/invest-plan-steps/<int:step_id>/execute', methods=['POST'])
