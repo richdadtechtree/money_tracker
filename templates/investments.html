@@ -2427,7 +2427,14 @@ async function loadSavedPlans() {
   }
 
   const _planIsFgn = isForeign(_planCurrentStock?.ticker);
-  const _fmtTrigger = v => _planIsFgn ? fmtUsd(v) : formatKRW(v);
+  // 레버리지 ETF(KODEX 레버리지, KODEX 코스닥150레버리지)는 가격 대신 기초지수 환산값으로 표시
+  const _idxKey = _levIndexKey(_planCurrentStock?.ticker);
+  await _loadIndexLevels();
+  const _idx0 = _idxKey ? _indexLevels[_idxKey] : null;
+  const _p0   = _planCurrentStock?.current_price || 0;
+  const _useIdx = !!(_idxKey && _idx0 && _p0);
+  const _fmtTrigger = v => _useIdx ? '≈' + _priceToIndex(v, _idx0, _p0).toLocaleString('ko-KR', {maximumFractionDigits: 1}) + 'pt'
+                         : _planIsFgn ? fmtUsd(v) : formatKRW(v);
 
   plans.forEach(plan => {
     const executedCount = plan.steps.filter(s => s.is_executed).length;
@@ -2449,7 +2456,11 @@ async function loadSavedPlans() {
             onchange="togglePlanStep(${s.id}, this.checked, ${plan.id})">
         </td>
         <td class="text-center ${done ? 'text-success fw-semibold' : ''}">${s.step_no}차</td>
-        <td class="text-end ${strikeClass}">${_fmtTrigger(s.trigger_price)} <small class="${pctClass}">(${pctLabel})</small></td>
+        <td class="text-end ${strikeClass}">
+          <span role="button" class="border-bottom border-secondary" style="border-bottom-style:dashed!important" title="클릭하여 수기 수정"
+                onclick="editStepTrigger(${s.id}, ${s.trigger_price}, ${_useIdx ? `'${_idxKey}'` : 'null'}, ${_planIsFgn})">${_fmtTrigger(s.trigger_price)}</span>
+          <small class="${pctClass}">(${pctLabel})</small>
+        </td>
         <td class="text-end ${strikeClass}">${formatKRW(s.target_amount)}</td>
         <td class="text-end ${strikeClass}">${s.target_shares}주</td>
       </tr>
@@ -2500,6 +2511,47 @@ async function loadSavedPlans() {
       </div>
     `);
   });
+}
+
+// ── 레버리지 ETF 기초지수 환산 (일일 2배 추종 근사: 지수 변동률 ≈ ETF 변동률 / 2) ──
+const _LEV_INDEX = { '122630': 'KOSPI200', '233740': 'KOSDAQ150' };
+let _indexLevels = null;
+function _levIndexKey(ticker) {
+  return _LEV_INDEX[String(ticker || '').replace(/\.(KS|KQ)$/i, '')] || null;
+}
+async function _loadIndexLevels() {
+  if (_indexLevels) return;
+  try { _indexLevels = await (await fetch('/api/index-levels')).json(); }
+  catch (e) { _indexLevels = {}; }
+}
+const _priceToIndex = (p, idx0, p0) => idx0 * (1 + (p / p0 - 1) / 2);
+const _indexToPrice = (i, idx0, p0) => p0 * (1 + 2 * (i / idx0 - 1));
+
+// 트리거 가격 수기 수정 (레버리지 ETF는 지수로 입력 → ETF 가격으로 환산해 저장)
+async function editStepTrigger(stepId, curPrice, idxKey, isFgn) {
+  const p0 = _planCurrentStock?.current_price || 0;
+  const idx0 = idxKey ? _indexLevels?.[idxKey] : null;
+  let price;
+  if (idxKey && idx0 && p0) {
+    const curIdx = _priceToIndex(curPrice, idx0, p0).toFixed(1);
+    const v = prompt(`${idxKey} 지수 기준 트리거 (현재 ${idx0.toLocaleString()}pt)\n새 지수 값을 입력하세요 (ETF 가격으로 환산되어 저장됩니다)`, curIdx);
+    if (v === null) return;
+    const idx = parseFloat(v.replace(/,/g, ''));
+    if (!(idx > 0)) { showToast('올바른 지수를 입력하세요.', 'danger'); return; }
+    price = Math.round(_indexToPrice(idx, idx0, p0));
+  } else {
+    const v = prompt(`새 트리거 가격을 입력하세요${isFgn ? ' (USD)' : ' (원)'}`, curPrice);
+    if (v === null) return;
+    price = parseFloat(v.replace(/,/g, ''));
+  }
+  if (!(price > 0)) { showToast('올바른 가격을 입력하세요.', 'danger'); return; }
+  const body = { trigger_price: price };
+  if (isFgn) body.usd_krw = usdKrw;
+  const res = await fetch(`/api/invest-plan-steps/${stepId}/trigger`, {
+    method: 'PATCH', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+  });
+  if (res.ok) { showToast('트리거 가격이 수정되었습니다.'); loadSavedPlans(); }
+  else { const e = await res.json().catch(() => ({})); showToast('수정 실패: ' + (e.error || res.status), 'danger'); }
 }
 
 async function togglePlanStep(stepId, checked, planId) {
