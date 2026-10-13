@@ -9,6 +9,35 @@
   </button>
 </div>
 
+<!-- 총손익 카드: 실현손익 + 평가손익 -->
+<div class="card border-0 shadow-sm mb-3" id="totalPnlCard">
+  <div class="card-body py-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+      <div class="fw-bold"><i class="bi bi-wallet2 me-1 text-primary"></i>투자 총손익
+        <small class="text-muted fw-normal">(주식·ETF·공모주, 실현 + 평가)</small></div>
+      <button class="btn btn-outline-secondary btn-sm" onclick="toggleTotalPnlChart()" id="totalPnlChartBtn">
+        <i class="bi bi-bar-chart-line me-1"></i>월간 그래프
+      </button>
+    </div>
+    <div class="row g-2 text-center">
+      <div class="col-12 col-md-4"><div class="rounded bg-light p-2">
+        <div class="small text-muted">총손익</div><div id="tpTotal" class="fs-4 fw-bold">-</div></div></div>
+      <div class="col-6 col-md-4"><div class="rounded bg-light p-2">
+        <div class="small text-muted">실현손익 <span class="text-muted">(확정)</span></div><div id="tpRealized" class="fw-bold">-</div></div></div>
+      <div class="col-6 col-md-4"><div class="rounded bg-light p-2">
+        <div class="small text-muted">평가손익 <span class="text-muted">(보유 중)</span></div><div id="tpUnrealized" class="fw-bold">-</div>
+        <div id="tpUnrealizedRate" class="small"></div></div></div>
+    </div>
+    <div id="totalPnlChartWrap" style="display:none" class="mt-3">
+      <div style="height:300px"><canvas id="totalPnlChart"></canvas></div>
+      <div class="small text-muted mt-2">
+        월간 총손익 = 실현손익 + 평가손익 변동. 월말 평가금액(일별 스냅샷)에서 그 달 순매수금액을 뺀 값이라
+        단기/장기·리밸런싱 매매와 무관합니다. 스냅샷이 없는 달은 건너뛰고 다음 달에 합산됩니다.
+      </div>
+    </div>
+  </div>
+</div>
+
 <ul class="nav nav-tabs mb-3" id="investTabs">
   <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-stocks">주식</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-etf">ETF</a></li>
@@ -1434,6 +1463,53 @@ const ipoGrid = new GridTable({
     document.getElementById('ipo-net-pnl').innerHTML   = pnlHtml(net);
   },
 });
+
+// ── 투자 총손익 카드 / 월간 총손익 그래프 ──
+let _totalPnlData = null, _totalPnlChart = null;
+async function loadTotalPnl() {
+  const res = await fetchJSON('/api/total-pnl');
+  if (!res) return;
+  _totalPnlData = res;
+  document.getElementById('tpTotal').innerHTML      = pnlHtml(res.total_pnl);
+  document.getElementById('tpRealized').innerHTML   = pnlHtml(res.realized_pnl);
+  document.getElementById('tpUnrealized').innerHTML = pnlHtml(res.unrealized_pnl);
+  document.getElementById('tpUnrealizedRate').innerHTML =
+    res.unrealized_rate == null ? '' : '보유원금 대비 ' + rateHtml(res.unrealized_rate);
+}
+function toggleTotalPnlChart() {
+  const wrap = document.getElementById('totalPnlChartWrap');
+  const open = wrap.style.display === 'none';
+  wrap.style.display = open ? '' : 'none';
+  if (open) renderTotalPnlChart();
+}
+function renderTotalPnlChart() {
+  if (!_totalPnlData) return;
+  const rows = _totalPnlData.monthly;
+  const bars = rows.filter(r => r.total_pnl != null);   // 첫 스냅샷 월은 기준점이라 막대에서 제외
+  const labels = bars.map(r => r.ym);
+  const man = v => { const a = Math.abs(v);
+    return a >= 1e8 ? (v/1e8).toFixed(1) + '억' : a >= 1e4 ? (v/1e4).toFixed(0) + '만' : v.toLocaleString('ko-KR'); };
+  if (_totalPnlChart) _totalPnlChart.destroy();
+  _totalPnlChart = new Chart(document.getElementById('totalPnlChart').getContext('2d'), {
+    data: { labels, datasets: [
+      { type:'bar', label:'실현손익', data: bars.map(r => r.realized_pnl),
+        backgroundColor:'rgba(220,53,69,0.75)', stack:'m', borderRadius:3, order:2 },
+      { type:'bar', label:'평가손익 변동', data: bars.map(r => r.valuation_change),
+        backgroundColor:'rgba(13,110,253,0.55)', stack:'m', borderRadius:3, order:2 },
+      { type:'line', label:'누적 총손익', data: bars.map(r => r.cumulative_total_pnl),
+        borderColor:'#fd7e14', backgroundColor:'rgba(253,126,20,0.08)', tension:0.3, fill:true, order:1 },
+    ]},
+    options: { responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false},
+      plugins: { legend:{position:'top', labels:{boxWidth:12}},
+        tooltip:{ callbacks:{
+          label: c => ` ${c.dataset.label}: ${c.parsed.y >= 0 ? '+' : ''}${Math.round(c.parsed.y).toLocaleString('ko-KR')}원`,
+          footer: items => { const i = items[0].dataIndex;
+            return '월간 총손익: ' + (bars[i].total_pnl >= 0 ? '+' : '') + bars[i].total_pnl.toLocaleString('ko-KR') + '원'; } } } },
+      scales: { x:{ stacked:true, grid:{display:false} },
+                y:{ stacked:true, ticks:{ callback: man } } } }
+  });
+}
+document.addEventListener('DOMContentLoaded', loadTotalPnl);
 
 // ── 구분별 수익률 차트 ──
 let catPnlChart = null;
