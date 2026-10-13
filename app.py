@@ -5551,6 +5551,113 @@ def api_investment_monthly():
     return jsonify(months)
 
 
+# ── API: 총손익 (실현 + 평가) 카드 / 월간 총손익 그래프 ──────────────
+@app.route('/api/total-pnl')
+def api_total_pnl():
+    """주식+ETF(+공모주 실현) 총손익.
+    - 카드: 총손익 = 실현손익 + 평가손익(미실현). 단기/장기·리밸런싱 구분 없이 계좌 전체 기준.
+    - 월간: 누적 총손익(월말) = 월말 평가금액 - 누적 순매수금액. 월간 총손익은 그 월별 차이.
+      (순매수 = 매수금액+수수료 - 매도금액+수수료. 종목 구분과 무관해 리밸런싱 매매가 상쇄된다.)
+      월말 평가금액은 daily_snapshots.stocks(주식+ETF)의 월말 마지막 값을 쓰고, 현재 월은 실시간 평가금액을 쓴다.
+    """
+    from collections import defaultdict
+    ex_rate = get_current_exchange_rate()
+    records = _calc_realized_records()
+
+    db = get_db()
+    s_val, s_cost, e_val, e_cost = get_stocks_etf_totals(db, ex_rate)
+    eval_now = float(s_val or 0) + float(e_val or 0)
+    cost_now = float(s_cost or 0) + float(e_cost or 0)
+    unrealized = eval_now - cost_now
+
+    cur = db.cursor()
+    # 월별 순매수금액 (KRW 환산: 거래 시점 환율 사용)
+    flow_by_month = defaultdict(float)
+    for tbl in ('stock_tx', 'etf_tx'):
+        cur.execute(f"""
+            SELECT to_char(tx_date::date, 'YYYY-MM') AS ym, tx_type, price, quantity,
+                   COALESCE(fee, 0) AS fee, COALESCE(exchange_rate, 1) AS rate
+            FROM {tbl} WHERE tx_date IS NOT NULL
+        """)
+        for r in cur.fetchall():
+            amt = float(r['price'] or 0) * float(r['quantity'] or 0)
+            fee = float(r['fee'] or 0)
+            rate = float(r['rate'] or 1) or 1.0
+            if r['tx_type'] in ('buy', '매수'):
+                flow_by_month[r['ym']] += (amt + fee) * rate
+            else:
+                flow_by_month[r['ym']] -= (amt - fee) * rate
+
+    # 월말 평가금액 (스냅샷)
+    cur.execute("""
+        SELECT DISTINCT ON (to_char(day, 'YYYY-MM'))
+               to_char(day, 'YYYY-MM') AS ym, stocks
+        FROM daily_snapshots ORDER BY to_char(day, 'YYYY-MM'), day DESC
+    """)
+    snap = {r['ym']: float(r['stocks'] or 0) for r in cur.fetchall()}
+    cur.close(); db.close()
+
+    realized_total = sum(r['pnl'] for r in records)
+    realized_by_month = defaultdict(float)
+    ipo_by_month = defaultdict(float)
+    for r in records:
+        ym = (r['date'] or '')[:7]
+        if not ym:
+            continue
+        realized_by_month[ym] += r['pnl']
+        if r['source'] == 'ipo':
+            ipo_by_month[ym] += r['pnl']
+    ipo_total = sum(ipo_by_month.values())
+    stock_realized = realized_total - ipo_total   # 주식+ETF 실현손익
+
+    this_ym = date.today().strftime('%Y-%m')
+    snap[this_ym] = eval_now                      # 현재 월은 실시간 평가금액
+    months_sorted = sorted(snap.keys())
+    monthly = []
+    if months_sorted:
+        # 누적 순매수 (월 오름차순)
+        all_months = sorted(set(flow_by_month) | set(months_sorted))
+        cum_flow, run = {}, 0.0
+        for m in all_months:
+            run += flow_by_month.get(m, 0.0)
+            cum_flow[m] = run
+        total_flow = run
+        # 기초 보유분(거래내역 없이 수량 직접 입력한 종목 등) 보정:
+        # 현재 시점의 (평가금액 - 누적순매수)가 카드의 (주식실현 + 평가손익)과 같아지도록 상수 보정
+        offset = (stock_realized + unrealized) - (eval_now - total_flow)
+
+        def cum_stock_pnl(m):
+            # 해당 월 이전 마지막 누적순매수 (거래 없던 달도 이어 붙임)
+            prev = [k for k in cum_flow if k <= m]
+            flow = cum_flow[prev[-1]] if prev else 0.0
+            return snap[m] - flow + offset
+
+        ipo_cum, prev_total = 0.0, None
+        for m in months_sorted:
+            ipo_cum += ipo_by_month.get(m, 0.0)
+            cum_total = cum_stock_pnl(m) + ipo_cum
+            month_total = None if prev_total is None else cum_total - prev_total
+            realized_m = realized_by_month.get(m, 0.0)
+            monthly.append({
+                'ym': m,
+                'total_pnl': None if month_total is None else round(month_total),
+                'realized_pnl': round(realized_m),
+                'valuation_change': None if month_total is None else round(month_total - realized_m),
+                'cumulative_total_pnl': round(cum_total),
+            })
+            prev_total = cum_total
+
+    return jsonify({
+        'realized_pnl': round(realized_total),
+        'unrealized_pnl': round(unrealized),
+        'total_pnl': round(realized_total + unrealized),
+        'eval_amount': round(eval_now),
+        'cost_basis': round(cost_now),
+        'unrealized_rate': round(unrealized / cost_now * 100, 2) if cost_now else None,
+        'monthly': monthly,
+    })
+
+
 def _compute_asset_class_items(db, category, ex_rate):
     """
     자산군(category)을 구성하는 개별 항목의 현재 평가금액 목록을 반환.
