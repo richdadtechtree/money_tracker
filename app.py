@@ -2284,8 +2284,26 @@ def _get_split_buy_plans_cached():
     db.close()
     return rows_to_list(rows)
 
+def _lev_etf_price(index_val, idx_ref):
+    """지수 -> 레버리지(2x) ETF 가격 근사. 0 이하이면 None(매수 불가 구간)."""
+    p = idx_ref['price0'] * (1 + 2 * (index_val / idx_ref['index0'] - 1))
+    return p if p > 0 else None
+
+
+def _parse_index_ref(d):
+    """요청 JSON의 index_ref({index0, price0}) 검증. 없으면 None."""
+    ref = d.get('index_ref')
+    if not ref:
+        return None
+    try:
+        i0, p0 = float(ref['index0']), float(ref['price0'])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {'index0': i0, 'price0': p0} if i0 > 0 and p0 > 0 else None
+
+
 def _calc_invest_plan_steps(target_price, upper_pct, lower_pct,
-                             split_count, total_budget, strategy, usd_krw=None):
+                             split_count, total_budget, strategy, usd_krw=None, idx_ref=None):
     """
     상단 매수가 기준으로 분할매수 차수를 계산.
 
@@ -2330,9 +2348,14 @@ def _calc_invest_plan_steps(target_price, upper_pct, lower_pct,
     cumulative = 0
     for i, (pct, weight) in enumerate(zip(pct_points, weights)):
         raw_trigger   = target_price * (1 + pct / 100)
-        trigger_price = round(raw_trigger, 2) if is_foreign else round(raw_trigger)
+        trigger_price = round(raw_trigger, 2) if (is_foreign or idx_ref) else round(raw_trigger)
         amount        = round(total_budget * weight)
-        if is_foreign:
+        etf_price     = None
+        if idx_ref:
+            # 지수 모드: trigger_price는 지수 값. 주수는 환산 ETF 가격으로 계산
+            etf_price = _lev_etf_price(trigger_price, idx_ref)
+            shares = round(amount / etf_price, 4) if etf_price else 0
+        elif is_foreign:
             shares = round(amount / (trigger_price * usd_krw), 4) if trigger_price > 0 else 0
         else:
             shares = round(amount / trigger_price, 4) if trigger_price > 0 else 0
@@ -2342,6 +2365,7 @@ def _calc_invest_plan_steps(target_price, upper_pct, lower_pct,
             'step_no':       i + 1,
             'pct_from_target': round(pct, 1),
             'trigger_price': trigger_price,
+            'etf_price':     round(etf_price) if etf_price else None,
             'weight_pct':    round(weight * 100, 1),
             'amount':        amount,
             'shares':        shares,
@@ -2628,7 +2652,7 @@ def api_invest_plans():
 
     steps_data = _calc_invest_plan_steps(
         target_price, upper_pct, lower_pct,
-        split_count, total_budget, strategy, usd_krw
+        split_count, total_budget, strategy, usd_krw, _parse_index_ref(d)
     )
 
     if _preview_only:
@@ -2685,7 +2709,8 @@ def api_invest_plan_detail(plan_id):
         return jsonify({'error': '상단 매수가와 총 예산은 필수입니다.'}), 400
 
     steps_data = _calc_invest_plan_steps(
-        target_price, upper_pct, lower_pct, split_count, total_budget, strategy, usd_krw
+        target_price, upper_pct, lower_pct, split_count, total_budget, strategy, usd_krw,
+        _parse_index_ref(d)
     )
 
     cur = db.cursor()
@@ -2749,8 +2774,13 @@ def api_invest_plan_step_trigger(step_id):
         cur.close(); db.close()
         return jsonify({'ok': False, 'error': '차수를 찾을 수 없습니다.'}), 404
     amount = float(row['target_amount'] or 0)
-    krw_price = new_price * usd_krw if usd_krw and usd_krw > 1 else new_price
-    shares = round(amount / krw_price, 4)
+    idx_ref = _parse_index_ref(d)
+    if idx_ref:   # 지수 모드: 지수 -> ETF 가격 환산
+        etf_price = _lev_etf_price(new_price, idx_ref)
+        shares = round(amount / etf_price, 4) if etf_price else 0
+    else:
+        krw_price = new_price * usd_krw if usd_krw and usd_krw > 1 else new_price
+        shares = round(amount / krw_price, 4)
     cur.execute("UPDATE invest_plan_steps SET trigger_price=%s, target_shares=%s WHERE id=%s",
                 (new_price, shares, step_id))
     cur.close(); db.commit(); db.close()
@@ -2759,11 +2789,11 @@ def api_invest_plan_step_trigger(step_id):
 
 @app.route('/api/index-levels', methods=['GET'])
 def api_index_levels():
-    """레버리지 ETF 표시용 기초지수 현재값 (KOSPI200, KOSDAQ150). 조회 실패 시 해당 값은 null."""
-    out = {'KOSPI200': None, 'KOSDAQ150': None}
+    """레버리지 ETF 표시용 기초지수 현재값 (KOSPI, KOSDAQ150). 조회 실패 시 해당 값은 null."""
+    out = {'KOSPI': None, 'KOSDAQ150': None}
     if not HAS_YFINANCE:
         return jsonify(out)
-    for key, sym in (('KOSPI200', '^KS200'), ('KOSDAQ150', '^KQ150')):
+    for key, sym in (('KOSPI', '^KS11'), ('KOSDAQ150', '^KQ150')):
         try:
             h = yf.Ticker(sym).history(period='5d')
             out[key] = round(float(h['Close'].dropna().iloc[-1]), 2) if len(h) else None
