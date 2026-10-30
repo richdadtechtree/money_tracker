@@ -233,33 +233,41 @@ CREATE TABLE IF NOT EXISTS account_cash_tx (
 
 ---
 
-## Step 6. 계좌 간 이체
+## Step 6. 계좌 간 이체 ✅ 구현됨
 
 ### DB
 ```sql
 CREATE TABLE IF NOT EXISTS account_transfers (
-    id            SERIAL PRIMARY KEY,
-    tx_date       DATE NOT NULL,
-    from_type     TEXT NOT NULL,   -- 'invest' (증권 예수금) / 'bank' (현금관리 통장)
-    from_id       INTEGER NOT NULL,
-    to_type       TEXT NOT NULL,
-    to_id         INTEGER NOT NULL,
-    currency      TEXT NOT NULL DEFAULT 'KRW',   -- KRW / USD (이체는 같은 통화끼리)
-    amount        NUMERIC(18,4) NOT NULL CHECK (amount > 0),
-    memo          TEXT,
-    created_at    TIMESTAMP DEFAULT NOW()
+    id SERIAL PRIMARY KEY, tx_date DATE NOT NULL,
+    from_type TEXT NOT NULL, from_id INTEGER NOT NULL, from_name TEXT,   -- 'bank'(현금관리 통장) / 'invest'(투자 계좌)
+    to_type   TEXT NOT NULL, to_id   INTEGER NOT NULL, to_name   TEXT,
+    currency TEXT NOT NULL DEFAULT 'KRW',                               -- KRW / USD (이체는 같은 통화끼리)
+    amount NUMERIC(18,4) NOT NULL CHECK (amount > 0), memo TEXT, created_at TIMESTAMP DEFAULT NOW()
 );
 ```
-### 동작
-- 증권 → 증권: 출금 계좌 원장 `transfer_out(-)`, 입금 계좌 원장 `transfer_in(+)` 을 **한 트랜잭션**에서 기록 (`ref_type='transfer'`, `ref_id=이체 id`).
-- 은행 ↔ 증권: 은행 쪽은 `cash_deposits.krw_amount`(KRW) 또는 `usd_amount`(USD)와 `amount`를 증감, 증권 쪽은 원장 기록. 은행 통장에 해당 통화 잔액이 없으면 경고.
-- 이체 삭제/수정 시 양쪽 모두 원복. 출금 계좌 = 입금 계좌면 거부.
-- 화면: 투자관리에 "이체" 버튼 → 모달(출금 계좌, 입금 계좌, **통화**, 금액, 날짜, 메모) + 이체 내역 표.
+- `from_name`/`to_name`은 이체 시점 이름을 저장해, 통장·계좌가 나중에 지워져도 내역에 이름이 남는다.
 
-### 완료 확인
-- A→B 50만원: A 예수금 -50만, B +50만, 전체 예수금 합계 불변 (현금관리 예수금 행 불변)
-- 은행→증권: 은행 -50만, 예수금 +50만, 순자산 불변
-- 이체 삭제 시 양쪽 복구, 도중 오류 시 한쪽만 반영되지 않음(롤백)
+### 동작
+- **통장 → 투자 계좌**: 통장의 원화/달러 잔액 감소 + 계좌 예수금 증가. **투자 계좌 → 통장**은 반대. **투자 계좌 → 투자 계좌**: 한쪽 감소, 다른 쪽 증가(예수금 행 합계는 불변). 통장끼리의 이체와 '예수금' 잠금 행은 불가.
+- 투자 계좌 쪽은 예수금 원장(`account_cash_tx`, `ref_type='transfer'`, `kind=transfer_in/out`)에, 통장 쪽은 `cash_deposits.krw_amount/usd_amount/amount`에 반영한다. **한 트랜잭션**이라 도중에 실패하면 어느 쪽도 바뀌지 않는다.
+- **통장 잔액이 모자라면 거부**(400), **투자 계좌 예수금이 모자라면 이체는 하되 경고**(Step 5의 "과거 입력 순서" 규칙과 동일).
+- **삭제 = 양쪽 원복**. 이미 지운 통장은 건너뛰고, 되돌리는 쪽 잔액이 음수가 돼도 허용한다. 예수금 내역(원장)에서 이체 줄을 지워도 같은 삭제가 실행된다. 이체 수정은 "삭제 후 다시 입력".
+- API: `GET/POST /api/account-transfers`, `DELETE /api/account-transfers/<id>`. 백업/복구 대상에 `account_transfers` 추가.
+
+### 화면
+- 공용 이체 창 `static/js/transfer.js` (출금/입금 선택지에 선택한 통화 기준 잔액 표시, 출금/입금 바꾸기, 미리보기). 단, 처음 열 때 투자 계좌가 없으면 안내만 한다.
+- **현금관리**: 상단 [증권 계좌로 이체] 버튼, 아래 **이체 내역** 표(삭제 버튼). 자동 조정 안내 문구에 "증권 계좌로 옮긴 돈은 이체를 쓰세요" 추가.
+- **투자 관리**: 계좌 줄의 [이체] 버튼(그 계좌가 입금 기본값), 예수금 바의 [이체] 버튼.
+
+### 알아둘 점
+- 이체는 **환율 환산을 하지 않는다**. 원화 통장 → 원화 예수금, 달러 통장 → 달러 예수금. 통화를 바꾸려면 투자 계좌 안에서 [환전]을 쓴다.
+- 이체로 총 현금 합계(통장 + 예수금)는 변하지 않는다.
+
+### 완료 확인 (로컬 PostgreSQL 16 + 브라우저로 검증함)
+- 통장→계좌/계좌→통장/계좌→계좌/달러 이체 후 양쪽 잔액·예수금 행·환산액이 정확
+- 통장 잔액 부족 시 400 + 전체 롤백(이체 기록·잔액 변화 없음), 투자 계좌 예수금 부족은 201 + 경고
+- 입력 검증(같은 대상/통장끼리/예수금 행/없는 대상/0원/통화/날짜) 400, 이체 삭제 원복(원장 내역 경로 포함), 통장이 없어진 뒤 삭제, 백업→복구 왕복
+- 브라우저: 현금관리에서 이체→통장 표·예수금 구성·이체 내역 갱신→삭제 원복, 투자 관리 계좌 줄 [이체](달러 포함) 동작
 
 ---
 

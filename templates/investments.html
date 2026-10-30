@@ -78,6 +78,7 @@
       <button class="btn btn-sm btn-outline-primary" onclick="openCashModal('deposit')"><i class="bi bi-box-arrow-in-down me-1"></i>입금</button>
       <button class="btn btn-sm btn-outline-secondary" onclick="openCashModal('withdraw')"><i class="bi bi-box-arrow-up me-1"></i>출금</button>
       <button class="btn btn-sm btn-outline-secondary" onclick="openFxModal()"><i class="bi bi-currency-exchange me-1"></i>환전</button>
+      <button class="btn btn-sm btn-outline-success" onclick="openTransferModal({to:'invest:' + currentAccount})"><i class="bi bi-arrow-left-right me-1"></i>이체</button>
       <button class="btn btn-sm btn-outline-secondary" onclick="openCashLedger()"><i class="bi bi-list-ul me-1"></i>내역</button>
     </div>
   </div>
@@ -1195,6 +1196,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/transfer.js?v={{ APP_VERSION }}"></script>
 <script>
 let allStocks = [];
 let allStockCategories = [];
@@ -1485,6 +1487,7 @@ function accountCashCellHtml(r) {
       ${btn('입금', `openCashModal('deposit','${id}')`)}
       ${btn('출금', `openCashModal('withdraw','${id}')`)}
       ${btn('환전', `openFxModal('${id}')`)}
+      ${btn('이체', `openTransferModal({to:'invest:${id}'})`, 'btn-outline-success')}
       ${btn('내역', `openCashLedger('${id}')`)}
     </div>`;
 }
@@ -1517,6 +1520,7 @@ function renderCashBar() {
 function _todayStr() { return new Date().toISOString().split('T')[0]; }
 function _num(id) { return parseFloat((document.getElementById(id).value || '').replace(/,/g, '')) || 0; }
 
+window.onTransferDone = () => refreshAccountBar();   // 이체 후 예수금 표시를 새로 그린다
 let cashTargetAccount = '';   // 예수금 창들이 작업 중인 계좌 id (행 버튼/예수금 바 어느 쪽에서 열어도 같은 흐름)
 
 function openCashModal(kind, acctId) {

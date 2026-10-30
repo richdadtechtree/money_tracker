@@ -900,6 +900,24 @@ def init_db():
             UNIQUE (ref_type, ref_id, account_id, currency)
         )""",
         "CREATE INDEX IF NOT EXISTS idx_account_cash_tx_account ON account_cash_tx(account_id, tx_date)",
+        # 계좌 간 이체 (대개편 Step 6): 현금관리 통장 ↔ 투자 계좌, 투자 계좌 ↔ 투자 계좌
+        #  - from_type/to_type: 'bank'(현금관리 통장, cash_deposits.id) / 'invest'(투자 계좌, invest_accounts.id)
+        #  - 투자 계좌 쪽은 예수금 원장(account_cash_tx, ref_type='transfer')에, 통장 쪽은 cash_deposits 금액에 반영된다.
+        #  - from_name/to_name: 통장·계좌가 나중에 지워져도 내역에 이름이 남도록 이체 시점 이름을 저장
+        """CREATE TABLE IF NOT EXISTS account_transfers (
+            id          SERIAL PRIMARY KEY,
+            tx_date     DATE NOT NULL,
+            from_type   TEXT NOT NULL,
+            from_id     INTEGER NOT NULL,
+            from_name   TEXT,
+            to_type     TEXT NOT NULL,
+            to_id       INTEGER NOT NULL,
+            to_name     TEXT,
+            currency    TEXT NOT NULL DEFAULT 'KRW',
+            amount      NUMERIC(18,4) NOT NULL CHECK (amount > 0),
+            memo        TEXT,
+            created_at  TIMESTAMP DEFAULT NOW()
+        )""",
         # 현금관리의 '예수금' 잠금 행: 모든 투자 계좌 예수금 합계로 자동 갱신되며 직접 수정/삭제할 수 없다
         """INSERT INTO cash_deposits (name, amount, memo, updated_date, krw_amount, usd_amount, is_system)
            SELECT '예수금', 0, '투자 계좌 예수금 합계 (자동 연동, 수정 불가)', TO_CHAR(NOW(),'YYYY-MM-DD'), 0, 0, TRUE

@@ -9,6 +9,7 @@
             <i class="bi bi-camera me-1"></i>새 통장 사진 인식
             <input type="file" id="ocrInput" accept="image/*" capture="environment" style="display: none;" onchange="handleOCR(this)">
         </label>
+        <button class="btn btn-outline-primary" onclick="openTransferModal({})"><i class="bi bi-arrow-left-right me-1"></i>증권 계좌로 이체</button>
         <button class="btn btn-primary" onclick="grid.addRow()"><i class="bi bi-plus-lg me-1"></i>통장 추가</button>
     </div>
 </div>
@@ -53,6 +54,20 @@
   </div>
 </div>
 
+<!-- 이체 내역: 통장 ↔ 투자 계좌 / 투자 계좌 ↔ 투자 계좌 -->
+<div class="card border-0 shadow-sm mt-3" id="transferCard" style="display:none">
+  <div class="card-body py-3">
+    <div class="fw-semibold mb-2"><i class="bi bi-arrow-left-right me-2 text-primary"></i>이체 내역
+      <small class="text-muted fw-normal">삭제하면 통장 잔액과 계좌 예수금이 이체 전으로 돌아갑니다</small></div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light"><tr><th>날짜</th><th>출금</th><th>입금</th><th class="text-end">금액</th><th>메모</th><th></th></tr></thead>
+        <tbody id="transferBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <div class="mt-3 text-end">
     <h4 class="fw-bold">총 현금 합계: <span id="totalCash" class="text-primary">0</span>원</h4>
 </div>
@@ -76,7 +91,7 @@
   <div class="card-body">
     <p class="adj-hint small mb-3">
       <i class="bi bi-info-circle me-1"></i>
-      주식·ETF <strong>매수</strong> 또는 부동산 <strong>납입 확정</strong> 시 현금에 <strong>즉시 자동 반영</strong>됩니다.
+      주식·ETF <strong>매수</strong> 또는 부동산 <strong>납입 확정</strong> 시 현금에 <strong>즉시 자동 반영</strong>됩니다. (증권 계좌로 옮긴 돈은 <strong>이체</strong> 기능을 쓰세요)
       현금 잔액을 <strong>직접 수정하면</strong> 자동 조정 내역이 초기화됩니다.
     </p>
     <div id="adjList" class="text-center text-muted py-3">조회 중...</div>
@@ -115,6 +130,7 @@
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="/static/js/transfer.js?v={{ APP_VERSION }}"></script>
 <script>
 let grid;
 let ocrModal;
@@ -146,6 +162,7 @@ grid = new GridTable({
         document.getElementById('totalCash').textContent = fmt(_cashTotal);
         loadAutoAdjustments();
         loadDepositBreakdown();
+        loadTransfers();
     },
     onSave: () => loadAutoAdjustments(),
 });
@@ -232,6 +249,33 @@ async function processOCR(file) {
         ocrModal.hide();
         alert('인식 중 오류가 발생했습니다.');
     }
+}
+
+// ── 이체 내역 ─────────────────────────────────────────────
+window.onTransferDone = () => grid.load();       // 이체 후 통장 표·예수금·이체 내역을 모두 새로 그린다
+
+async function loadTransfers() {
+    const rows = (await fetchJSON('/api/account-transfers')) || [];
+    const card = document.getElementById('transferCard');
+    if (!rows.length) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    const kind = t => t === 'bank' ? '통장' : '계좌';
+    document.getElementById('transferBody').innerHTML = rows.map(t => `
+        <tr><td class="text-muted small">${t.tx_date}</td>
+            <td>${t.from_name || '-'} <span class="badge bg-secondary-subtle text-secondary">${kind(t.from_type)}</span></td>
+            <td>${t.to_name || '-'} <span class="badge bg-secondary-subtle text-secondary">${kind(t.to_type)}</span></td>
+            <td class="text-end fw-semibold">${t.currency === 'USD'
+                ? '$' + Number(t.amount).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})
+                : fmt(t.amount) + '원'}</td>
+            <td class="small text-muted">${t.memo || ''}</td>
+            <td class="text-end"><button class="btn btn-sm btn-outline-danger py-0" onclick="deleteTransfer(${t.id})">삭제</button></td></tr>`).join('');
+}
+
+async function deleteTransfer(id) {
+    if (!confirm('이 이체를 삭제할까요?\n통장 잔액과 투자 계좌 예수금이 이체 전으로 돌아갑니다.')) return;
+    const res = await fetchJSON(`/api/account-transfers/${id}`, { method: 'DELETE' });
+    if (res === null) { alert(fetchJSON.lastError || '삭제하지 못했습니다.'); return; }
+    grid.load();
 }
 
 // ── 예수금 구성 (읽기 전용) ───────────────────────────────
