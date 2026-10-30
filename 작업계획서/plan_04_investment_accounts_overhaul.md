@@ -128,31 +128,34 @@ CREATE TABLE IF NOT EXISTS account_cash_tx (
     id          SERIAL PRIMARY KEY,
     account_id  INTEGER NOT NULL REFERENCES invest_accounts(id),
     tx_date     DATE NOT NULL,
-    kind        TEXT NOT NULL,   -- init / deposit / withdraw / transfer_in / transfer_out / buy / sell / dividend / fee
-    amount      BIGINT NOT NULL, -- 증가(+) / 감소(-) 부호 포함 원화
-    ref_type    TEXT,            -- stock_tx / etf_tx / transfer
+    currency    TEXT NOT NULL DEFAULT 'KRW',   -- KRW / USD  (계좌 하나가 두 통화 예수금을 동시에 가질 수 있음)
+    kind        TEXT NOT NULL,   -- init / deposit / withdraw / transfer_in / transfer_out / buy / sell / dividend / fee / exchange
+    amount      NUMERIC(18,4) NOT NULL, -- 해당 통화 단위의 증가(+) / 감소(-). KRW는 원, USD는 달러(소수)
+    ref_type    TEXT,            -- stock_tx / etf_tx / transfer / exchange
     ref_id      INTEGER,
     memo        TEXT,
     created_at  TIMESTAMP DEFAULT NOW(),
-    UNIQUE (ref_type, ref_id, account_id)   -- 같은 거래가 중복 기록되지 않게
+    UNIQUE (ref_type, ref_id, account_id, currency)   -- 같은 거래가 중복 기록되지 않게 (환전은 KRW·USD 2줄)
 );
 ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE;
 ```
 - `cash_deposits`에 `name='예수금'`, `is_system=TRUE` 행 1개를 `init_db`에서 보장(없으면 생성).
 
 ### 백엔드
-- `get_account_cash(db, account_id=None)`: 원장 합계 계산 함수 (단일 계좌 / 전체).
-- `_sync_deposit_row(db)`: 전체 합계를 계산해 `cash_deposits`의 예수금 행(`amount`, `krw_amount`)에 기록. **원장에 쓰는 모든 코드가 같은 트랜잭션에서 호출**.
-- 기초 예수금 입력 / 입금·출금 수동 기록 API: `POST /api/invest-accounts/<id>/cash` (kind = init/deposit/withdraw/dividend/fee).
+- `get_account_cash(db, account_id=None)`: 원장 합계 계산 함수 (단일 계좌 / 전체). **통화별로 `{krw, usd}` 두 값**을 반환.
+- `_sync_deposit_row(db)`: 전체 합계를 계산해 `cash_deposits`의 예수금 행에 `krw_amount`=KRW 합계, `usd_amount`=USD 합계, `amount`=KRW + USD×환율로 기록. (이 테이블은 이미 KRW·USD 동시 보유 구조이고 `_refresh_usd_cash_amounts`가 환율 갱신 시 `amount`를 다시 계산하므로 별도 환산 코드가 필요 없음) **원장에 쓰는 모든 코드가 같은 트랜잭션에서 호출**.
+- 기초 예수금 입력 / 입금·출금 수동 기록 API: `POST /api/invest-accounts/<id>/cash` (kind = init/deposit/withdraw/dividend/fee, **currency = KRW/USD 선택**).
+- **환전 API** `POST /api/invest-accounts/<id>/exchange`: 같은 계좌 안에서 KRW↔USD 전환. 원장에 KRW 줄과 USD 줄 2개를 한 트랜잭션으로 기록 (`kind='exchange'`, 적용 환율 입력 가능, 기본값=현재 환율).
 - **잠금**: `PUT/DELETE /api/cash-deposits/<id>`(5077)에서 `is_system` 행이면 403 + 안내 메시지. (직접 수정 시 합계가 어긋나는 것 방지)
 - `api_cash_deposits_detail`(5077~5100)이 통장 수정 시 `DELETE FROM cash_auto_adjustments` 를 전체 삭제하는 코드 확인됨 → 부동산 납부 조정 기록까지 지우지 않도록 `source_type IN ('stock_tx','etf_tx')`로 한정하거나 제거.
 
 ### 화면
 - `cash.html`: 예수금 행은 자물쇠 아이콘 + 입력칸 비활성 + "계좌 합계 자동 연동" 배지. 클릭하면 계좌별 예수금 내역 펼침(읽기 전용).
-- `investments.html`: 계좌 칩 옆에 해당 계좌 예수금 표시 + 입금/출금 버튼.
+- `investments.html`: 계좌 칩 옆에 해당 계좌 예수금을 **원화 / 달러 두 칸**으로 표시 + 입금/출금/환전 버튼.
 
 ### 완료 확인
 - 계좌별 예수금 입력 → 현금관리 예수금 행이 합계와 같고 수정 불가
+- 원화·달러를 둘 다 입력 → 예수금 행의 원화/달러/환산 합계가 각각 맞음, 환전 시 원화↓ 달러↑ 이고 환산 합계는 (환율 차이 외) 변하지 않음
 - 대시보드 순자산(현금 포함)이 입력 전후로 예수금만큼만 변함 (이중 계상 없음)
 
 ---
@@ -162,16 +165,22 @@ ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FAL
 ### 규칙
 | 거래 | 예수금 원장 |
 |---|---|
-| 매수 | `-(가격 × 수량 + 수수료) × 환율` (kind=buy) |
-| 매도 | `+(가격 × 수량 - 수수료) × 환율` (kind=sell) |
+| 국내 종목 매수 | KRW 예수금 `-(가격 × 수량 + 수수료)` |
+| 국내 종목 매도 | KRW 예수금 `+(가격 × 수량 - 수수료)` |
+| 해외 종목 매수 | **기본 USD 예수금** `-(가격 × 수량 + 수수료)` (달러 그대로) |
+| 해외 종목 매도 | **기본 USD 예수금** `+(가격 × 수량 - 수수료)` |
 | 기초 보유(init) | 기록 없음 |
+
+- 거래 입력 폼에 **"결제 통화" 선택**(KRW / USD)을 둔다. 기본값은 국내=KRW, 해외=USD.
+  해외 종목을 원화 예수금으로 결제(증권사 자동환전)하는 경우 KRW를 선택하면 `거래금액 × 거래 환율`을 원화로 차감한다.
+- 국내 종목은 항상 KRW 예수금만 사용.
 
 ### 작업
 - 신규 `_upsert_account_cash(cur, account_id, ref_type, ref_id, ...)` / `_remove_account_cash(...)` — 기존 `_upsert_cash_adj` 패턴(거래 수정 시 이전 기록 교체, 삭제 시 역적용)을 원장 방식으로 구현. (원장은 `ref`로 upsert하므로 "역적용 계산"이 필요 없음)
 - 호출부 교체: `app.py` 1829·1832·1870~1887(주식), 2048~2104(ETF), 3159~3192(분할매수/투자계획 실행·취소), 5187·5206(`recalc-foreign`)
   **`re_payment`(4714·4762)는 기존 `_upsert_cash_adj` 그대로 유지.**
 - 이미 `_sync_deposit_row`를 같은 트랜잭션에서 호출.
-- 예수금 부족 시: 입력은 **허용하되 경고 표시**(과거 거래를 순서 없이 입력하다 일시적으로 마이너스가 될 수 있음). 예수금이 음수인 계좌는 목록에서 빨간색.
+- 예수금 부족 시(**통화별로** 판단): 입력은 **허용하되 경고 표시**(과거 거래를 순서 없이 입력하다 일시적으로 마이너스가 될 수 있음). 예수금이 음수인 계좌는 목록에서 빨간색.
 - `account_id` 없는 거래 저장은 400 에러(필수).
 - 분할매수/투자계획 화면(`split_buy_*`, `invest_plan_*`)의 "실행" 버튼에도 계좌 선택 추가.
 
@@ -180,7 +189,8 @@ ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FAL
 - 이전 방식(잔액 최대 통장 차감)이 남아 있으면 이중 차감 → `grep _upsert_cash_adj`로 stock/etf 호출이 0건인지 확인.
 
 ### 완료 확인
-- 매수 100만원 → 해당 계좌 예수금 -100만원, 현금관리 예수금 행도 -100만원, 다른 통장 불변
+- 국내 매수 100만원 → 해당 계좌 원화 예수금 -100만원, 현금관리 예수금 행도 -100만원, 다른 통장 불변
+- 해외 매수 $1,000 → 해당 계좌 달러 예수금 -$1,000 (원화 예수금 불변), 현금관리 예수금 행의 달러 칸도 -$1,000
 - 해당 매수 수정(수량 변경)/삭제 → 예수금 정확히 복구
 - 부동산 납부 입력은 기존처럼 현금 통장을 조정
 
@@ -197,16 +207,17 @@ CREATE TABLE IF NOT EXISTS account_transfers (
     from_id       INTEGER NOT NULL,
     to_type       TEXT NOT NULL,
     to_id         INTEGER NOT NULL,
-    amount        BIGINT NOT NULL CHECK (amount > 0),
+    currency      TEXT NOT NULL DEFAULT 'KRW',   -- KRW / USD (이체는 같은 통화끼리)
+    amount        NUMERIC(18,4) NOT NULL CHECK (amount > 0),
     memo          TEXT,
     created_at    TIMESTAMP DEFAULT NOW()
 );
 ```
 ### 동작
 - 증권 → 증권: 출금 계좌 원장 `transfer_out(-)`, 입금 계좌 원장 `transfer_in(+)` 을 **한 트랜잭션**에서 기록 (`ref_type='transfer'`, `ref_id=이체 id`).
-- 은행 ↔ 증권: 은행 쪽은 `cash_deposits.krw_amount/amount`를 증감, 증권 쪽은 원장 기록. (§11 결정사항: 이 기능을 넣을지)
+- 은행 ↔ 증권: 은행 쪽은 `cash_deposits.krw_amount`(KRW) 또는 `usd_amount`(USD)와 `amount`를 증감, 증권 쪽은 원장 기록. 은행 통장에 해당 통화 잔액이 없으면 경고.
 - 이체 삭제/수정 시 양쪽 모두 원복. 출금 계좌 = 입금 계좌면 거부.
-- 화면: 투자관리에 "이체" 버튼 → 모달(출금 계좌, 입금 계좌, 금액, 날짜, 메모) + 이체 내역 표.
+- 화면: 투자관리에 "이체" 버튼 → 모달(출금 계좌, 입금 계좌, **통화**, 금액, 날짜, 메모) + 이체 내역 표.
 
 ### 완료 확인
 - A→B 50만원: A 예수금 -50만, B +50만, 전체 예수금 합계 불변 (현금관리 예수금 행 불변)
@@ -217,12 +228,14 @@ CREATE TABLE IF NOT EXISTS account_transfers (
 
 ## Step 7. 상단 대시보드: 연 기준 총손익 / 실현손익 / 평가손익
 
-### 정의 (§11에서 확정 필요)
+### 정의 (확정)
 - **실현손익(연)** = 해당 연도 매도 실현손익 합 (주식·ETF·공모주·코인 + 아카이브)
-- **평가손익(연)** = 연말(올해는 현재) 평가손익 잔액 − 연초 평가손익 잔액 *(권장: 연간 증감 방식)*
-- **총손익(연)** = 실현손익(연) + 평가손익(연)
-  → 합이 맞아야 하므로 기존 월간 방식(월말 평가금액 − 순매수)과 같은 개념.
-- 연초 평가손익 잔액 출처: Step 8의 연말 스냅샷. **2026년 연초 값은 거래 초기화로 알 수 없으므로 계좌별로 1회 직접 입력**(미입력 시 0으로 보고 올해 평가손익 = 현재 미실현손익 전체).
+- **평가손익** = 현재 보유 종목의 **(현재가 − 매입 평균단가) × 수량** 합계. (올해 증감이 아니라 "지금 보유분의 평가손익")
+  - 현재 연도: 실시간 계산. 과거 연도: 그 해 말에 저장해 둔 값(Step 8).
+  - 해외 종목은 현재 환율로 원화 환산.
+- **총손익(연)** = 실현손익(연) + 평가손익
+  - 연초 기준값 입력이 필요 없다. (예전 계획의 "2026 연초 평가손익 입력"은 삭제)
+- 월간 그래프는 기존 방식(월말 평가금액 − 누적 순매수의 월별 증감)을 **그대로 유지**하고 선택 연도의 12개월만 보여준다. 카드의 총손익과 정의가 달라 합이 일치하지 않을 수 있으므로 그래프 설명 문구에 그 점을 명시한다.
 
 ### 백엔드
 - `/api/total-pnl?year=YYYY` 확장 (기본값=올해). 응답에 `accounts: [{id,name,realized,unrealized,total}]` 포함.
@@ -235,6 +248,7 @@ CREATE TABLE IF NOT EXISTS account_transfers (
 ### 완료 확인
 - 계좌별 합 == 카드 합계
 - 2026 실현손익 = 아카이브 + 신규 입력 매도분, Step 1에서 보존한 숫자와 일치(신규 매도 입력 전)
+- 평가손익 = 종목 표의 (현재가 − 평단) × 수량 합계와 일치
 
 ---
 
@@ -248,9 +262,10 @@ CREATE TABLE IF NOT EXISTS account_year_snapshots (
     account_id      INTEGER REFERENCES invest_accounts(id),  -- NULL = 코인/공모주 등 계좌 외
     eval_amount     BIGINT DEFAULT 0,    -- 연말 평가금액
     cost_amount     BIGINT DEFAULT 0,    -- 연말 매입금액
-    unrealized_pnl  BIGINT DEFAULT 0,    -- 연말 평가손익 잔액
+    unrealized_pnl  BIGINT DEFAULT 0,    -- 연말 시점 평가손익 (보유분의 현재가−평단 기준)
     realized_pnl    BIGINT DEFAULT 0,    -- 해당 연도 실현손익
-    cash_balance    BIGINT DEFAULT 0,    -- 연말 예수금
+    cash_krw        BIGINT DEFAULT 0,    -- 연말 원화 예수금
+    cash_usd        NUMERIC(18,2) DEFAULT 0, -- 연말 달러 예수금
     is_manual       BOOLEAN DEFAULT FALSE,
     memo            TEXT,
     UNIQUE (year, account_id)
@@ -262,7 +277,7 @@ CREATE TABLE IF NOT EXISTS account_year_snapshots (
 ### 화면
 - 투자관리 탭에 **"연도별 기록"** 추가:
   연도 × (총손익 / 실현 / 평가 / 연말 평가금액 / 입출금) 표 + 연도 선택 시 계좌별 상세. 막대 그래프(연도별 총손익).
-- 과거 연도 행은 편집 가능, 올해 행은 자동 계산(읽기 전용) + "연초 평가손익 입력" 칸(Step 7의 2026 초기값).
+- 과거 연도 행은 편집 가능, 올해 행은 자동 계산(읽기 전용)(연말에 자동 저장되기 전까지).
 
 ### 완료 확인
 - 연도 추가/수정/삭제 동작, 상단 카드에서 해당 연도 선택 시 같은 숫자가 보임
@@ -287,12 +302,17 @@ CREATE TABLE IF NOT EXISTS account_year_snapshots (
 | 부동산 납부 현금 조정이 깨짐 | `re_payment` 경로는 건드리지 않고, 통장 수정 시 전체 삭제 코드(5090)만 한정 |
 | 이체 도중 한쪽만 반영 | 한 트랜잭션 + 예외 시 `rollback` |
 | 올해 실현손익 중복 집계 | 올해 이미 팔린 종목의 매도 거래는 **다시 입력하지 않기**(아카이브가 대신함) |
-| 원화 환산 오차 | 매수/매도 시점 `exchange_rate`로 환산해 원장에 정수(원) 저장 |
+| 원화 환산 오차 | 달러는 달러 그대로 원장에 저장(환산하지 않음). 원화 환산은 표시할 때만 현재 환율 사용 |
+| 달러 예수금 환율 변동으로 순자산이 매일 변함 | 의도된 동작 (기존 달러 통장과 동일). `_refresh_usd_cash_amounts`가 갱신 |
 
-## 11. 시작 전에 정해야 할 것 (제 추천을 먼저 적었습니다)
+## 11. 결정 사항
 
-1. **코인·공모주를 계좌에 넣을지** → *추천: 이번엔 제외*. 손익만 대시보드에 합산. (코인은 거래소 예수금 개념이 달라 범위가 커짐)
-2. **은행 통장 ↔ 증권 계좌 이체도 지원할지** → *추천: 지원*. 안 하면 예수금을 채울 방법이 "입금" 수동 기록뿐이라 은행 잔액이 따로 놀게 됩니다.
-3. **연 평가손익 정의** → *추천: 연말 평가손익 − 연초 평가손익(증감 방식)*. 더 단순한 대안은 "현재 보유분의 누적 평가손익"이지만 연도 총손익이 해마다 부풀려집니다.
-4. **해외주식 예수금** → *추천: 원화 환산 단일 예수금*. 달러 예수금 따로 관리는 2차 개선으로.
-5. **계좌 목록**(이름/종류)과 **2026 연초 평가손익** 계좌별 값 — Step 2·7 진행 시 필요합니다.
+**확정**
+- 연 평가손익 = **현재 보유분의 (현재가 − 매입 평균단가) 기준 평가손익**, 총손익 = 연 실현손익 + 평가손익 (연초 기준값 입력 없음)
+- 예수금은 **원화·달러 모두 입력/관리**, 계좌 안에서 환전 가능
+
+**추천대로 진행 예정 (이견 있으면 알려주세요)**
+1. 코인·공모주는 이번엔 계좌 연결 제외, 손익만 대시보드에 합산
+2. 은행 통장 ↔ 증권 계좌 이체도 지원 (원화/달러 각각)
+
+**Step 2 진행 시 필요**: 계좌 목록(이름/종류)
