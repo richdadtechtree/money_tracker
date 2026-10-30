@@ -4,9 +4,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2 class="fw-bold mb-0"><i class="bi bi-graph-up-arrow me-2 text-primary"></i>투자 관리</h2>
-  <button class="btn btn-outline-primary" style="width:40px;height:40px;padding:0;border-radius:10px;" onclick="switchToSplitPlanTab()" title="종목별 투자계획">
-    <i class="bi bi-bar-chart-steps fs-5"></i>
-  </button>
+  <div class="d-flex gap-2">
+    <button class="btn btn-outline-secondary" onclick="openAccountModal()" title="투자 계좌 관리">
+      <i class="bi bi-bank me-1"></i>계좌 관리
+    </button>
+    <button class="btn btn-outline-primary" style="width:40px;height:40px;padding:0;border-radius:10px;" onclick="switchToSplitPlanTab()" title="종목별 투자계획">
+      <i class="bi bi-bar-chart-steps fs-5"></i>
+    </button>
+  </div>
 </div>
 
 <!-- 총손익 카드: 실현손익 + 평가손익 -->
@@ -116,6 +121,9 @@
           <button class="btn btn-outline-secondary btn-sm" onclick="recalcAllRealizedPnl()">
             <i class="bi bi-arrow-repeat me-1"></i>실현손익 재계산
           </button>
+          <small class="text-muted d-none d-lg-inline" title="이미 보유 중인 종목을 처음 등록할 때는 구분=매수, 기초보유=기초 보유로 입력하세요. 단가에는 평균 매입단가를 넣으며 통장 잔액은 변하지 않습니다.">
+            <i class="bi bi-info-circle"></i> 기존 보유분은 '기초보유'로 입력
+          </small>
           <button class="btn btn-primary btn-sm" onclick="stockTxGrid.addRow()">
             <i class="bi bi-plus-lg me-1"></i>거래 입력
           </button>
@@ -176,7 +184,7 @@
           <table class="table table-hover mb-0" id="stockTxTable">
             <thead class="table-light">
               <tr>
-                <th>날짜</th><th>종목</th><th>구분</th>
+                <th>날짜</th><th>종목</th><th>계좌</th><th>구분</th><th>기초보유</th>
                 <th class="text-end">단가</th>
                 <th class="text-end">수량</th>
                 <th class="text-end">거래금액</th>
@@ -274,6 +282,9 @@
           <select id="txEtfFilter" class="form-select form-select-sm" style="width:auto" onchange="etfTxGrid.load()">
             <option value="">전체 종목</option>
           </select>
+          <small class="text-muted d-none d-lg-inline" title="이미 보유 중인 종목을 처음 등록할 때는 구분=매수, 기초보유=기초 보유로 입력하세요. 단가에는 평균 매입단가를 넣으며 통장 잔액은 변하지 않습니다.">
+            <i class="bi bi-info-circle"></i> 기존 보유분은 '기초보유'로 입력
+          </small>
           <button class="btn btn-primary btn-sm" onclick="etfTxGrid.addRow()">
             <i class="bi bi-plus-lg me-1"></i>거래 입력
           </button>
@@ -284,7 +295,7 @@
           <table class="table table-hover mb-0" id="etfTxTable">
             <thead class="table-light">
               <tr>
-                <th>날짜</th><th>종목</th><th>구분</th>
+                <th>날짜</th><th>종목</th><th>계좌</th><th>구분</th><th>기초보유</th>
                 <th class="text-end">단가</th>
                 <th class="text-end">수량</th>
                 <th class="text-end">거래금액</th>
@@ -1008,6 +1019,38 @@
   </div>
 </div>
 
+<!-- 투자 계좌 관리 모달 -->
+<div class="modal fade" id="accountModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-bank me-2"></i>투자 계좌 관리</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <small class="text-muted">증권사 계좌를 등록하면 거래내역마다 계좌를 지정할 수 있습니다.
+            거래가 연결된 계좌는 삭제 대신 '중지'로 바뀝니다.</small>
+          <button class="btn btn-primary btn-sm" onclick="accountGrid.addRow()">
+            <i class="bi bi-plus-lg me-1"></i>계좌 추가
+          </button>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="accountTable">
+            <thead class="table-light">
+              <tr>
+                <th>계좌 이름</th><th>증권사</th><th>종류</th><th>상태</th><th>메모</th>
+                <th class="text-end">거래수</th><th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -1207,6 +1250,53 @@ const stockGrid = new GridTable({
   },
 });
 
+// ── 투자 계좌 (거래내역 그리드의 '계좌' 선택지 + 계좌 관리 모달) ──
+let allAccounts = [];
+
+async function loadAccounts() {
+  allAccounts = (await fetchJSON('/api/invest-accounts')) || [];
+}
+
+/** 거래내역 그리드 공용 '계좌' 컬럼 — 중지된 계좌도 선택지에 남겨 두어야 기존 거래의 계좌가 저장 때 지워지지 않는다 */
+const TX_ACCOUNT_COLUMN = {
+  key: 'account_id', type: 'select',
+  options: () => allAccounts.map(a => ({ value: String(a.id), label: a.name + (a.is_active ? '' : ' (중지)') })),
+  render: (v, r) => r.account_name || '<span class="text-muted">-</span>',
+};
+/** 거래내역 그리드 공용 '기초보유' 컬럼 */
+const TX_OPENING_COLUMN = {
+  key: 'is_opening', type: 'select',
+  options: [{ value: '0', label: '일반' }, { value: '1', label: '기초 보유' }],
+  render: v => String(v) === '1' ? '<span class="badge bg-warning-subtle text-warning-emphasis">기초 보유</span>' : '',
+};
+
+const accountGrid = new GridTable({
+  tableId: 'accountTable',
+  columns: [
+    { key: 'name',      type: 'text' },
+    { key: 'broker',    type: 'text' },
+    { key: 'acct_type', type: 'select',
+      options: ['일반', 'ISA', '연금저축', 'IRP', '해외주식', '기타'] },
+    { key: 'is_active', type: 'select',
+      options: [{ value: '1', label: '사용' }, { value: '0', label: '중지' }],
+      render: v => String(v) === '1'
+        ? '<span class="badge bg-success-subtle text-success">사용</span>'
+        : '<span class="badge bg-secondary-subtle text-secondary">중지</span>' },
+    { key: 'memo',      type: 'text' },
+    { key: '_tx_count', type: 'computed', align: 'end', compute: r => fmt(r.tx_count || 0) },
+  ],
+  apiUrl: '/api/invest-accounts',
+  onLoad: rows => { allAccounts = rows; },
+  onSave:   () => accountGrid.load(),
+  onDelete: () => accountGrid.load(),
+});
+
+function openAccountModal() {
+  accountGrid.load();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('accountModal')).show();
+}
+loadAccounts();
+
 // ── 주식 거래내역 ──
 const stockTxGrid = new GridTable({
   tableId: 'stockTxTable',
@@ -1215,11 +1305,13 @@ const stockTxGrid = new GridTable({
     { key: 'stock_id', type: 'select',
       options: () => allStocks.map(s => ({ value: String(s.id), label: s.name + (s.ticker ? ` (${s.ticker})` : '') })),
       render: (v, row) => row.name || '-' },
+    TX_ACCOUNT_COLUMN,
     { key: 'tx_type',  type: 'select',
       options: [{value:'buy',label:'매수'},{value:'sell',label:'매도'}],
       render: v => v === 'buy'
         ? '<span class="badge bg-danger-subtle text-danger">매수</span>'
         : '<span class="badge bg-primary-subtle text-primary">매도</span>' },
+    TX_OPENING_COLUMN,
     { key: 'price',    type: 'number', align: 'end',
       render: (v, r) => isForeign(r?.ticker) ? fmtUsd(v) : fmt(v) },
     { key: 'quantity', type: 'number', align: 'end', step: 0.001 },
@@ -1317,11 +1409,13 @@ const etfTxGrid = new GridTable({
     { key: 'etf_id',   type: 'select',
       options: () => allEtfs.map(e => ({ value: String(e.id), label: e.name + (e.ticker ? ` (${e.ticker})` : '') })),
       render: (v, row) => row.name || '-' },
+    TX_ACCOUNT_COLUMN,
     { key: 'tx_type',  type: 'select',
       options: [{value:'buy',label:'매수'},{value:'sell',label:'매도'}],
       render: v => v === 'buy'
         ? '<span class="badge bg-danger-subtle text-danger">매수</span>'
         : '<span class="badge bg-primary-subtle text-primary">매도</span>' },
+    TX_OPENING_COLUMN,
     { key: 'price',    type: 'number', align: 'end',
       render: (v, r) => isForeign(r?.ticker) ? fmtUsd(v) : fmt(v) },
     { key: 'quantity', type: 'number', align: 'end', step: 0.001 },
@@ -2039,7 +2133,7 @@ function renderTxPage(page) {
   tbody.innerHTML = '';
   
   if (pageData.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted py-4">
+    tbody.innerHTML = `<tr><td colspan="12" class="text-center text-muted py-4">
       검색 결과가 없습니다.</td></tr>`;
   } else {
     pageData.forEach(t => {
@@ -2049,11 +2143,13 @@ function renderTxPage(page) {
         <tr data-id="${t.id}" class="grid-row">
           <td>${t.tx_date}</td>
           <td>${t.name || '-'}</td>
+          <td>${t.account_name || '<span class="text-muted">-</span>'}</td>
           <td class="text-center">
             <span class="badge ${isBuy ? 'bg-danger-subtle text-danger' : 'bg-primary-subtle text-primary'}">
               ${isBuy ? '매수' : '매도'}
             </span>
           </td>
+          <td>${t.is_opening ? '<span class="badge bg-warning-subtle text-warning-emphasis">기초 보유</span>' : ''}</td>
           <td class="text-end">${isForeign(t.ticker) ? fmtUsd(t.price) : formatKRW(t.price)}</td>
           <td class="text-end">${t.quantity}</td>
           <td class="text-end"><span class="fw-semibold">${formatKRW(toKrw(totalAmt, t.ticker))}</span></td>

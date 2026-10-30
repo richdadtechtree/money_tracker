@@ -862,6 +862,24 @@ def init_db():
             created_at  TIMESTAMP DEFAULT NOW()
         )""",
         "CREATE INDEX IF NOT EXISTS idx_realized_pnl_archive_year ON realized_pnl_archive(year)",
+        # 투자 계좌 마스터 + 거래에 계좌/기초보유 표시 연결 (투자 관리 대개편 Step 2)
+        #  - is_opening: "기초 보유" 거래. tx_type 은 'buy' 로 저장해 기존 수량/평단 계산을 그대로 쓰되,
+        #    현금 자동조정·월별 투자금 집계에서만 제외한다.
+        """CREATE TABLE IF NOT EXISTS invest_accounts (
+            id          SERIAL PRIMARY KEY,
+            name        TEXT NOT NULL,
+            broker      TEXT,
+            acct_type   TEXT DEFAULT '일반',
+            sort_order  INTEGER DEFAULT 0,
+            is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+            memo        TEXT
+        )""",
+        "ALTER TABLE stock_tx ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES invest_accounts(id)",
+        "ALTER TABLE etf_tx   ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES invest_accounts(id)",
+        "ALTER TABLE stock_tx ADD COLUMN IF NOT EXISTS is_opening BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE etf_tx   ADD COLUMN IF NOT EXISTS is_opening BOOLEAN NOT NULL DEFAULT FALSE",
+        "CREATE INDEX IF NOT EXISTS idx_stock_tx_account ON stock_tx(account_id)",
+        "CREATE INDEX IF NOT EXISTS idx_etf_tx_account ON etf_tx(account_id)",
         """CREATE TABLE IF NOT EXISTS rebalance_assignments (
             id          SERIAL PRIMARY KEY,
             source_type TEXT NOT NULL,
