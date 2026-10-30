@@ -43,6 +43,29 @@
   </div>
 </div>
 
+<!-- 계좌 선택 칩: 선택한 계좌 기준으로 주식/ETF 탭의 종목·거래·손익이 바뀐다 -->
+<div class="d-flex flex-wrap align-items-center gap-2 mb-2" id="accountChips"></div>
+<div class="card border-0 shadow-sm mb-3" id="accountSummaryCard" style="display:none">
+  <div class="card-body py-2">
+    <a class="small fw-semibold text-decoration-none" data-bs-toggle="collapse" href="#accountSummaryBody">
+      <i class="bi bi-bank2 me-1"></i>계좌별 손익 <i class="bi bi-chevron-down small"></i>
+    </a>
+    <div class="collapse show" id="accountSummaryBody">
+      <div class="table-responsive mt-2">
+        <table class="table table-sm align-middle mb-1">
+          <thead class="table-light">
+            <tr><th>계좌</th><th class="text-end">평가금액</th><th class="text-end">매입금액</th>
+                <th class="text-end">평가손익</th><th class="text-end">수익률</th>
+                <th class="text-end">실현손익(누적)</th><th class="text-end">합계</th></tr>
+          </thead>
+          <tbody id="accountSummaryBody2"></tbody>
+        </table>
+      </div>
+      <div class="small text-muted" id="accountSummaryNote"></div>
+    </div>
+  </div>
+</div>
+
 <ul class="nav nav-tabs mb-3" id="investTabs">
   <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-stocks">주식</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-etf">ETF</a></li>
@@ -1226,8 +1249,11 @@ const stockGrid = new GridTable({
         매수계획</button>` },
   ],
   apiUrl: '/api/stocks',
+  getQueryParams: () => accountQuery(),
   onLoad: rows => {
-    allStocks = rows;
+    // 계좌별 보기에서는 rows 가 그 계좌의 종목뿐이라, 거래 입력 폼의 종목 선택지는 전체 목록을 따로 유지한다
+    if (currentAccount === '') allStocks = rows;
+    else fetchJSON('/api/stocks').then(all => { if (all) allStocks = all; });
     const sel = document.getElementById('txStockFilter') || document.getElementById('tx-search-stock');
     if (sel) {
       const cur = sel.value;
@@ -1252,9 +1278,87 @@ const stockGrid = new GridTable({
 
 // ── 투자 계좌 (거래내역 그리드의 '계좌' 선택지 + 계좌 관리 모달) ──
 let allAccounts = [];
+let currentAccount = '';        // '' = 전체, '0' = 계좌 미지정, 그 외 = 계좌 id (문자열)
+let accountSummary = null;
 
 async function loadAccounts() {
   allAccounts = (await fetchJSON('/api/invest-accounts')) || [];
+}
+
+/** 현재 선택된 계좌를 API 쿼리스트링 조각으로 만든다 (전체면 빈 문자열) */
+function accountQuery() {
+  return currentAccount === '' ? '' : `account_id=${currentAccount}`;
+}
+/** 기존 쿼리스트링에 계좌 조건을 이어 붙인다 */
+function withAccount(qs) {
+  const a = accountQuery();
+  return [qs, a].filter(Boolean).join('&');
+}
+
+async function loadAccountSummary() {
+  accountSummary = await fetchJSON('/api/invest-accounts/summary');
+}
+
+/** 칩/요약 표를 새로 그린다. 계좌·거래가 바뀔 때마다 호출 */
+async function refreshAccountBar() {
+  await Promise.all([loadAccounts(), loadAccountSummary()]);
+  renderAccountBar();
+}
+
+function renderAccountBar() {
+  const rows = accountSummary?.accounts || [];
+  const byId = new Map(rows.map(r => [String(r.id), r]));
+  const chip = (val, label) => {
+    const on = currentAccount === val;
+    return `<button type="button" class="btn btn-sm ${on ? 'btn-primary' : 'btn-outline-secondary'}" onclick="selectAccount('${val}')">${label}</button>`;
+  };
+  // 사용 중인 계좌 + 보유/거래가 있는 중지 계좌 (선택돼 있는 계좌는 항상 보이게)
+  const shown = allAccounts.filter(a => a.is_active || a.tx_count > 0 || String(a.id) === currentAccount);
+  let html = chip('', '전체') + shown.map(a => chip(String(a.id), a.name + (a.is_active ? '' : ' (중지)'))).join('');
+  if (byId.has('null') || currentAccount === '0') html += chip('0', '계좌 미지정');
+  document.getElementById('accountChips').innerHTML = html;
+
+  const card = document.getElementById('accountSummaryCard');
+  if (!rows.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const body = rows.map(r => {
+    const key = r.id === null ? '0' : String(r.id);
+    return `<tr style="cursor:pointer" onclick="selectAccount('${key}')" class="${currentAccount === key ? 'table-active' : ''}">
+      <td class="fw-semibold">${r.name}${r.is_active ? '' : ' <span class="badge bg-secondary-subtle text-secondary">중지</span>'}</td>
+      <td class="text-end">${fmt(r.eval_amount)}원</td>
+      <td class="text-end text-muted">${fmt(r.cost_amount)}원</td>
+      <td class="text-end">${pnlHtml(r.unrealized_pnl)}</td>
+      <td class="text-end">${rateHtml(r.cost_amount ? r.return_rate : null)}</td>
+      <td class="text-end">${pnlHtml(r.realized_pnl)}</td>
+      <td class="text-end fw-semibold">${pnlHtml(r.total_pnl)}</td></tr>`;
+  }).join('');
+  const t = accountSummary.totals;
+  const foot = `<tr class="table-light fw-semibold"><td>합계</td>
+      <td class="text-end">${fmt(t.eval_amount)}원</td><td class="text-end text-muted">${fmt(t.cost_amount)}원</td>
+      <td class="text-end">${pnlHtml(t.unrealized_pnl)}</td>
+      <td class="text-end">${rateHtml(t.cost_amount ? Math.round(t.unrealized_pnl / t.cost_amount * 10000) / 100 : null)}</td>
+      <td class="text-end">${pnlHtml(t.realized_pnl)}</td>
+      <td class="text-end">${pnlHtml(t.unrealized_pnl + t.realized_pnl)}</td></tr>`;
+  document.getElementById('accountSummaryBody2').innerHTML = body + foot;
+  document.getElementById('accountSummaryNote').textContent =
+    '주식·ETF 기준이며 종목×계좌 단위 이동평균 매입단가로 계산합니다.' +
+    (accountSummary.ipo_realized ? ` 공모주 실현손익 ${fmt(accountSummary.ipo_realized)}원은 계좌에 속하지 않아 위 합계에 포함되지 않습니다.` : '') +
+    ' 한 줄을 누르면 그 계좌로 필터링됩니다.';
+}
+
+/** 계좌 칩 선택 → 주식/ETF 탭을 그 계좌 기준으로 다시 불러온다 */
+async function selectAccount(val) {
+  currentAccount = (val === currentAccount) ? '' : val;   // 같은 칩을 다시 누르면 전체로
+  renderAccountBar();
+  await Promise.all([stockGrid.load(), etfGrid.load()]);   // 각 onLoad 에서 거래내역 그리드도 이어서 로드
+}
+
+/** 거래 입력 행을 열 때, 계좌 칩이 선택돼 있으면 그 계좌를 기본값으로 채운다 */
+function prefillAccount(tr, r) {
+  if (r && r.id === 'new' && currentAccount !== '' && currentAccount !== '0') {
+    const sel = tr.querySelector('[data-key="account_id"]');
+    if (sel) sel.value = currentAccount;
+  }
 }
 
 /** 거래내역 그리드 공용 '계좌' 컬럼 — 중지된 계좌도 선택지에 남겨 두어야 기존 거래의 계좌가 저장 때 지워지지 않는다 */
@@ -1287,15 +1391,15 @@ const accountGrid = new GridTable({
   ],
   apiUrl: '/api/invest-accounts',
   onLoad: rows => { allAccounts = rows; },
-  onSave:   () => accountGrid.load(),
-  onDelete: () => accountGrid.load(),
+  onSave:   () => { accountGrid.load(); refreshAccountBar(); },
+  onDelete: () => { accountGrid.load(); refreshAccountBar(); },
 });
 
 function openAccountModal() {
   accountGrid.load();
   bootstrap.Modal.getOrCreateInstance(document.getElementById('accountModal')).show();
 }
-loadAccounts();
+refreshAccountBar();
 
 // ── 주식 거래내역 ──
 const stockTxGrid = new GridTable({
@@ -1334,15 +1438,16 @@ const stockTxGrid = new GridTable({
   getQueryParams: () => {
     const filterEl = document.getElementById('txStockFilter') || document.getElementById('tx-search-stock');
     const sid = filterEl ? filterEl.value : '';
-    return sid ? `stock_id=${sid}` : '';
+    return withAccount(sid ? `stock_id=${sid}` : '');
   },
   onLoad: () => {
     loadStockTx();
   },
-  onSave:   () => stockGrid.load(),
-  onDelete: () => stockGrid.load(),
+  onSave:   () => { stockGrid.load(); loadAccountSummary().then(renderAccountBar); },
+  onDelete: () => { stockGrid.load(); loadAccountSummary().then(renderAccountBar); },
   onStartEdit: (tr, r) => {
     bindTxEditFields(tr, r, false);
+    prefillAccount(tr, r);
   },
 });
 
@@ -1379,8 +1484,10 @@ const etfGrid = new GridTable({
         매수계획</button>` },
   ],
   apiUrl: '/api/etf',
+  getQueryParams: () => accountQuery(),
   onLoad: rows => {
-    allEtfs = rows;
+    if (currentAccount === '') allEtfs = rows;
+    else fetchJSON('/api/etf').then(all => { if (all) allEtfs = all; });
     const sel = document.getElementById('txEtfFilter');
     const cur = sel.value;
     sel.innerHTML = '<option value="">전체 종목</option>' +
@@ -1437,13 +1544,14 @@ const etfTxGrid = new GridTable({
   apiUrl: '/api/etf-tx',
   getQueryParams: () => {
     const eid = document.getElementById('txEtfFilter').value;
-    return eid ? `etf_id=${eid}` : '';
+    return withAccount(eid ? `etf_id=${eid}` : '');
   },
   onLoad: () => {},
-  onSave:   () => etfGrid.load(),
-  onDelete: () => etfGrid.load(),
+  onSave:   () => { etfGrid.load(); loadAccountSummary().then(renderAccountBar); },
+  onDelete: () => { etfGrid.load(); loadAccountSummary().then(renderAccountBar); },
   onStartEdit: (tr, r) => {
     bindTxEditFields(tr, r, true);
+    prefillAccount(tr, r);
   },
 });
 
@@ -2049,9 +2157,7 @@ let txCurrentPage  = 1;
 
 // ── 거래내역 로드 (기존 API 그대로 활용) ──
 async function loadStockTx(stockId = null) {
-  const url = stockId
-    ? `/api/stock-tx?stock_id=${stockId}`
-    : '/api/stock-tx';
+  const url = '/api/stock-tx' + (withAccount(stockId ? `stock_id=${stockId}` : '') ? '?' + withAccount(stockId ? `stock_id=${stockId}` : '') : '');
   const data = await fetchJSON(url);
   allTxData  = data || [];
   
