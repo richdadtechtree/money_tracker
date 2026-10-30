@@ -2016,7 +2016,7 @@ def api_invest_accounts_summary():
 _CASH_KIND_SIGN = {'init': 1, 'deposit': 1, 'dividend': 1, 'withdraw': -1, 'fee': -1}
 _CASH_KIND_LABEL = {'init': '기초 예수금', 'deposit': '입금', 'withdraw': '출금', 'dividend': '배당금', 'fee': '수수료',
                     'exchange': '환전', 'transfer_in': '이체 입금', 'transfer_out': '이체 출금',
-                    'buy': '매수', 'sell': '매도'}
+                    'buy': '매수', 'sell': '매도', 'adjust': '잔액 조정'}
 
 
 def get_account_cash_map(db):
@@ -2129,6 +2129,57 @@ def api_invest_account_cash(aid):
         return jsonify({'error': str(e)}), 500
     cur.close(); db.close()
     return jsonify({'ok': True, 'id': new_id}), 201
+
+
+@app.route('/api/invest-accounts/<int:aid>/cash-balance', methods=['PUT'])
+def api_invest_account_cash_balance(aid):
+    """예수금 잔액을 '현재 이 금액'으로 직접 맞춘다. (처음 입력하거나 증권사 잔액과 어긋났을 때)
+    {krw?, usd?, tx_date?, memo?} — 보낸 통화만 처리하고, 목표 금액과 현재 원장 합계의 차이를
+    '잔액 조정'(kind=adjust) 한 줄로 기록한다. 차이가 없으면 아무것도 기록하지 않는다."""
+    data = request.json or {}
+    targets = {}
+    for key, cur_code in (('krw', 'KRW'), ('usd', 'USD')):
+        raw = data.get(key)
+        if raw in (None, ''):
+            continue
+        try:
+            v = float(str(raw).replace(',', ''))
+        except (TypeError, ValueError):
+            return jsonify({'error': '금액이 올바르지 않습니다.'}), 400
+        if v != v or v in (float('inf'), float('-inf')):
+            return jsonify({'error': '금액이 올바르지 않습니다.'}), 400
+        targets[cur_code] = round(v) if cur_code == 'KRW' else round(v, 2)
+    if not targets:
+        return jsonify({'error': '맞출 금액(krw 또는 usd)을 입력해 주세요.'}), 400
+    try:
+        tx_date = _parse_cash_date(data.get('tx_date'))
+    except ValueError:
+        return jsonify({'error': '날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)'}), 400
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT 1 FROM invest_accounts WHERE id=%s", (aid,))
+    if not cur.fetchone():
+        cur.close(); db.close()
+        return jsonify({'error': '존재하지 않는 계좌입니다.'}), 404
+    bal = get_account_cash_map(db).get(aid, {'krw': 0.0, 'usd': 0.0})
+    changed = {}
+    try:
+        for cur_code, target in targets.items():
+            now = bal['krw'] if cur_code == 'KRW' else bal['usd']
+            delta = round(target - now) if cur_code == 'KRW' else round(target - now, 4)
+            if delta == 0:
+                continue
+            cur.execute("""INSERT INTO account_cash_tx (account_id, tx_date, currency, kind, amount, memo)
+                           VALUES (%s,%s,%s,'adjust',%s,%s)""",
+                        (aid, tx_date, cur_code, delta, data.get('memo') or '잔액 직접 설정'))
+            changed[cur_code.lower()] = delta
+        _ensure_and_sync_deposit_row(db)
+    except Exception as e:
+        db.rollback()
+        cur.close(); db.close()
+        return jsonify({'error': str(e)}), 500
+    cur.close(); db.close()
+    return jsonify({'ok': True, 'changed': changed})
 
 
 @app.route('/api/invest-accounts/<int:aid>/exchange', methods=['POST'])

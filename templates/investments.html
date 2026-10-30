@@ -74,6 +74,7 @@
     <div class="fw-bold" id="cashBarKrw">-</div>
     <div class="fw-bold" id="cashBarUsd">-</div>
     <div class="ms-auto d-flex gap-2 flex-wrap" id="cashBarBtns">
+      <button class="btn btn-sm btn-outline-primary" onclick="openBalanceModal()"><i class="bi bi-pencil-square me-1"></i>잔액 설정</button>
       <button class="btn btn-sm btn-outline-primary" onclick="openCashModal('deposit')"><i class="bi bi-box-arrow-in-down me-1"></i>입금</button>
       <button class="btn btn-sm btn-outline-secondary" onclick="openCashModal('withdraw')"><i class="bi bi-box-arrow-up me-1"></i>출금</button>
       <button class="btn btn-sm btn-outline-secondary" onclick="openFxModal()"><i class="bi bi-currency-exchange me-1"></i>환전</button>
@@ -1088,6 +1089,31 @@
   </div>
 </div>
 
+<!-- 예수금 잔액 직접 설정 모달 -->
+<div class="modal fade" id="balanceModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="balanceTitle">예수금 잔액 설정</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label small mb-1">원화 예수금 (원)</label>
+            <input type="text" inputmode="decimal" class="form-control form-control-sm" id="balanceKrw" data-no-dirty></div>
+          <div class="col-6"><label class="form-label small mb-1">달러 예수금 ($)</label>
+            <input type="text" inputmode="decimal" class="form-control form-control-sm" id="balanceUsd" data-no-dirty></div>
+          <div class="col-6"><label class="form-label small mb-1">날짜</label>
+            <input type="date" class="form-control form-control-sm" id="balanceDate" data-no-dirty></div>
+          <div class="col-6"><label class="form-label small mb-1">메모</label>
+            <input type="text" class="form-control form-control-sm" id="balanceMemo" data-no-dirty></div>
+        </div>
+        <div class="small text-muted mt-2">증권사 앱에 보이는 <strong>현재 예수금</strong>을 그대로 입력하세요.
+          지금 잔액과의 차이가 '잔액 조정' 한 줄로 기록되고, 이후 매수·매도·입출금은 이 금액에서 늘거나 줄어듭니다.</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary btn-sm" onclick="saveBalance()">저장</button></div>
+    </div>
+  </div>
+</div>
+
 <!-- 환전 모달 -->
 <div class="modal fade" id="fxModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
@@ -1423,7 +1449,7 @@ function renderAccountBar() {
       <td class="text-end">${rateHtml(r.cost_amount ? r.return_rate : null)}</td>
       <td class="text-end">${pnlHtml(r.realized_pnl)}</td>
       <td class="text-end fw-semibold">${pnlHtml(r.total_pnl)}</td>
-      <td class="text-end small">${cashCellHtml(r.cash_krw, r.cash_usd)}</td></tr>`;
+      <td class="text-end small" style="min-width:200px; max-width:240px">${r.id === null ? cashCellHtml(0, 0) : accountCashCellHtml(r)}</td></tr>`;
   }).join('');
   const t = accountSummary.totals;
   const foot = `<tr class="table-light fw-semibold"><td>합계</td>
@@ -1446,6 +1472,23 @@ function fmtUsdCash(v) {
   return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 /** 요약 표의 예수금 칸: 원화/달러를 줄바꿈으로, 음수는 빨간색 */
+/** 계좌 줄의 예수금 칸: 원화·달러를 항상 둘 다 보여주고, 그 줄에서 바로 잔액 설정/입금/출금/환전/내역을 연다 */
+function accountCashCellHtml(r) {
+  const id = r.id;
+  // 아이콘 대신 글자 버튼: 처음 보는 사람도 무엇인지 바로 알 수 있게
+  const btn = (label, call, cls = 'btn-outline-secondary') =>
+    `<button type="button" class="btn ${cls} py-0 px-1" style="font-size:.72rem" onclick="event.stopPropagation(); ${call}">${label}</button>`;
+  return `<div class="${r.cash_krw < 0 ? 'text-danger' : ''}">${fmt(r.cash_krw || 0)}원</div>
+    <div class="${r.cash_usd < 0 ? 'text-danger' : ''}">${fmtUsdCash(r.cash_usd || 0)}</div>
+    <div class="d-flex flex-wrap gap-1 justify-content-end mt-1">
+      ${btn('잔액설정', `openBalanceModal('${id}')`, 'btn-outline-primary')}
+      ${btn('입금', `openCashModal('deposit','${id}')`)}
+      ${btn('출금', `openCashModal('withdraw','${id}')`)}
+      ${btn('환전', `openFxModal('${id}')`)}
+      ${btn('내역', `openCashLedger('${id}')`)}
+    </div>`;
+}
+/** 합계 줄 등: 원화/달러를 줄바꿈으로, 음수는 빨간색 (0이면 해당 통화 생략) */
 function cashCellHtml(krw, usd) {
   const parts = [];
   if (krw || !usd) parts.push(`<span class="${krw < 0 ? 'text-danger' : ''}">${fmt(krw || 0)}원</span>`);
@@ -1474,7 +1517,10 @@ function renderCashBar() {
 function _todayStr() { return new Date().toISOString().split('T')[0]; }
 function _num(id) { return parseFloat((document.getElementById(id).value || '').replace(/,/g, '')) || 0; }
 
-function openCashModal(kind) {
+let cashTargetAccount = '';   // 예수금 창들이 작업 중인 계좌 id (행 버튼/예수금 바 어느 쪽에서 열어도 같은 흐름)
+
+function openCashModal(kind, acctId) {
+  cashTargetAccount = acctId || currentAccount;
   document.getElementById('cashKind').value = kind || 'deposit';
   document.getElementById('cashCurrency').value = 'KRW';
   document.getElementById('cashAmount').value = '';
@@ -1490,13 +1536,35 @@ async function saveCash() {
     amount: _num('cashAmount'), tx_date: document.getElementById('cashDate').value,
     memo: document.getElementById('cashMemo').value,
   };
-  const res = await fetchJSON(`/api/invest-accounts/${currentAccount}/cash`,
+  const res = await fetchJSON(`/api/invest-accounts/${cashTargetAccount}/cash`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (res === null) { alert(fetchJSON.lastError || '저장하지 못했습니다.'); return; }
   _afterSaveSuccess('cashModal', refreshAccountBar);   // 입력 유실 방지(Form Guard) 확인창 없이 닫고 임시저장도 지운다
 }
 
-function openFxModal() {
+/** 잔액 직접 설정: 현재 증권사에 있는 금액을 그대로 입력하면 차액이 '잔액 조정'으로 기록된다 */
+function openBalanceModal(acctId) {
+  cashTargetAccount = acctId || currentAccount;
+  const r = (accountSummary?.accounts || []).find(a => String(a.id) === String(cashTargetAccount));
+  document.getElementById('balanceTitle').textContent = `${r ? r.name : '계좌'} 예수금 잔액 설정`;
+  document.getElementById('balanceKrw').value = r ? String(r.cash_krw || 0) : '0';
+  document.getElementById('balanceUsd').value = r ? String(r.cash_usd || 0) : '0';
+  document.getElementById('balanceDate').value = _todayStr();
+  document.getElementById('balanceMemo').value = '';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('balanceModal')).show();
+}
+
+async function saveBalance() {
+  const body = { krw: _num('balanceKrw'), usd: _num('balanceUsd'),
+                 tx_date: document.getElementById('balanceDate').value, memo: document.getElementById('balanceMemo').value };
+  const res = await fetchJSON(`/api/invest-accounts/${cashTargetAccount}/cash-balance`,
+    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (res === null) { alert(fetchJSON.lastError || '저장하지 못했습니다.'); return; }
+  _afterSaveSuccess('balanceModal', refreshAccountBar);
+}
+
+function openFxModal(acctId) {
+  cashTargetAccount = acctId || currentAccount;
   document.getElementById('fxFrom').value = 'KRW';
   document.getElementById('fxAmount').value = '';
   document.getElementById('fxRate').value = usdKrw ? String(Math.round(usdKrw * 100) / 100) : '';
@@ -1519,14 +1587,15 @@ function updateFxPreview() {
 async function saveFx() {
   const body = { from_currency: document.getElementById('fxFrom').value, amount: _num('fxAmount'), rate: _num('fxRate'),
                  tx_date: document.getElementById('fxDate').value, memo: document.getElementById('fxMemo').value };
-  const res = await fetchJSON(`/api/invest-accounts/${currentAccount}/exchange`,
+  const res = await fetchJSON(`/api/invest-accounts/${cashTargetAccount}/exchange`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (res === null) { alert(fetchJSON.lastError || '환전하지 못했습니다.'); return; }
   _afterSaveSuccess('fxModal', refreshAccountBar);
 }
 
-async function openCashLedger() {
-  const data = await fetchJSON(`/api/invest-accounts/${currentAccount}/cash`);
+async function openCashLedger(acctId) {
+  cashTargetAccount = acctId || cashTargetAccount || currentAccount;
+  const data = await fetchJSON(`/api/invest-accounts/${cashTargetAccount}/cash`);
   if (!data) { alert(fetchJSON.lastError || '내역을 불러오지 못했습니다.'); return; }
   document.getElementById('cashLedgerTitle').textContent = `${data.account} 예수금 내역`;
   document.getElementById('cashLedgerBody').innerHTML = data.entries.length ? data.entries.map(e => `
