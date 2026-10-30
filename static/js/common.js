@@ -15,6 +15,14 @@ function fmt(n) {
  * fetchJSON.lastError 에 담아둔다. 그래야 화면에서 "왜 저장이 안 됐는지"를
  * 사용자에게 보여줄 수 있다. (예: "보유 수량(0)보다 많은 수량을 매도할 수 없습니다.")
  */
+/** 오늘 날짜(YYYY-MM-DD)를 사용자 기기의 현지 시간 기준으로 돌려준다.
+ *  new Date().toISOString() 은 UTC 기준이라 한국 시간 0~9시에는 어제 날짜가 나온다. */
+function todayLocalStr() {
+  const d = new Date();
+  const p2 = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+}
+
 async function fetchJSON(url, opts = {}) {
   fetchJSON.lastError = null;
   let res;
@@ -298,7 +306,7 @@ class GridTable {
       }
       const raw = r[col.key] ?? '';
       const v = (col.type === 'date' && raw === '')
-        ? new Date().toISOString().split('T')[0]
+        ? todayLocalStr()
         : raw;
       // placeholder: 문자열 또는 행(row)을 받는 함수 모두 지원
       const phRaw = typeof col.placeholder === 'function' ? col.placeholder(r) : col.placeholder;

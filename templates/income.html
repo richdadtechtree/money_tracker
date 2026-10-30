@@ -202,7 +202,7 @@ function openAddModal() {
   if (!addModal) addModal = new bootstrap.Modal(document.getElementById('addIncomeModal'));
 
   // 기본값 초기화
-  document.getElementById('mi_date').value     = new Date().toISOString().split('T')[0];
+  document.getElementById('mi_date').value     = todayLocalStr();
   document.getElementById('mi_category').value = '';
   document.getElementById('mi_name').value     = '';
   document.getElementById('mi_amount').value   = '';

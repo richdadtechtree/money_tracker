@@ -144,6 +144,7 @@
                 <th class="text-end">수익률</th>
                 <th class="text-end">실현손익</th>
                 <th>메모</th>
+                <th class="text-center">매매</th>
                 <th class="text-center">매수계획</th>
                 <th class="text-center">삭제</th>
               </tr>
@@ -163,7 +164,7 @@
             <i class="bi bi-arrow-repeat me-1"></i>실현손익 재계산
           </button>
           <small class="text-muted d-none d-lg-inline" title="매수·매도는 선택한 계좌의 예수금에서 자동으로 빠지고 더해집니다 (국내=원화, 해외=달러, 원화로 결제했다면 '결제'에서 원화 선택). 이미 보유 중인 종목을 처음 등록할 때는 구분=매수, 기초보유=기초 보유로 입력하세요. 단가에는 평균 매입단가를 넣으며 예수금은 변하지 않습니다.">
-            <i class="bi bi-info-circle"></i> 매매는 계좌 예수금에 자동 반영 · 기존 보유분은 '기초보유'
+            <i class="bi bi-info-circle"></i> 매매는 계좌 예수금에 자동 반영 · 종목 줄의 [매수]/[매도]로 빠르게 등록 · 기존 보유분은 '기초보유'
           </small>
           <button class="btn btn-primary btn-sm" onclick="stockTxGrid.addRow()">
             <i class="bi bi-plus-lg me-1"></i>거래 입력
@@ -306,6 +307,7 @@
                 <th class="text-end">수익률</th>
                 <th class="text-end">실현손익</th>
                 <th>메모</th>
+                <th class="text-center">매매</th>
                 <th class="text-center">매수계획</th>
                 <th class="text-center">삭제</th>
               </tr>
@@ -325,7 +327,7 @@
             <option value="">전체 종목</option>
           </select>
           <small class="text-muted d-none d-lg-inline" title="매수·매도는 선택한 계좌의 예수금에서 자동으로 빠지고 더해집니다 (국내=원화, 해외=달러, 원화로 결제했다면 '결제'에서 원화 선택). 이미 보유 중인 종목을 처음 등록할 때는 구분=매수, 기초보유=기초 보유로 입력하세요. 단가에는 평균 매입단가를 넣으며 예수금은 변하지 않습니다.">
-            <i class="bi bi-info-circle"></i> 매매는 계좌 예수금에 자동 반영 · 기존 보유분은 '기초보유'
+            <i class="bi bi-info-circle"></i> 매매는 계좌 예수금에 자동 반영 · 종목 줄의 [매수]/[매도]로 빠르게 등록 · 기존 보유분은 '기초보유'
           </small>
           <button class="btn btn-primary btn-sm" onclick="etfTxGrid.addRow()">
             <i class="bi bi-plus-lg me-1"></i>거래 입력
@@ -1062,6 +1064,42 @@
   </div>
 </div>
 
+<!-- 빠른 매매 모달: 포지션 표의 [매수]/[매도] 버튼 -->
+<div class="modal fade" id="quickTradeModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="qtTitle">빠른 매매</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="btn-group w-100 mb-3" role="group">
+          <button type="button" class="btn btn-outline-danger" id="qtSideBuy" onclick="setQuickSide('buy')">매수</button>
+          <button type="button" class="btn btn-outline-primary" id="qtSideSell" onclick="setQuickSide('sell')">매도</button>
+        </div>
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label small mb-1">계좌</label>
+            <select class="form-select form-select-sm" id="qtAccount" data-no-dirty onchange="updateQuickPreview()"></select></div>
+          <div class="col-6"><label class="form-label small mb-1">날짜 <span class="text-muted">(나중에 거래내역에서 수정)</span></label>
+            <input type="date" class="form-control form-control-sm" id="qtDate" data-no-dirty></div>
+          <div class="col-6"><label class="form-label small mb-1" id="qtPriceLabel">단가</label>
+            <input type="text" inputmode="decimal" class="form-control form-control-sm" id="qtPrice" data-no-dirty oninput="updateQuickPreview()"></div>
+          <div class="col-6"><label class="form-label small mb-1">수량 <span class="text-muted small" id="qtHold"></span></label>
+            <input type="text" inputmode="decimal" class="form-control form-control-sm" id="qtQty" placeholder="0" oninput="updateQuickPreview()"></div>
+          <div class="col-6"><label class="form-label small mb-1" id="qtFeeLabel">수수료</label>
+            <input type="text" inputmode="decimal" class="form-control form-control-sm" id="qtFee" data-no-dirty oninput="updateQuickPreview()"></div>
+          <div class="col-6" id="qtSettleWrap" style="display:none"><label class="form-label small mb-1">결제 통화</label>
+            <select class="form-select form-select-sm" id="qtSettle" data-no-dirty onchange="updateQuickPreview()">
+              <option value="USD">달러 예수금</option><option value="KRW">원화 예수금 (환율 환산)</option></select></div>
+          <div class="col-12"><label class="form-label small mb-1">메모</label>
+            <input type="text" class="form-control form-control-sm" id="qtMemo"></div>
+        </div>
+        <div class="small mt-2 fw-semibold" id="qtPreview"></div>
+        <div class="small text-muted mt-1" id="qtPreview2"></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary btn-sm" onclick="saveQuickTrade()">등록</button></div>
+    </div>
+  </div>
+</div>
+
 <!-- 예수금 입금/출금 모달 -->
 <div class="modal fade" id="cashModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
@@ -1365,6 +1403,8 @@ const stockGrid = new GridTable({
     { key: '_real',   type: 'computed', align: 'end',
       compute: r => (r.sell_qty != null && r.sell_qty > 0) ? pnlHtml(toKrw(r.realized_pnl, r.ticker)) : '-' },
     { key: 'memo',    type: 'text' },
+    { key: '_trade', type: 'computed', align: 'center', noEdit: true,
+      compute: r => quickTradeButtons('stock', r.id) },
     { key: '_plan', type: 'computed', align: 'center', noEdit: true,
       compute: r => `<button class="btn btn-xs btn-outline-primary py-0 px-1"
         onclick="event.stopPropagation();openSplitPlanForStock('stock',${r.id},${JSON.stringify(r.name)},${r.current_price||0},${JSON.stringify(r.ticker||'')})">
@@ -1519,7 +1559,7 @@ function renderCashBar() {
   document.getElementById('cashBarBtns').style.display = acct ? '' : 'none';
 }
 
-function _todayStr() { return new Date().toISOString().split('T')[0]; }
+function _todayStr() { return todayLocalStr(); }
 function _num(id) { return parseFloat((document.getElementById(id).value || '').replace(/,/g, '')) || 0; }
 
 window.onTransferDone = () => refreshAccountBar();   // 이체 후 예수금 표시를 새로 그린다
@@ -1621,6 +1661,110 @@ async function deleteCashEntry(id) {
   await refreshAccountBar();
   openCashLedger();
 }
+
+// ── 빠른 매매: 포지션 표의 [매수]/[매도] ─────────────────────────
+let quickTrade = null;   // { source: 'stock'|'etf', row, side }
+
+function quickTradeButtons(source, id) {
+  const b = (label, side, cls) =>
+    `<button type="button" class="btn ${cls} py-0 px-1" style="font-size:.72rem"
+       onclick="event.stopPropagation(); openQuickTrade('${source}', ${id}, '${side}')">${label}</button>`;
+  return `<div class="d-flex gap-1 justify-content-center">${b('매수', 'buy', 'btn-outline-danger')}${b('매도', 'sell', 'btn-outline-primary')}</div>`;
+}
+
+function openQuickTrade(source, id, side) {
+  const grid = source === 'stock' ? stockGrid : etfGrid;
+  const row = grid.rows.find(r => r.id === id);
+  if (!row) return;
+  const activeAccts = allAccounts.filter(a => a.is_active);
+  if (!activeAccts.length) { alert('투자 계좌가 없습니다. [계좌 관리]에서 먼저 등록해 주세요.'); return; }
+  quickTrade = { source, row, side };
+  const foreign = isForeign(row.ticker);
+  document.getElementById('qtTitle').textContent = `${row.name}${row.ticker ? ' (' + row.ticker + ')' : ''}`;
+  // 계좌: 칩으로 선택한 계좌가 기본값, 전체 보기에서는 직접 고르게 한다
+  const sel = document.getElementById('qtAccount');
+  sel.innerHTML = '<option value="">계좌 선택</option>' + activeAccts.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+  sel.value = (currentAccount !== '' && currentAccount !== '0' && activeAccts.some(a => String(a.id) === currentAccount)) ? currentAccount : '';
+  document.getElementById('qtDate').value = _todayStr();            // 기본 오늘 (필요하면 거래내역에서 수정)
+  document.getElementById('qtPrice').value = row.current_price ? String(row.current_price) : '';
+  document.getElementById('qtPriceLabel').textContent = foreign ? '단가 ($)' : '단가 (원)';
+  document.getElementById('qtFeeLabel').textContent = foreign ? '수수료 ($)' : '수수료 (원)';
+  document.getElementById('qtQty').value = '';
+  document.getElementById('qtFee').value = '0';
+  document.getElementById('qtMemo').value = '';
+  document.getElementById('qtSettle').value = 'USD';
+  document.getElementById('qtSettleWrap').style.display = foreign ? '' : 'none';
+  setQuickSide(side);
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('quickTradeModal')).show();
+  setTimeout(() => document.getElementById('qtQty').focus(), 300);
+}
+
+function setQuickSide(side) {
+  if (!quickTrade) return;
+  quickTrade.side = side;
+  document.getElementById('qtSideBuy').classList.toggle('active', side === 'buy');
+  document.getElementById('qtSideSell').classList.toggle('active', side === 'sell');
+  updateQuickPreview();
+}
+
+/** 입력값으로 거래금액과 예수금 변화를 미리 보여준다 */
+function updateQuickPreview() {
+  if (!quickTrade) return;
+  const { row, side } = quickTrade;
+  const foreign = isForeign(row.ticker);
+  const price = _num('qtPrice'), qty = _num('qtQty'), fee = _num('qtFee');
+  const acctId = document.getElementById('qtAccount').value;
+  // 보유 수량 안내: 계좌 칩으로 필터된 화면의 행은 그 계좌 기준 수량이다
+  document.getElementById('qtHold').textContent =
+    (acctId && acctId === currentAccount && row.quantity != null) ? `(보유 ${row.quantity})` : '';
+  const pv = document.getElementById('qtPreview'), pv2 = document.getElementById('qtPreview2');
+  if (!price || !qty) { pv.textContent = ''; pv2.textContent = ''; return; }
+  const gross = price * qty;
+  const money = v => foreign ? fmtUsdCash(v) : fmt(Math.round(v)) + '원';
+  pv.textContent = `${side === 'buy' ? '매수' : '매도'} 금액 ${money(gross)}` + (fee ? ` (수수료 ${money(fee)})` : '');
+  // 예수금 변화: 결제 통화(국내=원화, 해외=달러/원화 선택)
+  const settle = foreign ? document.getElementById('qtSettle').value : 'KRW';
+  let delta = side === 'buy' ? -(gross + fee) : (gross - fee);
+  if (foreign && settle === 'KRW') delta *= usdKrw;
+  const acct = (accountSummary?.accounts || []).find(a => String(a.id) === acctId);
+  const now = acct ? (settle === 'USD' ? acct.cash_usd : acct.cash_krw) : null;
+  const fmtCash = v => settle === 'USD' ? fmtUsdCash(v) : fmt(Math.round(v)) + '원';
+  pv2.textContent = acct
+    ? `${acct.name} ${settle === 'USD' ? '달러' : '원화'} 예수금 ${fmtCash(now)} → ${fmtCash(now + delta)}`
+    : '계좌를 선택하면 예수금 변화를 보여줍니다.';
+  pv2.className = 'small mt-1 ' + (acct && now + delta < 0 ? 'text-danger' : 'text-muted');
+}
+
+async function saveQuickTrade() {
+  if (!quickTrade) return;
+  const { source, row, side } = quickTrade;
+  const price = _num('qtPrice'), qty = _num('qtQty');
+  const acctId = document.getElementById('qtAccount').value;
+  if (!acctId) { alert('계좌를 선택해 주세요.'); return; }
+  if (!(qty > 0)) { alert('수량을 입력해 주세요.'); return; }
+  if (!(price > 0)) { alert('단가를 입력해 주세요.'); return; }
+  const body = {
+    tx_date: document.getElementById('qtDate').value, tx_type: side, price, quantity: qty,
+    fee: _num('qtFee'), memo: document.getElementById('qtMemo').value, account_id: acctId, is_opening: '0',
+  };
+  body[source === 'stock' ? 'stock_id' : 'etf_id'] = row.id;
+  if (isForeign(row.ticker)) body.settle_currency = document.getElementById('qtSettle').value;
+  const res = await fetchJSON(source === 'stock' ? '/api/stock-tx' : '/api/etf-tx',
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (res === null) { alert(fetchJSON.lastError || '등록하지 못했습니다.'); return; }
+  _afterSaveSuccess('quickTradeModal', async () => {
+    if (res.warning) alert(res.warning);
+    await Promise.all([stockGrid.load(), etfGrid.load()]);     // 각 onLoad 에서 거래내역도 이어서 갱신
+    refreshAccountBar();
+  });
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('quickTradeModal')?.classList.contains('show')
+      && ['qtQty', 'qtPrice', 'qtFee', 'qtMemo'].includes(document.activeElement?.id)) {
+    e.preventDefault(); saveQuickTrade();
+  }
+});
 
 /** 계좌 칩 선택 → 주식/ETF 탭을 그 계좌 기준으로 다시 불러온다 */
 async function selectAccount(val) {
@@ -1764,6 +1908,8 @@ const etfGrid = new GridTable({
     { key: '_real',   type: 'computed', align: 'end',
       compute: r => (r.sell_qty != null && r.sell_qty > 0) ? pnlHtml(toKrw(r.realized_pnl, r.ticker)) : '-' },
     { key: 'memo',    type: 'text' },
+    { key: '_trade', type: 'computed', align: 'center', noEdit: true,
+      compute: r => quickTradeButtons('etf', r.id) },
     { key: '_plan', type: 'computed', align: 'center', noEdit: true,
       compute: r => `<button class="btn btn-xs btn-outline-primary py-0 px-1"
         onclick="event.stopPropagation();openSplitPlanForStock('etf',${r.id},${JSON.stringify(r.name)},${r.current_price||0},${JSON.stringify(r.ticker||'')})">

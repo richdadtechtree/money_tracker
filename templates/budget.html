@@ -551,7 +551,7 @@ async function processVoice(text) {
     return;
   }
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = todayLocalStr();
   const res = await fetchJSON('/api/budget', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
