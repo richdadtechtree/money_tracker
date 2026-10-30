@@ -900,6 +900,9 @@ def init_db():
             UNIQUE (ref_type, ref_id, account_id, currency)
         )""",
         "CREATE INDEX IF NOT EXISTS idx_account_cash_tx_account ON account_cash_tx(account_id, tx_date)",
+        # 매수·매도의 결제 통화 (대개편 Step 5): 해외 종목은 기본 USD(달러 예수금), 원화로 결제하면 KRW(환율 환산 차감)
+        "ALTER TABLE stock_tx ADD COLUMN IF NOT EXISTS settle_currency TEXT",
+        "ALTER TABLE etf_tx   ADD COLUMN IF NOT EXISTS settle_currency TEXT",
         # 계좌 간 이체 (대개편 Step 6): 현금관리 통장 ↔ 투자 계좌, 투자 계좌 ↔ 투자 계좌
         #  - from_type/to_type: 'bank'(현금관리 통장, cash_deposits.id) / 'invest'(투자 계좌, invest_accounts.id)
         #  - 투자 계좌 쪽은 예수금 원장(account_cash_tx, ref_type='transfer')에, 통장 쪽은 cash_deposits 금액에 반영된다.

@@ -162,8 +162,8 @@
           <button class="btn btn-outline-secondary btn-sm" onclick="recalcAllRealizedPnl()">
             <i class="bi bi-arrow-repeat me-1"></i>실현손익 재계산
           </button>
-          <small class="text-muted d-none d-lg-inline" title="이미 보유 중인 종목을 처음 등록할 때는 구분=매수, 기초보유=기초 보유로 입력하세요. 단가에는 평균 매입단가를 넣으며 통장 잔액은 변하지 않습니다.">
-            <i class="bi bi-info-circle"></i> 기존 보유분은 '기초보유'로 입력
+          <small class="text-muted d-none d-lg-inline" title="매수·매도는 선택한 계좌의 예수금에서 자동으로 빠지고 더해집니다 (국내=원화, 해외=달러, 원화로 결제했다면 '결제'에서 원화 선택). 이미 보유 중인 종목을 처음 등록할 때는 구분=매수, 기초보유=기초 보유로 입력하세요. 단가에는 평균 매입단가를 넣으며 예수금은 변하지 않습니다.">
+            <i class="bi bi-info-circle"></i> 매매는 계좌 예수금에 자동 반영 · 기존 보유분은 '기초보유'
           </small>
           <button class="btn btn-primary btn-sm" onclick="stockTxGrid.addRow()">
             <i class="bi bi-plus-lg me-1"></i>거래 입력
@@ -230,6 +230,7 @@
                 <th class="text-end">수량</th>
                 <th class="text-end">거래금액</th>
                 <th class="text-end">수수료</th>
+                <th>결제</th>
                 <th class="text-end">실현손익</th>
                 <th>메모</th>
                 <th class="text-center">삭제</th>
@@ -323,8 +324,8 @@
           <select id="txEtfFilter" class="form-select form-select-sm" style="width:auto" onchange="etfTxGrid.load()">
             <option value="">전체 종목</option>
           </select>
-          <small class="text-muted d-none d-lg-inline" title="이미 보유 중인 종목을 처음 등록할 때는 구분=매수, 기초보유=기초 보유로 입력하세요. 단가에는 평균 매입단가를 넣으며 통장 잔액은 변하지 않습니다.">
-            <i class="bi bi-info-circle"></i> 기존 보유분은 '기초보유'로 입력
+          <small class="text-muted d-none d-lg-inline" title="매수·매도는 선택한 계좌의 예수금에서 자동으로 빠지고 더해집니다 (국내=원화, 해외=달러, 원화로 결제했다면 '결제'에서 원화 선택). 이미 보유 중인 종목을 처음 등록할 때는 구분=매수, 기초보유=기초 보유로 입력하세요. 단가에는 평균 매입단가를 넣으며 예수금은 변하지 않습니다.">
+            <i class="bi bi-info-circle"></i> 매매는 계좌 예수금에 자동 반영 · 기존 보유분은 '기초보유'
           </small>
           <button class="btn btn-primary btn-sm" onclick="etfTxGrid.addRow()">
             <i class="bi bi-plus-lg me-1"></i>거래 입력
@@ -341,6 +342,7 @@
                 <th class="text-end">수량</th>
                 <th class="text-end">거래금액</th>
                 <th class="text-end">수수료</th>
+                <th>결제</th>
                 <th class="text-end">실현손익</th>
                 <th>메모</th>
                 <th class="text-center">삭제</th>
@@ -1641,6 +1643,15 @@ const TX_ACCOUNT_COLUMN = {
   options: () => allAccounts.map(a => ({ value: String(a.id), label: a.name + (a.is_active ? '' : ' (중지)') })),
   render: (v, r) => r.account_name || '<span class="text-muted">-</span>',
 };
+/** 거래내역 그리드 공용 '결제' 컬럼 — 어느 통화 예수금에서 빠지는지. 비워 두면 국내=원화, 해외=달러 */
+const TX_SETTLE_COLUMN = {
+  key: 'settle_currency', type: 'select',
+  options: [{ value: 'KRW', label: '원화' }, { value: 'USD', label: '달러' }],
+  render: (v, r) => r.is_opening ? '<span class="text-muted">-</span>'
+    : (v === 'USD' ? '<span class="badge bg-success-subtle text-success">달러</span>'
+    : v === 'KRW' ? '<span class="badge bg-secondary-subtle text-secondary-emphasis">원화</span>'
+    : '<span class="text-muted">-</span>'),
+};
 /** 거래내역 그리드 공용 '기초보유' 컬럼 */
 const TX_OPENING_COLUMN = {
   key: 'is_opening', type: 'select',
@@ -1701,6 +1712,7 @@ const stockTxGrid = new GridTable({
       }},
     { key: 'fee',      type: 'number', align: 'end', step: 0.01,
       render: (v, r) => v ? (isForeign(r?.ticker) ? fmtUsd(v) : fmt(v)) : '-' },
+    TX_SETTLE_COLUMN,
     { key: 'realized_pnl', type: 'computed', align: 'end',
       compute: r => {
         if (r && (r.tx_type === 'buy' || r.tx_type === '매수')) return '-';
@@ -1717,7 +1729,7 @@ const stockTxGrid = new GridTable({
   onLoad: () => {
     loadStockTx();
   },
-  onSave:   () => { stockGrid.load(); loadAccountSummary().then(renderAccountBar); },
+  onSave:   (res) => { if (res?.warning) alert(res.warning); stockGrid.load(); loadAccountSummary().then(renderAccountBar); },
   onDelete: () => { stockGrid.load(); loadAccountSummary().then(renderAccountBar); },
   onStartEdit: (tr, r) => {
     bindTxEditFields(tr, r, false);
@@ -1808,6 +1820,7 @@ const etfTxGrid = new GridTable({
       }},
     { key: 'fee',      type: 'number', align: 'end', step: 0.01,
       render: (v, r) => v ? (isForeign(r?.ticker) ? fmtUsd(v) : fmt(v)) : '-' },
+    TX_SETTLE_COLUMN,
     { key: 'realized_pnl', type: 'computed', align: 'end',
       compute: r => {
         if (r && (r.tx_type === 'buy' || r.tx_type === '매수')) return '-';
@@ -1821,7 +1834,7 @@ const etfTxGrid = new GridTable({
     return withAccount(eid ? `etf_id=${eid}` : '');
   },
   onLoad: () => {},
-  onSave:   () => { etfGrid.load(); loadAccountSummary().then(renderAccountBar); },
+  onSave:   (res) => { if (res?.warning) alert(res.warning); etfGrid.load(); loadAccountSummary().then(renderAccountBar); },
   onDelete: () => { etfGrid.load(); loadAccountSummary().then(renderAccountBar); },
   onStartEdit: (tr, r) => {
     bindTxEditFields(tr, r, true);
@@ -2513,7 +2526,7 @@ function renderTxPage(page) {
   tbody.innerHTML = '';
   
   if (pageData.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="12" class="text-center text-muted py-4">
+    tbody.innerHTML = `<tr><td colspan="13" class="text-center text-muted py-4">
       검색 결과가 없습니다.</td></tr>`;
   } else {
     pageData.forEach(t => {
@@ -2534,6 +2547,7 @@ function renderTxPage(page) {
           <td class="text-end">${t.quantity}</td>
           <td class="text-end"><span class="fw-semibold">${formatKRW(toKrw(totalAmt, t.ticker))}</span></td>
           <td class="text-end text-muted">${isForeign(t.ticker) ? fmtUsd(t.fee) : formatKRW(t.fee)}</td>
+          <td>${t.is_opening ? '<span class="text-muted">-</span>' : t.settle_currency === 'USD' ? '<span class="badge bg-success-subtle text-success">달러</span>' : t.settle_currency === 'KRW' ? '<span class="badge bg-secondary-subtle text-secondary-emphasis">원화</span>' : '<span class="text-muted">-</span>'}</td>
           <td class="text-end">${isBuy ? '-' : pnlHtml(toKrw(t.realized_pnl || 0, t.ticker))}</td>
           <td class="text-muted small">${t.memo || ''}</td>
           <td class="text-center">
