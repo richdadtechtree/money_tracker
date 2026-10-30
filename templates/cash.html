@@ -80,9 +80,6 @@
       <span class="badge bg-success text-white ms-2 fs-xs">자동 반영됨</span>
     </h5>
     <div class="d-flex gap-2">
-      <button class="btn btn-sm btn-outline-warning" onclick="recalcForeignAdj()" id="btnRecalcFgn" title="달러 ETF/주식 매수 금액을 현재 환율로 재계산">
-        <i class="bi bi-currency-exchange me-1"></i>달러→원화 재계산
-      </button>
       <button class="btn btn-sm btn-outline-secondary" onclick="clearAdjustments()" id="btnClearAdj">
         <i class="bi bi-x-circle me-1"></i>내역 초기화
       </button>
@@ -91,7 +88,8 @@
   <div class="card-body">
     <p class="adj-hint small mb-3">
       <i class="bi bi-info-circle me-1"></i>
-      주식·ETF <strong>매수</strong> 또는 부동산 <strong>납입 확정</strong> 시 현금에 <strong>즉시 자동 반영</strong>됩니다. (증권 계좌로 옮긴 돈은 <strong>이체</strong> 기능을 쓰세요)
+      부동산 <strong>납입 확정</strong> 시 현금에 <strong>즉시 자동 반영</strong>됩니다. 주식·ETF <strong>매수·매도</strong>는 더 이상 이 통장들이 아니라
+      해당 <strong>투자 계좌의 예수금</strong>에 반영됩니다. (증권 계좌로 옮긴 돈은 <strong>이체</strong> 기능을 쓰세요)
       현금 잔액을 <strong>직접 수정하면</strong> 자동 조정 내역이 초기화됩니다.
     </p>
     <div id="adjList" class="text-center text-muted py-3">조회 중...</div>
@@ -333,23 +331,6 @@ async function loadAutoAdjustments() {
             </tfoot>
           </table>
         </div>`;
-}
-
-async function recalcForeignAdj() {
-    const btn = document.getElementById('btnRecalcFgn');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>재계산 중...';
-    try {
-        const res = await fetchJSON('/api/cash-auto-adjustments/recalc-foreign', { method: 'POST' });
-        if (res && res.ok) {
-            alert(`달러→원화 재계산 완료 (${res.fixed}건, 환율: ${res.exchange_rate.toLocaleString()}원)`);
-            grid.load();
-            loadAutoAdjustments();
-        }
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-currency-exchange me-1"></i>달러→원화 재계산';
-    }
 }
 
 async function clearAdjustments() {
