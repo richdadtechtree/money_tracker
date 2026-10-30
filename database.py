@@ -921,6 +921,22 @@ def init_db():
             memo        TEXT,
             created_at  TIMESTAMP DEFAULT NOW()
         )""",
+        # 연말 계좌 스냅샷 (대개편 Step 7~8): 과거 연도의 총손익 카드에 쓰는 '그 해 말 평가손익'과 연도별 기록의 원천
+        #  - account_id NULL = 계좌에 속하지 않는 항목(예: 기록용 합계 한 줄)
+        """CREATE TABLE IF NOT EXISTS account_year_snapshots (
+            id              SERIAL PRIMARY KEY,
+            year            INTEGER NOT NULL,
+            account_id      INTEGER REFERENCES invest_accounts(id),
+            eval_amount     BIGINT DEFAULT 0,
+            cost_amount     BIGINT DEFAULT 0,
+            unrealized_pnl  BIGINT DEFAULT 0,
+            realized_pnl    BIGINT DEFAULT 0,
+            cash_krw        BIGINT DEFAULT 0,
+            cash_usd        NUMERIC(18,2) DEFAULT 0,
+            is_manual       BOOLEAN DEFAULT FALSE,
+            memo            TEXT
+        )""",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_account_year_snapshots ON account_year_snapshots (year, COALESCE(account_id, 0))",
         # 현금관리의 '예수금' 잠금 행: 모든 투자 계좌 예수금 합계로 자동 갱신되며 직접 수정/삭제할 수 없다
         """INSERT INTO cash_deposits (name, amount, memo, updated_date, krw_amount, usd_amount, is_system)
            SELECT '예수금', 0, '투자 계좌 예수금 합계 (자동 연동, 수정 불가)', TO_CHAR(NOW(),'YYYY-MM-DD'), 0, 0, TRUE

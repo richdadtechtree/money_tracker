@@ -19,18 +19,27 @@
   <div class="card-body py-3">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
       <div class="fw-bold"><i class="bi bi-wallet2 me-1 text-primary"></i>투자 총손익
-        <small class="text-muted fw-normal">(주식·ETF·공모주, 실현 + 평가)</small></div>
-      <button class="btn btn-outline-secondary btn-sm" onclick="toggleTotalPnlChart()" id="totalPnlChartBtn">
-        <i class="bi bi-bar-chart-line me-1"></i>월간 그래프
-      </button>
+        <small class="text-muted fw-normal">(주식·ETF·공모주·코인, 실현 + 평가)</small></div>
+      <div class="d-flex align-items-center gap-2">
+        <!-- 연도 선택: 올해는 실시간, 과거 연도는 그 해 실현손익 + 연말 평가손익 기록 -->
+        <div class="btn-group btn-group-sm" role="group" aria-label="연도 선택">
+          <button type="button" class="btn btn-outline-secondary" id="pnlYearPrev" onclick="changePnlYear(-1)">◀</button>
+          <span class="btn btn-outline-primary disabled fw-semibold" id="pnlYearLabel" style="min-width:76px">-</span>
+          <button type="button" class="btn btn-outline-secondary" id="pnlYearNext" onclick="changePnlYear(1)">▶</button>
+        </div>
+        <button class="btn btn-outline-secondary btn-sm" onclick="toggleTotalPnlChart()" id="totalPnlChartBtn">
+          <i class="bi bi-bar-chart-line me-1"></i>월간 그래프
+        </button>
+      </div>
     </div>
     <div class="row g-2 text-center">
       <div class="col-12 col-md-4"><div class="rounded bg-light p-2">
         <div class="small text-muted">총손익</div><div id="tpTotal" class="fs-4 fw-bold">-</div></div></div>
       <div class="col-6 col-md-4"><div class="rounded bg-light p-2">
-        <div class="small text-muted">실현손익 <span class="text-muted">(확정)</span></div><div id="tpRealized" class="fw-bold">-</div></div></div>
+        <div class="small text-muted">실현손익 <span class="text-muted" id="tpRealizedYear">(확정)</span></div><div id="tpRealized" class="fw-bold">-</div>
+        <div id="tpBreakdown" class="small text-muted"></div></div></div>
       <div class="col-6 col-md-4"><div class="rounded bg-light p-2">
-        <div class="small text-muted">평가손익 <span class="text-muted">(보유 중)</span></div><div id="tpUnrealized" class="fw-bold">-</div>
+        <div class="small text-muted">평가손익 <span class="text-muted" id="tpUnrealizedLabel">(보유 중)</span></div><div id="tpUnrealized" class="fw-bold">-</div>
         <div id="tpUnrealizedRate" class="small"></div></div></div>
     </div>
     <div id="totalPnlChartWrap" style="display:none" class="mt-3">
@@ -56,7 +65,7 @@
           <thead class="table-light">
             <tr><th>계좌</th><th class="text-end">평가금액</th><th class="text-end">매입금액</th>
                 <th class="text-end">평가손익</th><th class="text-end">수익률</th>
-                <th class="text-end">실현손익(누적)</th><th class="text-end">합계</th>
+                <th class="text-end" id="acctRealizedHead">실현손익</th><th class="text-end">합계</th>
                 <th class="text-end">예수금</th></tr>
           </thead>
           <tbody id="accountSummaryBody2"></tbody>
@@ -1442,6 +1451,8 @@ const stockGrid = new GridTable({
 let allAccounts = [];
 let currentAccount = '';        // '' = 전체, '0' = 계좌 미지정, 그 외 = 계좌 id (문자열)
 let accountSummary = null;
+let _pnlYear = new Date().getFullYear();   // 상단 카드·계좌별 표가 보여주는 연도 (◀ ▶로 변경). 스크립트 앞쪽에서 쓰이므로 여기서 선언한다
+let _pnlYears = [];
 
 async function loadAccounts() {
   allAccounts = (await fetchJSON('/api/invest-accounts')) || [];
@@ -1458,7 +1469,7 @@ function withAccount(qs) {
 }
 
 async function loadAccountSummary() {
-  accountSummary = await fetchJSON('/api/invest-accounts/summary');
+  accountSummary = await fetchJSON('/api/invest-accounts/summary' + (_pnlYear ? `?year=${_pnlYear}` : ''));
 }
 
 /** 칩/요약 표를 새로 그린다. 계좌·거래가 바뀔 때마다 호출 */
@@ -1504,10 +1515,14 @@ function renderAccountBar() {
       <td class="text-end">${pnlHtml(t.unrealized_pnl + t.realized_pnl)}</td>
       <td class="text-end small">${cashCellHtml(t.cash_krw, t.cash_usd)}</td></tr>`;
   document.getElementById('accountSummaryBody2').innerHTML = body + foot;
+  document.getElementById('acctRealizedHead').textContent = `실현손익(${_pnlYear || '누적'}${_pnlYear ? '년' : ''})`;
   renderCashBar();
+  // 계좌에 속하지 않는 실현손익(공모주·코인·초기화 전 박제분)은 표 합계에 없으므로 따로 알려준다
+  const others = [['공모주', accountSummary.ipo_realized], ['코인', accountSummary.crypto_realized], ['이전 기록', accountSummary.archive_realized]]
+    .filter(([, v]) => v).map(([n, v]) => `${n} ${v > 0 ? '+' : ''}${fmt(v)}원`);
   document.getElementById('accountSummaryNote').textContent =
-    '주식·ETF 기준이며 종목×계좌 단위 이동평균 매입단가로 계산합니다.' +
-    (accountSummary.ipo_realized ? ` 공모주 실현손익 ${fmt(accountSummary.ipo_realized)}원은 계좌에 속하지 않아 위 합계에 포함되지 않습니다.` : '') +
+    '평가금액·평가손익은 현재 보유분(종목×계좌 이동평균 매입단가) 기준이고, 실현손익은 선택한 연도 기준입니다.' +
+    (others.length ? ` 계좌에 속하지 않는 실현손익 — ${others.join(', ')} — 은 위 합계에 포함되지 않습니다.` : '') +
     ' 한 줄을 누르면 그 계좌로 필터링됩니다.';
 }
 
@@ -2102,14 +2117,45 @@ const ipoGrid = new GridTable({
 // ── 투자 총손익 카드 / 월간 총손익 그래프 ──
 let _totalPnlData = null, _totalPnlChart = null;
 async function loadTotalPnl() {
-  const res = await fetchJSON('/api/total-pnl');
+  const res = await fetchJSON('/api/total-pnl' + (_pnlYear ? `?year=${_pnlYear}` : ''));
   if (!res) return;
   _totalPnlData = res;
+  _pnlYear = res.year;
+  _pnlYears = res.years || [res.year];
+  document.getElementById('pnlYearLabel').textContent = `${res.year}년`;
+  document.getElementById('pnlYearPrev').disabled = res.year <= Math.min(..._pnlYears);
+  document.getElementById('pnlYearNext').disabled = res.year >= Math.max(..._pnlYears);
+
   document.getElementById('tpTotal').innerHTML      = pnlHtml(res.total_pnl);
   document.getElementById('tpRealized').innerHTML   = pnlHtml(res.realized_pnl);
-  document.getElementById('tpUnrealized').innerHTML = pnlHtml(res.unrealized_pnl);
-  document.getElementById('tpUnrealizedRate').innerHTML =
-    res.unrealized_rate == null ? '' : '보유원금 대비 ' + rateHtml(res.unrealized_rate);
+  document.getElementById('tpRealizedYear').textContent = `(${res.year}년 확정)`;
+  // 실현손익 구성: 주식·ETF·공모주·코인·박제(초기화 전 기록)
+  const bd = res.realized_breakdown || {};
+  const names = { stock: '주식', etf: 'ETF', ipo: '공모주', crypto: '코인', archive: '이전 기록' };
+  document.getElementById('tpBreakdown').textContent = Object.keys(names)
+    .filter(k => bd[k]).map(k => `${names[k]} ${bd[k] > 0 ? '+' : ''}${fmt(bd[k])}`).join(' · ');
+
+  const label = document.getElementById('tpUnrealizedLabel');
+  if (res.unrealized_pnl == null) {
+    // 과거 연도에 연말 평가손익 기록이 없는 경우: 총손익은 실현손익만 반영된다
+    document.getElementById('tpUnrealized').innerHTML = '<span class="text-muted">기록 없음</span>';
+    document.getElementById('tpUnrealizedRate').innerHTML = '<span class="text-muted">총손익에는 실현손익만 반영</span>';
+    label.textContent = `(${res.year}년 말)`;
+  } else {
+    document.getElementById('tpUnrealized').innerHTML = pnlHtml(res.unrealized_pnl);
+    label.textContent = res.unrealized_source === 'live' ? '(보유 중, 현재가 기준)' : `(${res.year}년 말 기록)`;
+    document.getElementById('tpUnrealizedRate').innerHTML =
+      res.unrealized_rate == null ? '' : '보유원금 대비 ' + rateHtml(res.unrealized_rate);
+  }
+  if (document.getElementById('totalPnlChartWrap').style.display !== 'none') renderTotalPnlChart();
+}
+
+/** 연도 이동(◀ ▶): 상단 카드와 계좌별 손익 표(실현손익 열)를 그 해 기준으로 다시 불러온다 */
+async function changePnlYear(delta) {
+  const next = (_pnlYear || new Date().getFullYear()) + delta;
+  if (!_pnlYears.includes(next) && (next < Math.min(..._pnlYears) || next > Math.max(..._pnlYears))) return;
+  _pnlYear = next;
+  await Promise.all([loadTotalPnl(), refreshAccountBar()]);
 }
 function toggleTotalPnlChart() {
   const wrap = document.getElementById('totalPnlChartWrap');
