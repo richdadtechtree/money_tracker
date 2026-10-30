@@ -1554,6 +1554,38 @@ def _walk_positions(txs, seed=None):
     return out, qty, avg
 
 
+def _acct_of(tx):
+    """거래 행에서 account_id 를 꺼낸다. 컬럼이 없는 행(구버전 쿼리)은 '계좌 미지정'(None)으로 본다."""
+    try:
+        return tx['account_id']
+    except (KeyError, IndexError):
+        return None
+
+
+def _walk_positions_by_account(txs, seed=None):
+    """
+    같은 종목의 거래를 계좌별로 나눠 각각 이동평균 포지션을 굴린 뒤 합친다.
+    증권사마다 평단가·실현손익이 따로 계산되므로 '종목 × 계좌' 단위가 맞다.
+
+    - 수기 강제값(seed)은 종목 전체에 걸린 값이라 '계좌 미지정' 거래 묶음에만 적용한다.
+      (계좌 지정 거래가 하나도 없는 기존 종목은 예전 계산과 완전히 같다)
+    - 반환: (tx id -> 매도 실현손익, 전체 수량, 전체 평단가(수량 가중평균))
+    """
+    groups = {}
+    for tx in txs:
+        groups.setdefault(_acct_of(tx), []).append(tx)
+    if seed is not None and None not in groups:
+        groups[None] = []        # 강제값은 거래가 없어도 적용돼야 한다
+
+    out, tot_qty, tot_cost = {}, 0.0, 0.0
+    for acct, grp in groups.items():
+        pnl_map, qty, avg = _walk_positions(grp, seed if acct is None else None)
+        out.update(pnl_map)
+        tot_qty += qty
+        tot_cost += qty * avg
+    return out, tot_qty, (tot_cost / tot_qty if tot_qty > 0 else 0.0)
+
+
 def recalc_realized_pnl(db, item_id, is_etf=False):
     """해당 종목의 모든 거래를 날짜순으로 다시 훑어 매도 건의 실현손익을 일괄 재계산/저장한다.
     과거 거래 하나를 수정/삭제해도 이후 매도 건들의 실현손익이 항상 정합성을 유지하도록 한다.
@@ -1567,11 +1599,11 @@ def recalc_realized_pnl(db, item_id, is_etf=False):
                 (item_id,))
     seed = _override_seed(cur.fetchone())
 
-    cur.execute(f"SELECT id, tx_date, tx_type, price, quantity FROM {table} WHERE {col} = %s ORDER BY tx_date, id",
+    cur.execute(f"SELECT id, tx_date, tx_type, price, quantity, account_id FROM {table} WHERE {col} = %s ORDER BY tx_date, id",
                 (item_id,))
     txs = cur.fetchall()
 
-    pnl_map, _qty, _avg = _walk_positions(txs, seed)
+    pnl_map, _qty, _avg = _walk_positions_by_account(txs, seed)
     for tx in txs:
         if tx['tx_type'] in ('sell', '매도'):
             cur.execute(f"UPDATE {table} SET realized_pnl = %s WHERE id = %s",
@@ -1593,7 +1625,7 @@ def compute_realized_pnl_map(rows, key_col, seeds=None):
     result = {}
     for item_id, grp in groups.items():
         grp_sorted = sorted(grp, key=lambda r: (r['tx_date'], r['id']))
-        pnl_map, _qty, _avg = _walk_positions(grp_sorted, seeds.get(item_id))
+        pnl_map, _qty, _avg = _walk_positions_by_account(grp_sorted, seeds.get(item_id))
         result.update(pnl_map)
     return result
 
@@ -1637,16 +1669,36 @@ def _qty_before(db, item_id, tx_date, tx_type, table, col, exclude_id=None):
     return qty
 
 
+def _account_filter(arg):
+    """account_id 쿼리값 → (SQL 조각, 파라미터, 필터 여부). 거래 테이블 별칭은 t.
+    ''/없음 = 전체, '0' = 계좌 미지정, 숫자 = 해당 계좌."""
+    if arg in (None, ''):
+        return '', [], False
+    if str(arg) in ('0', 'none'):
+        return ' AND t.account_id IS NULL', [], True
+    try:
+        return ' AND t.account_id = %s', [int(arg)], True
+    except (TypeError, ValueError):
+        return ' AND FALSE', [], True
+
+
 # ── API: 주식 ────────────────────────────────────────────────
 @app.route('/api/stocks', methods=['GET', 'POST'])
 def api_stocks():
     db = get_db()
     if request.method == 'GET':
+        # ?account_id= : 해당 계좌의 거래만으로 수량·평단·손익을 계산하고, 그 계좌에 거래가 없는 종목은 뺀다.
+        # (수기 강제값은 종목 전체 값이라 계좌별 보기에서는 적용하지 않는다)
+        acct_cond, acct_params, by_acct = _account_filter(request.args.get('account_id'))
         cur = db.cursor()
         cur.execute("SELECT id, name, ticker, current_price, dividend, memo, category, COALESCE(ath,0) as ath, "
                     "realized_pnl_override, qty_override, avg_price_override, override_anchor_tx_id "
                     "FROM stocks ORDER BY name")
         stocks = [dict(r) for r in cur.fetchall()]
+        if by_acct:
+            for s_ in stocks:
+                s_['realized_pnl_override'] = s_['qty_override'] = s_['avg_price_override'] = None
+                s_['override_anchor_tx_id'] = None
         # SQL 기반 qty (대시보드·테크트리와 동일 기준, 음수 0 처리)
         cur.execute("""
             SELECT s.id,
@@ -1654,14 +1706,16 @@ def api_stocks():
                           - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0)) AS qty,
                 COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
                 COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty
-            FROM stocks s LEFT JOIN stock_tx t ON t.stock_id = s.id
+            FROM stocks s LEFT JOIN stock_tx t ON t.stock_id = s.id""" + acct_cond + """
             GROUP BY s.id
-        """)
+        """, acct_params)
         # 화면의 '실현손익' 칸은 sell_qty > 0 일 때만 값을 보여주므로 ETF API 와 동일하게 함께 내려준다
         sql_qty = {r['id']: {'qty': float(r['qty'] or 0), 'buy_qty': float(r['buy_qty'] or 0),
                              'sell_qty': float(r['sell_qty'] or 0)} for r in cur.fetchall()}
         # avg_price / realized_pnl 은 calc_position(FIFO) 사용
-        cur.execute("SELECT id, stock_id, tx_type, price, quantity, COALESCE(fee,0) as fee, COALESCE(realized_pnl,0) as realized_pnl FROM stock_tx ORDER BY stock_id, tx_date, id")
+        cur.execute("SELECT t.id, t.stock_id, t.account_id, t.tx_type, t.price, t.quantity, COALESCE(t.fee,0) as fee, "
+                    "COALESCE(t.realized_pnl,0) as realized_pnl FROM stock_tx t WHERE TRUE" + acct_cond +
+                    " ORDER BY t.stock_id, t.tx_date, t.id", acct_params)
         all_tx = cur.fetchall()
         cur.close()
 
@@ -1674,6 +1728,8 @@ def api_stocks():
         try:
             for s in stocks:
                 info     = sql_qty.get(s['id'], {'qty': 0.0, 'buy_qty': 0.0, 'sell_qty': 0.0})
+                if by_acct and info['buy_qty'] == 0 and info['sell_qty'] == 0:
+                    continue   # 이 계좌에서 거래한 적 없는 종목
                 qty_calc = info['qty']
                 _, avg_calc, _ = calc_position(tx_by_stock[s['id']])   # 강제값 없는 '원래' 평단가
                 avg_calc = avg_calc if (avg_calc is not None and avg_calc == avg_calc) else 0.0  # NaN guard
@@ -1873,6 +1929,79 @@ def api_invest_accounts_detail(aid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/invest-accounts/summary')
+def api_invest_accounts_summary():
+    """계좌별 평가금액 / 매입금액 / 평가손익 / 실현손익 요약.
+    - 평가·매입: 종목 × 계좌 단위 이동평균 포지션 (해외 종목은 현재 환율로 원화 환산)
+    - 실현손익: _calc_realized_records() 와 같은 기준(수수료 반영). ?year=YYYY 를 주면 그 해 매도분만.
+    - 수기 강제값(qty/avg override)은 종목 전체 값이라 '계좌 미지정' 거래 묶음에만 적용한다.
+    - 공모주 실현손익은 계좌에 속하지 않아 ipo_realized 로 따로 돌려준다."""
+    year = request.args.get('year')
+    ex_rate = get_current_exchange_rate()
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT id, name, acct_type, is_active FROM invest_accounts ORDER BY sort_order, id")
+    accts = {r['id']: {'id': r['id'], 'name': r['name'], 'acct_type': r['acct_type'],
+                       'is_active': bool(r['is_active'])} for r in cur.fetchall()}
+    accts[None] = {'id': None, 'name': '계좌 미지정', 'acct_type': '', 'is_active': True}
+    for a in accts.values():
+        a.update({'eval_amount': 0.0, 'cost_amount': 0.0, 'realized_pnl': 0.0, 'holdings': 0})
+
+    for master, tx_table, col in (('stocks', 'stock_tx', 'stock_id'), ('etf', 'etf_tx', 'etf_id')):
+        cur.execute(f"SELECT id, ticker, current_price, qty_override, avg_price_override, override_anchor_tx_id FROM {master}")
+        masters = {r['id']: dict(r) for r in cur.fetchall()}
+        cur.execute(f"SELECT id, {col} AS item_id, account_id, tx_type, price, quantity FROM {tx_table} "
+                    f"ORDER BY {col}, tx_date, id")
+        groups = {}
+        for tx in cur.fetchall():
+            groups.setdefault((tx['item_id'], tx['account_id']), []).append(tx)
+        for item_id, m in masters.items():
+            seed = _override_seed(m)
+            if seed is not None and (item_id, None) not in groups:
+                groups[(item_id, None)] = []        # 거래 없이 강제값만 있는 종목
+        for (item_id, acct_id), txs in groups.items():
+            m = masters.get(item_id)
+            if m is None:
+                continue
+            _pnl, qty, avg = _walk_positions(txs, _override_seed(m) if acct_id is None else None)
+            if qty <= 0:
+                continue
+            mul = ex_rate if is_foreign_ticker(m['ticker']) else 1.0
+            a = accts.get(acct_id) or accts[None]
+            a['eval_amount'] += round(qty * _sf(m['current_price'])) * mul
+            a['cost_amount'] += round(qty * avg) * mul
+            a['holdings'] += 1
+    cur.close(); db.close()
+
+    ipo_realized = 0.0
+    for r in _calc_realized_records():
+        if year and not (r['date'] or '').startswith(f"{int(year)}-"):
+            continue
+        if r['source'] == 'ipo':
+            ipo_realized += r['pnl']
+            continue
+        a = accts.get(r.get('account_id')) or accts[None]
+        a['realized_pnl'] += r['pnl']
+
+    rows, tot = [], {'eval_amount': 0, 'cost_amount': 0, 'unrealized_pnl': 0, 'realized_pnl': 0}
+    for a in accts.values():
+        a['eval_amount'] = round(a['eval_amount'])
+        a['cost_amount'] = round(a['cost_amount'])
+        a['realized_pnl'] = round(a['realized_pnl'])
+        a['unrealized_pnl'] = a['eval_amount'] - a['cost_amount']
+        a['total_pnl'] = a['unrealized_pnl'] + a['realized_pnl']
+        a['return_rate'] = round(a['unrealized_pnl'] / a['cost_amount'] * 100, 2) if a['cost_amount'] else 0
+        # 거래도 보유도 없는 중지 계좌 / 비어 있는 '미지정' 은 목록에서 뺀다
+        if a['id'] is None and not (a['holdings'] or a['realized_pnl']):
+            continue
+        if not a['is_active'] and not (a['holdings'] or a['realized_pnl']):
+            continue
+        rows.append(a)
+        for k in tot:
+            tot[k] += a[k]
+    return jsonify({'accounts': rows, 'ipo_realized': round(ipo_realized), 'totals': tot, 'year': int(year) if year else None})
+
+
 # ── 투자 데이터 초기화 (대개편 Step 2) ─────────────────────────
 def _invest_reset_counts(cur):
     """초기화 대상 행 수를 센다."""
@@ -1959,6 +2088,10 @@ def api_stock_tx():
         if stock_id:
             query += " WHERE t.stock_id = %s"
             params.append(stock_id)
+        a_cond, a_params, _by = _account_filter(request.args.get('account_id'))
+        if a_cond:
+            query += (" AND" if params else " WHERE") + a_cond[len(" AND"):]
+            params += a_params
         query += " ORDER BY t.tx_date DESC, t.id DESC"
         cur = db.cursor()
         cur.execute(query, params)
@@ -1979,11 +2112,11 @@ def api_stock_tx():
     ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
     if data.get('tx_type') in ('sell', '매도'):
-        held = _held_qty_for_sell(db, data.get('stock_id'), data.get('tx_date'), 'stocks', 'stock_tx', 'stock_id')
+        held = _held_qty_for_sell(db, data.get('stock_id'), data.get('tx_date'), 'stocks', 'stock_tx', 'stock_id', account_id=_raw_account_id(data))
         if float(data.get('quantity', 0)) > held + 1e-9:
             cur.close()
             db.close()
-            return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.'}), 400
+            return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.' + (' (선택한 계좌 기준)' if _raw_account_id(data) is not None else '')}), 400
 
     account_id, is_opening, err = _parse_tx_account(cur, data)
     if err:
@@ -2028,11 +2161,11 @@ def api_stock_tx_detail(rid):
         ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
         if data.get('tx_type') in ('sell', '매도'):
-            held = _held_qty_for_sell(db, data.get('stock_id'), data.get('tx_date'), 'stocks', 'stock_tx', 'stock_id', exclude_id=rid)
+            held = _held_qty_for_sell(db, data.get('stock_id'), data.get('tx_date'), 'stocks', 'stock_tx', 'stock_id', exclude_id=rid, account_id=_raw_account_id(data))
             if float(data.get('quantity', 0)) > held + 1e-9:
                 cur.close()
                 db.close()
-                return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.'}), 400
+                return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.' + (' (선택한 계좌 기준)' if _raw_account_id(data) is not None else '')}), 400
 
         account_id, is_opening, err = _parse_tx_account(cur, data)
         if err:
@@ -2082,10 +2215,14 @@ def api_stock_tx_detail(rid):
 def api_etf():
     db = get_db()
     if request.method == 'GET':
+        acct_cond, acct_params, by_acct = _account_filter(request.args.get('account_id'))   # 주식 API 와 동일 규칙
         cur = db.cursor()
         cur.execute("SELECT id, name, ticker, current_price, etf_type, category, memo, COALESCE(ath,0) as ath, "
                     "qty_override, avg_price_override, override_anchor_tx_id FROM etf ORDER BY name")
         etfs = [dict(r) for r in cur.fetchall()]
+        if by_acct:
+            for e_ in etfs:
+                e_['qty_override'] = e_['avg_price_override'] = e_['override_anchor_tx_id'] = None
         # SQL 기반 qty (대시보드·테크트리와 동일 기준, 음수 0 처리)
         cur.execute("""
             SELECT e.id,
@@ -2093,12 +2230,14 @@ def api_etf():
                           - COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0)) AS qty,
                 COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
                 COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty
-            FROM etf e LEFT JOIN etf_tx t ON t.etf_id = e.id
+            FROM etf e LEFT JOIN etf_tx t ON t.etf_id = e.id""" + acct_cond + """
             GROUP BY e.id
-        """)
+        """, acct_params)
         sql_etf = {r['id']: {'qty': float(r['qty'] or 0), 'buy_qty': float(r['buy_qty'] or 0), 'sell_qty': float(r['sell_qty'] or 0)}
                    for r in cur.fetchall()}
-        cur.execute("SELECT id, etf_id, tx_type, price, quantity, COALESCE(fee,0) as fee, COALESCE(realized_pnl,0) as realized_pnl FROM etf_tx ORDER BY etf_id, tx_date, id")
+        cur.execute("SELECT t.id, t.etf_id, t.account_id, t.tx_type, t.price, t.quantity, COALESCE(t.fee,0) as fee, "
+                    "COALESCE(t.realized_pnl,0) as realized_pnl FROM etf_tx t WHERE TRUE" + acct_cond +
+                    " ORDER BY t.etf_id, t.tx_date, t.id", acct_params)
         all_tx = cur.fetchall()
         cur.close()
 
@@ -2111,6 +2250,8 @@ def api_etf():
         try:
             for e in etfs:
                 info     = sql_etf.get(e['id'], {'qty': 0.0, 'buy_qty': 0.0, 'sell_qty': 0.0})
+                if by_acct and info['buy_qty'] == 0 and info['sell_qty'] == 0:
+                    continue   # 이 계좌에서 거래한 적 없는 종목
                 qty_calc = info['qty']
                 _, avg_calc, _ = calc_position(tx_by_etf[e['id']])     # 강제값 없는 '원래' 평단가
                 avg_calc = avg_calc if (avg_calc is not None and avg_calc == avg_calc) else 0.0  # NaN guard
@@ -2195,6 +2336,10 @@ def api_etf_tx():
         if etf_id:
             query += " WHERE t.etf_id = %s"
             params.append(etf_id)
+        a_cond, a_params, _by = _account_filter(request.args.get('account_id'))
+        if a_cond:
+            query += (" AND" if params else " WHERE") + a_cond[len(" AND"):]
+            params += a_params
         query += " ORDER BY t.tx_date DESC, t.id DESC"
         cur = db.cursor()
         cur.execute(query, params)
@@ -2214,11 +2359,11 @@ def api_etf_tx():
     ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
     if data.get('tx_type') in ('sell', '매도'):
-        held = _held_qty_for_sell(db, data.get('etf_id'), data.get('tx_date'), 'etf', 'etf_tx', 'etf_id')
+        held = _held_qty_for_sell(db, data.get('etf_id'), data.get('tx_date'), 'etf', 'etf_tx', 'etf_id', account_id=_raw_account_id(data))
         if float(data.get('quantity', 0)) > held + 1e-9:
             cur.close()
             db.close()
-            return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.'}), 400
+            return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.' + (' (선택한 계좌 기준)' if _raw_account_id(data) is not None else '')}), 400
 
     account_id, is_opening, err = _parse_tx_account(cur, data)
     if err:
@@ -2273,11 +2418,11 @@ def api_etf_tx_detail(rid):
     ex = get_current_exchange_rate() if is_foreign_ticker(ticker) else 1.0
 
     if data.get('tx_type') in ('sell', '매도'):
-        held = _held_qty_for_sell(db, data.get('etf_id'), data.get('tx_date'), 'etf', 'etf_tx', 'etf_id', exclude_id=rid)
+        held = _held_qty_for_sell(db, data.get('etf_id'), data.get('tx_date'), 'etf', 'etf_tx', 'etf_id', exclude_id=rid, account_id=_raw_account_id(data))
         if float(data.get('quantity', 0)) > held + 1e-9:
             cur.close()
             db.close()
-            return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.'}), 400
+            return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.' + (' (선택한 계좌 기준)' if _raw_account_id(data) is not None else '')}), 400
 
     account_id, is_opening, err = _parse_tx_account(cur, data)
     if err:
@@ -4160,7 +4305,7 @@ def _position_with_overrides(row, qty_calc, txs):
     반환: (수량, 평단가, 실현손익합, 수량이 강제값 기반인지, 평단가가 강제값 기반인지)
     """
     seed = _override_seed(row)
-    pnl_map, wqty, wavg = _walk_positions(txs, seed)
+    pnl_map, wqty, wavg = _walk_positions_by_account(txs, seed)
     realized = sum(pnl_map.values())
     qty_forced = seed is not None and seed[0] is not None
     avg_forced = seed is not None and seed[1] is not None
@@ -4208,7 +4353,37 @@ def _held_qty_now(db, item_id, table, tx_table, tx_col, exclude_id=None):
     return max(0.0, qty)
 
 
-def _held_qty_for_sell(db, item_id, tx_date, table, tx_table, tx_col, exclude_id=None):
+def _held_qty_in_account(db, item_id, tx_date, tx_table, tx_col, account_id, exclude_id=None):
+    """계좌를 지정한 매도의 검증용: 그 거래일 시점까지 '그 계좌'에서 보유한 수량.
+    (증권사가 다르면 다른 계좌의 보유분을 팔 수 없다. 수기 강제값은 종목 전체 값이라 여기선 쓰지 않는다)"""
+    query = f"SELECT tx_type, quantity FROM {tx_table} WHERE {tx_col}=%s AND account_id=%s AND tx_date <= %s"
+    params = [item_id, account_id, tx_date]
+    if exclude_id is not None:
+        query += " AND id != %s"
+        params.append(exclude_id)
+    cur = db.cursor()
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    cur.close()
+    qty = 0.0
+    for r in rows:
+        tq = _sf(r['quantity'])
+        if r['tx_type'] in ('buy', '매수'):
+            qty += tq
+        elif r['tx_type'] in ('sell', '매도'):
+            qty -= tq
+    return qty
+
+
+def _raw_account_id(data):
+    """요청 바디의 account_id 를 int 로(비었거나 잘못되면 None). 상세 검증은 _parse_tx_account 가 한다."""
+    try:
+        return int(data.get('account_id')) if data.get('account_id') not in (None, '') else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _held_qty_for_sell(db, item_id, tx_date, table, tx_table, tx_col, exclude_id=None, account_id=None):
     """
     매도 가능 수량 검증용.
 
@@ -4218,6 +4393,8 @@ def _held_qty_for_sell(db, item_id, tx_date, table, tx_table, tx_col, exclude_id
     강제값은 날짜가 아니라 '지금 잔고'를 선언한 것이므로, 강제 지정된 종목은
     과거 날짜로 매도를 입력하더라도 현재 잔고 한도 안에서 허용한다.
     """
+    if account_id is not None:
+        return _held_qty_in_account(db, item_id, tx_date, tx_table, tx_col, account_id, exclude_id=exclude_id)
     cur = db.cursor()
     cur.execute(f"SELECT qty_override FROM {table} WHERE id=%s", (item_id,))
     row = cur.fetchone()
@@ -5419,14 +5596,14 @@ def _calc_realized_records():
     cur = db.cursor()
 
     cur.execute("""
-        SELECT 'stock' as source, t.id as tx_id, t.stock_id as asset_id, t.tx_date::text as tx_date, t.tx_type, t.price, t.quantity, t.fee, s.category, s.ticker, s.name
+        SELECT 'stock' as source, t.id as tx_id, t.stock_id as asset_id, t.account_id, t.tx_date::text as tx_date, t.tx_type, t.price, t.quantity, t.fee, s.category, s.ticker, s.name
         FROM stock_tx t JOIN stocks s ON s.id = t.stock_id
         ORDER BY t.stock_id, t.tx_date, t.id
     """)
     stock_txs = [dict(r) for r in cur.fetchall()]
 
     cur.execute("""
-        SELECT 'etf' as source, t.id as tx_id, t.etf_id as asset_id, t.tx_date::text as tx_date, t.tx_type, t.price, t.quantity, t.fee, e.category, e.ticker, e.name
+        SELECT 'etf' as source, t.id as tx_id, t.etf_id as asset_id, t.account_id, t.tx_date::text as tx_date, t.tx_type, t.price, t.quantity, t.fee, e.category, e.ticker, e.name
         FROM etf_tx t JOIN etf e ON e.id = t.etf_id
         ORDER BY t.etf_id, t.tx_date, t.id
     """)
@@ -5444,10 +5621,11 @@ def _calc_realized_records():
     from collections import defaultdict
     tx_by_asset = defaultdict(list)
     for tx in stock_txs + etf_txs:
-        tx_by_asset[(tx['source'], tx['asset_id'])].append(tx)
+        # 평단가는 증권사(계좌)마다 따로 굴러가므로 종목 × 계좌 단위로 묶는다
+        tx_by_asset[(tx['source'], tx['asset_id'], tx['account_id'])].append(tx)
 
     realized_records = []
-    for (source, asset_id), txs in tx_by_asset.items():
+    for (source, asset_id, account_id), txs in tx_by_asset.items():
         qty = 0.0
         avg_cost = 0.0
         for tx in txs:
@@ -5469,6 +5647,7 @@ def _calc_realized_records():
                     'source': source,
                     'asset_id': asset_id,
                     'tx_id': tx['tx_id'],
+                    'account_id': account_id,
                     'name': tx['name'],
                     'ticker': tx['ticker'],
                     'date': tx['tx_date'],
@@ -5489,6 +5668,7 @@ def _calc_realized_records():
             'source': 'ipo',
             'asset_id': r['id'],
             'tx_id': None,
+            'account_id': None,
             'name': r['name'],
             'ticker': None,
             'date': r['listing_date'],
@@ -7356,14 +7536,14 @@ def _api_tech_tree_data_inner():
     from collections import defaultdict as _defaultdict
     cur = db.cursor()
     cur.execute("""
-        SELECT 'stock' as source, t.stock_id as asset_id, t.tx_date::text as tx_date,
+        SELECT 'stock' as source, t.stock_id as asset_id, t.account_id, t.tx_date::text as tx_date,
                t.tx_type, t.price, t.quantity, COALESCE(t.fee,0) as fee, s.ticker
         FROM stock_tx t JOIN stocks s ON s.id = t.stock_id
         ORDER BY t.stock_id, t.tx_date, t.id
     """)
     all_stock_tx = cur.fetchall()
     cur.execute("""
-        SELECT 'etf' as source, t.etf_id as asset_id, t.tx_date::text as tx_date,
+        SELECT 'etf' as source, t.etf_id as asset_id, t.account_id, t.tx_date::text as tx_date,
                t.tx_type, t.price, t.quantity, COALESCE(t.fee,0) as fee, e.ticker
         FROM etf_tx t JOIN etf e ON e.id = t.etf_id
         ORDER BY t.etf_id, t.tx_date, t.id
@@ -7373,10 +7553,10 @@ def _api_tech_tree_data_inner():
 
     tx_by_asset_tt = _defaultdict(list)
     for tx in list(all_stock_tx) + list(all_etf_tx):
-        tx_by_asset_tt[(tx['source'], tx['asset_id'])].append(tx)
+        tx_by_asset_tt[(tx['source'], tx['asset_id'], tx['account_id'])].append(tx)
 
     stock_realized_pnl = 0.0
-    for (source, asset_id), txs in tx_by_asset_tt.items():
+    for (source, asset_id, _acct), txs in tx_by_asset_tt.items():
         qty = 0.0; avg_cost = 0.0
         for tx in txs:
             tq = float(tx['quantity']); tp = float(tx['price'])
@@ -8087,14 +8267,14 @@ def api_tech_tree_detail():
         from collections import defaultdict as _defaultdict
         cur = db.cursor()
         cur.execute("""
-            SELECT 'stock' as source, t.stock_id as asset_id, t.tx_date::text as tx_date,
+            SELECT 'stock' as source, t.stock_id as asset_id, t.account_id, t.tx_date::text as tx_date,
                    t.tx_type, t.price, t.quantity, COALESCE(t.fee,0) as fee, s.ticker, s.name
             FROM stock_tx t JOIN stocks s ON s.id = t.stock_id
             ORDER BY t.stock_id, t.tx_date, t.id
         """)
         all_stock_tx = cur.fetchall()
         cur.execute("""
-            SELECT 'etf' as source, t.etf_id as asset_id, t.tx_date::text as tx_date,
+            SELECT 'etf' as source, t.etf_id as asset_id, t.account_id, t.tx_date::text as tx_date,
                    t.tx_type, t.price, t.quantity, COALESCE(t.fee,0) as fee, e.ticker, e.name
             FROM etf_tx t JOIN etf e ON e.id = t.etf_id
             ORDER BY t.etf_id, t.tx_date, t.id
@@ -8105,9 +8285,9 @@ def api_tech_tree_detail():
         ex_rate = get_current_exchange_rate()
         tx_by_asset_tt = _defaultdict(list)
         for tx in list(all_stock_tx) + list(all_etf_tx):
-            tx_by_asset_tt[(tx['source'], tx['asset_id'])].append(tx)
+            tx_by_asset_tt[(tx['source'], tx['asset_id'], tx['account_id'])].append(tx)
 
-        for (source, asset_id), txs in tx_by_asset_tt.items():
+        for (source, asset_id, _acct), txs in tx_by_asset_tt.items():
             qty = 0.0; avg_cost = 0.0
             for tx in txs:
                 tq = float(tx['quantity']); tp = float(tx['price'])
