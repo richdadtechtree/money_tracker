@@ -99,6 +99,7 @@
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-crypto">코인</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-ipo">공모주</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-split-plan">종목별 투자계획</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-years" id="yearsTabBtn">연도별 기록</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-rebalance" id="rebalanceTabBtn">리밸런싱</a></li>
 </ul>
 
@@ -532,6 +533,40 @@
   </div>
 
   <!-- 종목별 투자계획 탭 -->
+  <!-- 연도별 기록 탭 -->
+  <div class="tab-pane fade" id="tab-years">
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-header bg-white border-0 pt-3 pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="fw-semibold"><i class="bi bi-calendar3 me-2 text-secondary"></i>연도별 투자 기록</span>
+        <div class="d-flex gap-2">
+          <button class="btn btn-outline-secondary btn-sm" onclick="snapshotYearNow()" title="올해 현재 값을 연말 기록처럼 지금 저장합니다 (연말 23:58에는 자동 저장됩니다)">
+            <i class="bi bi-save me-1"></i>올해 지금 저장
+          </button>
+          <button class="btn btn-primary btn-sm" onclick="openYearModal()"><i class="bi bi-plus-lg me-1"></i>과거 연도 기록 입력</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div style="height:260px" class="mb-3"><canvas id="yearChart"></canvas></div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-1">
+            <thead class="table-light">
+              <tr><th>연도</th><th>출처</th><th class="text-end">실현손익</th><th class="text-end">평가손익</th>
+                  <th class="text-end">총손익</th><th class="text-end">연말 평가금액</th>
+                  <th class="text-end">연말 예수금</th><th class="text-end">입출금</th><th></th></tr>
+            </thead>
+            <tbody id="yearBody"></tbody>
+          </table>
+        </div>
+        <div class="small text-muted">
+          올해는 실시간으로 계산하고, 매년 12월 31일 밤에 계좌별 평가금액·평가손익·실현손익·예수금이 자동으로 기록됩니다.
+          지난 해 기록은 직접 입력·수정할 수 있고, 기록이 있는 해는 <strong>그 기록의 값</strong>이 상단 총손익 카드에 쓰입니다.
+          거래가 남아 있지 않은 과거 연도는 실현손익(코인·공모주 포함 합계)과 연말 평가손익을 입력해 주세요.
+          입출금은 입금·출금과 현금관리 통장 ↔ 투자 계좌 이체의 합계입니다.
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="tab-pane fade" id="tab-split-plan">
     <div class="card border-0 shadow-sm mt-3">
       <div class="card-header bg-white border-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
@@ -1068,6 +1103,45 @@
           <button class="btn btn-primary" onclick="addStockCat()">추가</button>
         </div>
         <ul id="stockCatList" class="list-group list-group-flush"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 연도 기록 입력/수정 모달 -->
+<div class="modal fade" id="yearModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-calendar3 me-2"></i><span id="ymTitle">연도 기록</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-2 align-items-end mb-3">
+          <div class="col-auto">
+            <label class="form-label small mb-1">연도</label>
+            <input type="number" class="form-control form-control-sm" id="ymYear" data-no-dirty style="width:110px" onchange="loadYearModalRows()">
+          </div>
+          <div class="col small text-muted" id="ymHint"></div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+              <tr><th>계좌</th><th class="text-end">연말 평가금액</th><th class="text-end">매입금액</th>
+                  <th class="text-end">연말 평가손익</th><th class="text-end">그 해 실현손익</th>
+                  <th class="text-end">연말 예수금(원)</th><th class="text-end">연말 예수금($)</th><th>메모</th></tr>
+            </thead>
+            <tbody id="ymBody"></tbody>
+          </table>
+        </div>
+        <div class="small text-muted mt-2">
+          <strong>간단히 입력하려면</strong> 맨 아래 <em>계좌 외</em> 줄 하나에 합계만 적으면 됩니다. 계좌별로 나눠 적어도 되고, 비워 둔 줄은 저장되지 않습니다.
+          실현손익은 코인·공모주까지 포함한 그 해 합계로 입력하세요(기록이 있는 해는 거래 계산값 대신 이 값이 쓰입니다).
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button class="btn btn-outline-danger btn-sm" id="ymDeleteBtn" onclick="deleteYearRecord()" style="display:none">이 연도 기록 삭제</button>
+        <button class="btn btn-primary btn-sm" onclick="saveYearRecord()">저장</button>
       </div>
     </div>
   </div>
@@ -1781,6 +1855,137 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ── 연도별 기록 탭 ─────────────────────────────────────────────
+let yearChart = null;
+let yearRecords = null;
+
+const YEAR_SRC = {
+  live: '<span class="badge bg-primary-subtle text-primary">실시간</span>',
+  snapshot: '<span class="badge bg-success-subtle text-success">기록</span>',
+  snapshotManual: '<span class="badge bg-warning-subtle text-warning-emphasis">직접 입력</span>',
+  computed: '<span class="badge bg-secondary-subtle text-secondary">계산(평가 없음)</span>',
+};
+
+async function loadYearRecords() {
+  const res = await fetchJSON('/api/year-records');
+  if (!res) return;
+  yearRecords = res;
+  const cashText = (k, u) => (k == null && u == null) ? '-'
+    : `${fmt(k || 0)}원` + (u ? `<br><small>${fmtUsdCash(u)}</small>` : '');
+  const flowText = (k, u) => (!k && !u) ? '-' : (k ? `${k > 0 ? '+' : ''}${fmt(k)}원` : '') + (u ? `<br><small>${u > 0 ? '+' : ''}${fmtUsdCash(u)}</small>` : '');
+  document.getElementById('yearBody').innerHTML = [...res.years].reverse().map(r => {
+    const src = r.source === 'snapshot' && r.manual ? YEAR_SRC.snapshotManual : YEAR_SRC[r.source];
+    const past = r.year < res.current_year;
+    const actions = past
+      ? `<button class="btn btn-sm btn-outline-secondary py-0" onclick="openYearModal(${r.year})">${r.source === 'computed' ? '입력' : '수정'}</button>`
+      : '';
+    return `<tr><td class="fw-semibold">${r.year}년</td><td>${src}</td>
+      <td class="text-end">${pnlHtml(r.realized_pnl)}</td>
+      <td class="text-end">${r.unrealized_pnl == null ? '<span class="text-muted">-</span>' : pnlHtml(r.unrealized_pnl)}</td>
+      <td class="text-end fw-semibold">${pnlHtml(r.total_pnl)}</td>
+      <td class="text-end">${r.eval_amount == null ? '-' : fmt(r.eval_amount) + '원'}</td>
+      <td class="text-end small">${cashText(r.cash_krw, r.cash_usd)}</td>
+      <td class="text-end small">${flowText(r.flow_krw, r.flow_usd)}</td>
+      <td class="text-end">${actions}</td></tr>`;
+  }).join('');
+  renderYearChart(res.years);
+}
+
+function renderYearChart(years) {
+  if (typeof Chart === 'undefined') return;
+  const man = v => { const a = Math.abs(v);
+    return a >= 1e8 ? (v / 1e8).toFixed(1) + '억' : a >= 1e4 ? (v / 1e4).toFixed(0) + '만' : v.toLocaleString('ko-KR'); };
+  if (yearChart) yearChart.destroy();
+  yearChart = new Chart(document.getElementById('yearChart').getContext('2d'), {
+    data: { labels: years.map(y => `${y.year}년`), datasets: [
+      { type: 'bar', label: '실현손익', data: years.map(y => y.realized_pnl), backgroundColor: 'rgba(220,53,69,0.75)', stack: 'y', borderRadius: 3 },
+      { type: 'bar', label: '평가손익', data: years.map(y => y.unrealized_pnl || 0), backgroundColor: 'rgba(13,110,253,0.55)', stack: 'y', borderRadius: 3 },
+      { type: 'line', label: '총손익', data: years.map(y => y.total_pnl), borderColor: '#fd7e14', tension: 0.25, pointRadius: 4 },
+    ]},
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'top', labels: { boxWidth: 12 } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y >= 0 ? '+' : ''}${Math.round(c.parsed.y).toLocaleString('ko-KR')}원` } } },
+      scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { callback: man } } } },
+  });
+}
+
+document.querySelector('[href="#tab-years"]').addEventListener('shown.bs.tab', loadYearRecords);
+// 닫을 때마다 임시저장(연도 입력값)을 지워 다음에 열 때 "복원할까요?" 알림이 뜨지 않게 한다
+document.getElementById('yearModal').addEventListener('hidden.bs.modal', () => _clearAutosave(document.getElementById('yearModal')));
+
+async function snapshotYearNow() {
+  const year = yearRecords?.current_year || new Date().getFullYear();
+  let res = await fetchJSON(`/api/year-records/${year}/snapshot-now`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  if (res === null) {
+    if (!/직접 입력한 기록/.test(fetchJSON.lastError || '')) { alert(fetchJSON.lastError || '저장하지 못했습니다.'); return; }
+    if (!confirm('직접 입력한 기록이 있습니다. 지금 값으로 덮어쓸까요?')) return;
+    res = await fetchJSON(`/api/year-records/${year}/snapshot-now`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force: true }) });
+    if (res === null) { alert(fetchJSON.lastError || '저장하지 못했습니다.'); return; }
+  }
+  alert(`${year}년 기록을 지금 값으로 저장했습니다. (${res.rows}행)\n연말 23:58에 한 번 더 자동 저장됩니다.`);
+  loadYearRecords();
+}
+
+/** 연도 기록 입력/수정 창. year 를 주면 그 해 수정, 없으면 새로 입력(가장 오래된 연도의 전 해가 기본값) */
+function openYearModal(year) {
+  const cur = yearRecords?.current_year || new Date().getFullYear();
+  const oldest = yearRecords?.years?.length ? Math.min(...yearRecords.years.map(y => y.year)) : cur;
+  const inp = document.getElementById('ymYear');
+  inp.value = year || Math.min(cur - 1, oldest - 1);
+  inp.disabled = !!year;
+  document.getElementById('ymDeleteBtn').style.display = 'none';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('yearModal')).show();
+  loadYearModalRows();
+}
+
+async function loadYearModalRows() {
+  const year = parseInt(document.getElementById('ymYear').value, 10);
+  const cur = yearRecords?.current_year || new Date().getFullYear();
+  const body = document.getElementById('ymBody');
+  if (!year || year >= cur || year < 1990) { body.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">지난 해만 입력할 수 있습니다.</td></tr>'; return; }
+  const res = await fetchJSON(`/api/year-records/${year}`);
+  if (!res) { body.innerHTML = ''; return; }
+  document.getElementById('ymTitle').textContent = `${year}년 기록`;
+  document.getElementById('ymHint').textContent = res.source === 'snapshot'
+    ? '저장된 기록입니다. 고쳐서 저장하면 직접 입력한 기록으로 바뀝니다.'
+    : '저장된 기록이 없습니다. 그 해 실현손익은 거래·코인·공모주로 계산한 값을 미리 채워 두었고, 평가금액·예수금은 비어 있습니다.';
+  document.getElementById('ymDeleteBtn').style.display = res.source === 'snapshot' ? '' : 'none';
+  // 계좌 목록: 기록/계산 행 + 아직 행이 없는 사용 중 계좌 (+ 계좌 외 합계 줄)
+  const rows = [...res.rows];
+  allAccounts.filter(a => a.is_active && !rows.some(r => r.account_id === a.id))
+    .forEach(a => rows.push({ account_id: a.id, account_name: a.name, eval_amount: 0, cost_amount: 0, unrealized_pnl: 0, realized_pnl: 0, cash_krw: 0, cash_usd: 0, memo: '' }));
+  if (!rows.some(r => r.account_id === null))
+    rows.push({ account_id: null, account_name: '계좌 외 (미지정·공모주·코인 등) — 합계 한 줄로 입력', eval_amount: 0, cost_amount: 0, unrealized_pnl: 0, realized_pnl: 0, cash_krw: 0, cash_usd: 0, memo: '' });
+  rows.sort((a, b) => (a.account_id === null) - (b.account_id === null));
+  const cell = (r, f) => `<td><input type="text" inputmode="decimal" class="form-control form-control-sm text-end" style="min-width:110px"
+      data-no-dirty data-acct="${r.account_id === null ? '' : r.account_id}" data-f="${f}" value="${r[f] ? r[f] : ''}"></td>`;
+  body.innerHTML = rows.map(r => `<tr><td class="fw-semibold small">${r.account_name || '-'}</td>
+    ${['eval_amount', 'cost_amount', 'unrealized_pnl', 'realized_pnl', 'cash_krw', 'cash_usd'].map(f => cell(r, f)).join('')}
+    <td><input type="text" class="form-control form-control-sm" data-no-dirty data-acct="${r.account_id === null ? '' : r.account_id}" data-f="memo" value="${(r.memo || '').replace(/"/g, '&quot;')}"></td></tr>`).join('');
+}
+
+async function saveYearRecord() {
+  const year = parseInt(document.getElementById('ymYear').value, 10);
+  const byAcct = new Map();
+  document.querySelectorAll('#ymBody input[data-f]').forEach(el => {
+    const key = el.dataset.acct;
+    if (!byAcct.has(key)) byAcct.set(key, { account_id: key === '' ? null : parseInt(key, 10) });
+    byAcct.get(key)[el.dataset.f] = el.value.replace(/,/g, '').trim();
+  });
+  const res = await fetchJSON(`/api/year-records/${year}`,
+    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: [...byAcct.values()] }) });
+  if (res === null) { alert(fetchJSON.lastError || '저장하지 못했습니다.'); return; }
+  _afterSaveSuccess('yearModal', async () => { await loadYearRecords(); loadTotalPnl(); });
+}
+
+async function deleteYearRecord() {
+  const year = parseInt(document.getElementById('ymYear').value, 10);
+  if (!confirm(`${year}년 기록을 삭제할까요?\n삭제하면 그 해는 거래 데이터로 계산한 실현손익만 남습니다.`)) return;
+  const res = await fetchJSON(`/api/year-records/${year}`, { method: 'DELETE' });
+  if (res === null) { alert(fetchJSON.lastError || '삭제하지 못했습니다.'); return; }
+  _afterSaveSuccess('yearModal', async () => { await loadYearRecords(); loadTotalPnl(); });
+}
+
 /** 계좌 칩 선택 → 주식/ETF 탭을 그 계좌 기준으로 다시 불러온다 */
 async function selectAccount(val) {
   currentAccount = (val === currentAccount) ? '' : val;   // 같은 칩을 다시 누르면 전체로
@@ -2131,7 +2336,7 @@ async function loadTotalPnl() {
   document.getElementById('tpRealizedYear').textContent = `(${res.year}년 확정)`;
   // 실현손익 구성: 주식·ETF·공모주·코인·박제(초기화 전 기록)
   const bd = res.realized_breakdown || {};
-  const names = { stock: '주식', etf: 'ETF', ipo: '공모주', crypto: '코인', archive: '이전 기록' };
+  const names = { stock: '주식', etf: 'ETF', ipo: '공모주', crypto: '코인', archive: '이전 기록', record: '연도 기록' };
   document.getElementById('tpBreakdown').textContent = Object.keys(names)
     .filter(k => bd[k]).map(k => `${names[k]} ${bd[k] > 0 ? '+' : ''}${fmt(bd[k])}`).join(' · ');
 
