@@ -847,6 +847,21 @@ def init_db():
         "UPDATE etf_tx   SET tx_type='sell' WHERE tx_type='매도'",
         "ALTER TABLE stock_tx ADD COLUMN IF NOT EXISTS realized_pnl REAL DEFAULT 0.0",
         "ALTER TABLE etf_tx   ADD COLUMN IF NOT EXISTS realized_pnl REAL DEFAULT 0.0",
+        # 연도별 실현손익 보존(아카이브): 투자 데이터 초기화 후에도 해당 연도 실현손익을 유지하기 위한 박제 테이블
+        """CREATE TABLE IF NOT EXISTS realized_pnl_archive (
+            id          SERIAL PRIMARY KEY,
+            year        INTEGER NOT NULL,
+            tx_date     DATE,
+            source      TEXT,
+            name        TEXT,
+            ticker      TEXT,
+            pnl         BIGINT NOT NULL DEFAULT 0,
+            cost        BIGINT DEFAULT 0,
+            account_id  INTEGER,
+            memo        TEXT,
+            created_at  TIMESTAMP DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_realized_pnl_archive_year ON realized_pnl_archive(year)",
         """CREATE TABLE IF NOT EXISTS rebalance_assignments (
             id          SERIAL PRIMARY KEY,
             source_type TEXT NOT NULL,
