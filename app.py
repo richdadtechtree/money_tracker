@@ -5303,6 +5303,107 @@ def _calc_realized_records():
     return realized_records
 
 
+
+# ── 실현손익 아카이브 (투자 데이터 초기화 전 해당 연도 실현손익 박제) ─────────────
+def _build_archive_rows(records, crypto_rows, year):
+    """실현손익 레코드(_calc_realized_records 결과)와 코인 매도기록 중 지정 연도 분을
+    realized_pnl_archive INSERT 형태(dict 목록)로 변환한다. DB를 건드리지 않는 순수 함수."""
+    prefix = f"{int(year)}-"
+    rows = []
+    for r in records:
+        d = (r.get('date') or '')[:10]
+        if not d.startswith(prefix):
+            continue
+        rows.append({
+            'tx_date': d, 'source': r['source'], 'name': r.get('name'), 'ticker': r.get('ticker'),
+            'pnl': int(round(r['pnl'])), 'cost': int(round(r.get('cost') or 0)),
+        })
+    for c in crypto_rows:
+        d = str(c.get('sell_date') or '')[:10]
+        if not d.startswith(prefix):
+            continue
+        rows.append({
+            'tx_date': d, 'source': 'crypto', 'name': c.get('name'), 'ticker': None,
+            'pnl': int(c.get('pnl') or 0), 'cost': 0,
+        })
+    return rows
+
+
+def _archive_sums(rows):
+    """아카이브 행 목록을 source별 합계 + 전체 합계로 요약한다."""
+    by_source = {}
+    for r in rows:
+        by_source[r['source']] = by_source.get(r['source'], 0) + int(r['pnl'])
+    return {'by_source': by_source, 'total': sum(by_source.values()), 'count': len(rows)}
+
+
+def _load_live_archive_rows(year):
+    """현재 거래 데이터 기준으로 지정 연도의 아카이브 대상 행을 계산한다."""
+    records = _calc_realized_records()
+    db = get_db()
+    _ensure_crypto_sell_table(db)
+    cur = db.cursor()
+    cur.execute("SELECT sell_date::text AS sell_date, name, pnl FROM crypto_sell")
+    crypto_rows = [dict(r) for r in cur.fetchall()]
+    cur.close(); db.close()
+    return _build_archive_rows(records, crypto_rows, year)
+
+
+@app.route('/api/realized-archive', methods=['GET', 'POST'])
+def api_realized_archive():
+    """GET ?year=YYYY : 저장된 아카이브 합계 + 현재 거래 데이터 기준 미리보기 합계(저장 전 검증용).
+    POST {year, overwrite?} : 현재 계산값을 아카이브에 저장한다. 이미 저장된 연도는 overwrite=true 없이는 거부한다.
+      (투자 데이터 초기화 후 다시 실행하면 빈 값으로 덮어써 버리는 사고를 막기 위한 안전장치)"""
+    if request.method == 'GET':
+        year = int(request.args.get('year') or date.today().year)
+    else:
+        body = request.get_json(silent=True) or {}
+        year = int(body.get('year') or date.today().year)
+        overwrite = bool(body.get('overwrite'))
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT source, pnl FROM realized_pnl_archive WHERE year = %s", (year,))
+    saved = _archive_sums([{'source': r['source'], 'pnl': r['pnl']} for r in cur.fetchall()])
+
+    if request.method == 'GET':
+        cur.close(); db.close()
+        live = _archive_sums(_load_live_archive_rows(year))
+        return jsonify({'year': year, 'saved': saved, 'live': live,
+                        'match': saved['count'] > 0 and saved['total'] == live['total']})
+
+    if saved['count'] > 0 and not overwrite:
+        cur.close(); db.close()
+        return jsonify({'error': f'{year}년 아카이브가 이미 있습니다. 덮어쓰려면 overwrite=true를 보내세요.',
+                        'saved': saved}), 409
+
+    rows = _load_live_archive_rows(year)
+    live = _archive_sums(rows)
+    if not rows:
+        cur.close(); db.close()
+        return jsonify({'error': f'{year}년 실현손익 데이터가 없어 저장하지 않았습니다.'}), 400
+    try:
+        cur.execute("DELETE FROM realized_pnl_archive WHERE year = %s", (year,))
+        for r in rows:
+            cur.execute("""
+                INSERT INTO realized_pnl_archive (year, tx_date, source, name, ticker, pnl, cost)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (year, r['tx_date'], r['source'], r['name'], r['ticker'], r['pnl'], r['cost']))
+        # 저장 직후 합계를 다시 읽어 계산값과 일치하는지 검증, 다르면 전체 롤백
+        cur.execute("SELECT COALESCE(SUM(pnl), 0) AS t, COUNT(*) AS n FROM realized_pnl_archive WHERE year = %s", (year,))
+        chk = cur.fetchone()
+        if int(chk['t']) != live['total'] or int(chk['n']) != live['count']:
+            db.rollback()
+            return jsonify({'error': '저장 후 합계가 일치하지 않아 롤백했습니다.', 'live': live}), 500
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close(); db.close()
+    return jsonify({'ok': True, 'year': year, 'saved': live})
+
+
 @app.route('/api/stock-category-pnl')
 def api_stock_category_pnl():
     """구분(category)별 실현손익 – period: monthly(최근12개월) | yearly | all"""
