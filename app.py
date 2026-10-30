@@ -2092,7 +2092,7 @@ def api_invest_account_cash(aid):
         entries = [dict(r) for r in cur.fetchall()]
         for e in entries:
             e['kind_label'] = _CASH_KIND_LABEL.get(e['kind'], e['kind'])
-            e['deletable'] = e['ref_type'] in (None, 'exchange')   # 매수/매도/이체는 원천 거래에서 지운다
+            e['deletable'] = e['ref_type'] in (None, 'exchange', 'transfer')   # 매수/매도는 원천 거래에서 지운다 (이체는 이체 삭제로 양쪽 되돌림)
         bal = get_account_cash_map(db).get(aid, {'krw': 0.0, 'usd': 0.0})
         cur.close(); db.close()
         return jsonify({'account': acct['name'], 'cash_krw': round(bal['krw']), 'cash_usd': round(bal['usd'], 2),
@@ -2235,9 +2235,14 @@ def api_account_cash_delete(tid):
     if not row:
         cur.close(); db.close()
         return jsonify({'error': '내역을 찾을 수 없습니다.'}), 404
+    if row['ref_type'] == 'transfer':
+        cur.close()
+        res = _delete_transfer(db, row['ref_id'])      # 이체는 양쪽(통장/계좌)을 함께 되돌린다
+        db.close()
+        return res
     if row['ref_type'] not in (None, 'exchange'):
         cur.close(); db.close()
-        return jsonify({'error': '거래·이체로 생긴 내역은 원래 거래를 수정/삭제해야 합니다.'}), 400
+        return jsonify({'error': '거래로 생긴 내역은 원래 거래를 수정/삭제해야 합니다.'}), 400
     try:
         if row['ref_type'] == 'exchange':
             cur.execute("DELETE FROM account_cash_tx WHERE ref_type='exchange' AND ref_id=%s", (row['ref_id'],))
@@ -2250,6 +2255,167 @@ def api_account_cash_delete(tid):
         return jsonify({'error': str(e)}), 500
     cur.close(); db.close()
     return jsonify({'ok': True})
+
+
+# ── 계좌 간 이체 (대개편 Step 6) ─────────────────────────────
+def _bank_adjust(cur, bank_id, currency, delta, allow_negative=False):
+    """현금관리 통장 한 줄의 원화/달러 잔액을 delta 만큼 늘리거나(+) 줄인다(-).
+    amount(원화 환산) 는 원화 + 달러×현재환율 로 다시 계산한다. 예수금 잠금 행은 건드릴 수 없다.
+    반환: 통장 이름. 통장이 없으면 None(이체 삭제 시 이미 지운 통장은 건너뛴다)."""
+    cur.execute("SELECT name, krw_amount, usd_amount, is_system FROM cash_deposits WHERE id=%s FOR UPDATE", (bank_id,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    if row['is_system']:
+        raise ValueError('예수금 행은 이체 대상이 될 수 없습니다. 투자 계좌를 선택하세요.')
+    krw, usd = float(row['krw_amount'] or 0), float(row['usd_amount'] or 0)
+    if currency == 'USD':
+        usd = round(usd + delta, 2)
+    else:
+        krw = round(krw + delta)
+    if not allow_negative and ((currency == 'USD' and usd < 0) or (currency != 'USD' and krw < 0)):
+        have = float(row['usd_amount'] or 0) if currency == 'USD' else float(row['krw_amount'] or 0)
+        unit = f"${have:,.2f}" if currency == 'USD' else f"{have:,.0f}원"
+        raise ValueError(f"'{row['name']}' 통장 잔액({unit})이 부족합니다.")
+    amount = int(round(krw + (usd * get_current_exchange_rate() if usd else 0)))
+    cur.execute("UPDATE cash_deposits SET krw_amount=%s, usd_amount=%s, amount=%s, updated_date=%s WHERE id=%s",
+                (krw, usd, amount, date.today().isoformat(), bank_id))
+    return row['name']
+
+
+def _transfer_side_name(cur, side_type, side_id):
+    """이체 대상(통장/투자 계좌)의 이름. 없거나 이체 불가면 None."""
+    if side_type == 'bank':
+        cur.execute("SELECT name, is_system FROM cash_deposits WHERE id=%s", (side_id,))
+        r = cur.fetchone()
+        return None if (not r or r['is_system']) else r['name']
+    cur.execute("SELECT name FROM invest_accounts WHERE id=%s", (side_id,))
+    r = cur.fetchone()
+    return r['name'] if r else None
+
+
+def _delete_transfer(db, tid):
+    """이체 한 건을 지우고 통장 잔액·예수금 원장을 되돌린다. Flask 응답을 반환한다."""
+    cur = db.cursor()
+    cur.execute("SELECT * FROM account_transfers WHERE id=%s", (tid,))
+    t = cur.fetchone()
+    if not t:
+        cur.close()
+        return jsonify({'error': '이체 내역을 찾을 수 없습니다.'}), 404
+    amt = float(t['amount'])
+    try:
+        # 통장 쪽 되돌리기: 출금이었으면 +, 입금이었으면 -  (이미 지운 통장은 건너뜀, 되돌림은 마이너스가 돼도 허용)
+        if t['from_type'] == 'bank':
+            _bank_adjust(cur, t['from_id'], t['currency'], +amt, allow_negative=True)
+        if t['to_type'] == 'bank':
+            _bank_adjust(cur, t['to_id'], t['currency'], -amt, allow_negative=True)
+        cur.execute("DELETE FROM account_cash_tx WHERE ref_type='transfer' AND ref_id=%s", (tid,))
+        cur.execute("DELETE FROM account_transfers WHERE id=%s", (tid,))
+        _ensure_and_sync_deposit_row(db)       # commit 포함
+    except Exception as e:
+        db.rollback()
+        cur.close()
+        return jsonify({'error': str(e)}), 500
+    cur.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/account-transfers', methods=['GET', 'POST'])
+def api_account_transfers():
+    """GET: 이체 내역(최근 200건). POST: 이체 실행 — 한 트랜잭션으로 양쪽을 함께 반영한다.
+    {from_type, from_id, to_type, to_id: 'bank'(현금관리 통장) | 'invest'(투자 계좌), currency: KRW|USD, amount, tx_date, memo}
+      · 통장 → 투자 계좌 : 통장 잔액 감소, 계좌 예수금 증가   · 투자 계좌 → 통장 : 반대
+      · 투자 계좌 → 투자 계좌 : 한쪽 예수금 감소, 다른 쪽 증가  · 통장 ↔ 통장은 지원하지 않는다
+      · 통장 잔액이 모자라면 거부하고, 투자 계좌 예수금이 마이너스가 되면 이체는 하되 warning 을 돌려준다"""
+    db = get_db()
+    if request.method == 'GET':
+        cur = db.cursor()
+        cur.execute("""SELECT id, tx_date::text AS tx_date, from_type, from_id, from_name, to_type, to_id, to_name,
+                              currency, amount::float AS amount, memo
+                       FROM account_transfers ORDER BY tx_date DESC, id DESC LIMIT 200""")
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close(); db.close()
+        return jsonify(rows)
+
+    data = request.json or {}
+    ft, tt = data.get('from_type'), data.get('to_type')
+    currency = (data.get('currency') or 'KRW').upper()
+    amount = _parse_cash_amount(data.get('amount'))
+    err = None
+    try:
+        fid, tid_ = int(data.get('from_id')), int(data.get('to_id'))
+    except (TypeError, ValueError):
+        fid = tid_ = None
+        err = '출금/입금 대상을 선택해 주세요.'
+    if not err and (ft not in ('bank', 'invest') or tt not in ('bank', 'invest')):
+        err = '출금/입금 대상 종류가 올바르지 않습니다.'
+    if not err and ft == tt == 'bank':
+        err = '통장끼리의 이체는 지원하지 않습니다. 투자 계좌가 한쪽에 있어야 합니다.'
+    if not err and (ft, fid) == (tt, tid_):
+        err = '출금과 입금 대상이 같습니다.'
+    if not err and currency not in ('KRW', 'USD'):
+        err = '통화는 KRW 또는 USD 여야 합니다.'
+    if not err and amount is None:
+        err = '금액은 0보다 큰 숫자여야 합니다.'
+    tx_date = None
+    if not err:
+        try:
+            tx_date = _parse_cash_date(data.get('tx_date'))
+        except ValueError:
+            err = '날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)'
+    if err:
+        db.close()
+        return jsonify({'error': err}), 400
+
+    amount = round(amount) if currency == 'KRW' else round(amount, 2)
+    cur = db.cursor()
+    from_name = _transfer_side_name(cur, ft, fid)
+    to_name = _transfer_side_name(cur, tt, tid_)
+    if from_name is None or to_name is None:
+        cur.close(); db.close()
+        return jsonify({'error': '존재하지 않는 통장/계좌이거나 이체할 수 없는 대상입니다.'}), 400
+    memo = data.get('memo') or f"{from_name} → {to_name}"
+    warning = None
+    try:
+        cur.execute("""INSERT INTO account_transfers (tx_date, from_type, from_id, from_name, to_type, to_id, to_name, currency, amount, memo)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (tx_date, ft, fid, from_name, tt, tid_, to_name, currency, amount, data.get('memo')))
+        new_id = cur.fetchone()[0]
+        for side, sid, signed, kind in ((ft, fid, -amount, 'transfer_out'), (tt, tid_, amount, 'transfer_in')):
+            if side == 'bank':
+                _bank_adjust(cur, sid, currency, signed)          # 잔액 부족이면 ValueError → 전체 롤백
+            else:
+                cur.execute("""INSERT INTO account_cash_tx (account_id, tx_date, currency, kind, amount, ref_type, ref_id, memo)
+                               VALUES (%s,%s,%s,%s,%s,'transfer',%s,%s)""", (sid, tx_date, currency, kind, signed, new_id, memo))
+        if ft == 'invest':
+            bal = get_account_cash_map(db).get(fid, {'krw': 0.0, 'usd': 0.0})
+            left = bal['usd'] if currency == 'USD' else bal['krw']
+            if left < 0:
+                unit = f"${left:,.2f}" if currency == 'USD' else f"{left:,.0f}원"
+                warning = f"'{from_name}' 예수금이 부족합니다 (현재 {unit}). 잔액 설정에서 현재 예수금을 맞춰 주세요."
+        _ensure_and_sync_deposit_row(db)     # 예수금 행 갱신 + commit
+    except ValueError as e:
+        db.rollback()
+        cur.close(); db.close()
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        db.rollback()
+        cur.close(); db.close()
+        return jsonify({'error': str(e)}), 500
+    cur.close(); db.close()
+    out = {'ok': True, 'id': new_id}
+    if warning:
+        out['warning'] = warning
+    return jsonify(out), 201
+
+
+@app.route('/api/account-transfers/<int:tid>', methods=['DELETE'])
+def api_account_transfers_delete(tid):
+    """이체 삭제 = 통장 잔액과 투자 계좌 예수금을 이체 전으로 되돌린다."""
+    db = get_db()
+    res = _delete_transfer(db, tid)
+    db.close()
+    return res
 
 
 # ── 투자 데이터 초기화 (대개편 Step 2) ─────────────────────────
@@ -9415,7 +9581,7 @@ def api_import_text():
 # 외래키 의존성을 고려한 삭제 순서 (자식 → 부모)
 _BACKUP_DELETE_ORDER = [
     'card_tx', 'card_mappings', 'card_category_rules',
-    'account_cash_tx', 'stock_tx', 'etf_tx', 'invest_accounts', 'realized_pnl_archive',
+    'account_transfers', 'account_cash_tx', 'stock_tx', 'etf_tx', 'invest_accounts', 'realized_pnl_archive',
     'tenant_contracts', 'property_costs',
     'fund_group_rules', 'monthly_fund_budgets',
     'asset_snapshots', 'sold_real_estate',
@@ -9429,7 +9595,7 @@ _BACKUP_DELETE_ORDER = [
 _BACKUP_INSERT_ORDER = [
     'categories', 'budget_categories', 'budget_category_rules',
     'stock_categories', 'card_info', 'fund_groups',
-    'invest_accounts', 'realized_pnl_archive',
+    'invest_accounts', 'realized_pnl_archive', 'account_transfers',
     'stocks', 'etf', 'real_estate',
     'budget_recurring',
     'income', 'budget', 'crypto', 'loans', 'pension', 'goals',
