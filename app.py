@@ -1780,13 +1780,181 @@ def api_stock_category_delete(cid):
     return jsonify({'ok': True})
 
 
+
+# ── 투자 계좌 ─────────────────────────────────────────────────
+def _truthy(v):
+    """폼에서 오는 '1'/'true'/1/True 등을 bool 로 변환한다."""
+    return str(v).strip().lower() in ('1', 'true', 't', 'y', 'yes')
+
+
+def _parse_tx_account(cur, data):
+    """거래 요청 바디에서 (account_id, is_opening, 오류메시지)를 뽑아 검증한다.
+    - account_id: 비어 있으면 None(계좌 미지정), 값이 있으면 존재하는 계좌여야 한다.
+    - is_opening(기초 보유)은 매수 거래에만 허용한다."""
+    raw = data.get('account_id')
+    account_id = None
+    if raw not in (None, ''):
+        try:
+            account_id = int(raw)
+        except (TypeError, ValueError):
+            return None, False, '계좌 값이 올바르지 않습니다.'
+        cur.execute("SELECT 1 FROM invest_accounts WHERE id=%s", (account_id,))
+        if not cur.fetchone():
+            return None, False, '존재하지 않는 계좌입니다.'
+    is_opening = _truthy(data.get('is_opening'))
+    if is_opening and data.get('tx_type') not in ('buy', '매수'):
+        return None, False, '기초 보유는 매수 거래로만 입력할 수 있습니다.'
+    return account_id, is_opening, None
+
+
+@app.route('/api/invest-accounts', methods=['GET', 'POST'])
+def api_invest_accounts():
+    """투자 계좌 목록/추가. GET ?active=1 이면 사용 중인 계좌만 반환한다."""
+    db = get_db()
+    cur = db.cursor()
+    if request.method == 'GET':
+        where = "WHERE a.is_active" if request.args.get('active') == '1' else ""
+        cur.execute(f"""
+            SELECT a.id, a.name, a.broker, a.acct_type, a.sort_order, a.is_active, a.memo,
+                   (SELECT COUNT(*) FROM stock_tx t WHERE t.account_id = a.id)
+                 + (SELECT COUNT(*) FROM etf_tx t WHERE t.account_id = a.id) AS tx_count
+            FROM invest_accounts a {where}
+            ORDER BY a.sort_order, a.id
+        """)
+        rows = [dict(r) for r in cur.fetchall()]
+        for r in rows:
+            r['is_active'] = 1 if r['is_active'] else 0   # 화면 select 값('1'/'0')과 맞춤
+        cur.close(); db.close()
+        return jsonify(rows)
+
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        cur.close(); db.close()
+        return jsonify({'error': '계좌 이름을 입력해 주세요.'}), 400
+    cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM invest_accounts")
+    order = cur.fetchone()[0]
+    cur.execute(
+        "INSERT INTO invest_accounts (name, broker, acct_type, sort_order, memo) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+        (name, data.get('broker'), data.get('acct_type') or '일반', order, data.get('memo')))
+    new_id = cur.fetchone()[0]
+    cur.close(); db.commit(); db.close()
+    return jsonify({'ok': True, 'id': new_id}), 201
+
+
+@app.route('/api/invest-accounts/<int:aid>', methods=['PUT', 'DELETE'])
+def api_invest_accounts_detail(aid):
+    db = get_db()
+    cur = db.cursor()
+    if request.method == 'PUT':
+        data = request.json or {}
+        name = (data.get('name') or '').strip()
+        if not name:
+            cur.close(); db.close()
+            return jsonify({'error': '계좌 이름을 입력해 주세요.'}), 400
+        cur.execute(
+            "UPDATE invest_accounts SET name=%s, broker=%s, acct_type=%s, is_active=%s, memo=%s WHERE id=%s",
+            (name, data.get('broker'), data.get('acct_type') or '일반',
+             _truthy(data.get('is_active', '1')), data.get('memo'), aid))
+        cur.close(); db.commit(); db.close()
+        return jsonify({'ok': True})
+
+    # DELETE: 거래가 연결된 계좌는 지우지 않고 '사용 중지'로만 바꾼다 (거래의 계좌 정보 보존)
+    cur.execute("""SELECT (SELECT COUNT(*) FROM stock_tx WHERE account_id=%s)
+                        + (SELECT COUNT(*) FROM etf_tx WHERE account_id=%s)""", (aid, aid))
+    used = cur.fetchone()[0]
+    if used:
+        cur.execute("UPDATE invest_accounts SET is_active=FALSE WHERE id=%s", (aid,))
+        cur.close(); db.commit(); db.close()
+        return jsonify({'ok': True, 'deactivated': True,
+                        'message': f'거래 {used}건이 연결된 계좌라 삭제하지 않고 사용 중지로 바꿨습니다.'})
+    cur.execute("DELETE FROM invest_accounts WHERE id=%s", (aid,))
+    cur.close(); db.commit(); db.close()
+    return jsonify({'ok': True})
+
+
+# ── 투자 데이터 초기화 (대개편 Step 2) ─────────────────────────
+def _invest_reset_counts(cur):
+    """초기화 대상 행 수를 센다."""
+    def one(sql):
+        cur.execute(sql)
+        return int(cur.fetchone()[0])
+    return {
+        'stock_tx': one("SELECT COUNT(*) FROM stock_tx"),
+        'etf_tx': one("SELECT COUNT(*) FROM etf_tx"),
+        'cash_auto_adjustments(주식/ETF)': one(
+            "SELECT COUNT(*) FROM cash_auto_adjustments WHERE source_type IN ('stock_tx','etf_tx')"),
+        'stocks(종목)': one("SELECT COUNT(*) FROM stocks"),
+        'etf(종목)': one("SELECT COUNT(*) FROM etf"),
+    }
+
+
+@app.route('/api/invest-reset', methods=['GET', 'POST'])
+def api_invest_reset():
+    """주식/ETF 거래 데이터 초기화.
+    GET : 지워질 행 수와 안전 조건(올해 실현손익 아카이브 존재 여부)만 보여준다. (아무것도 바꾸지 않음)
+    POST {"confirm": "초기화", "delete_masters": false} : 실제 초기화.
+      - 안전 조건: 올해 realized_pnl_archive 가 저장돼 있어야 한다. (없으면 거부)
+      - 기본은 종목 목록(stocks/etf)은 남기고 거래·수량/평단 강제값만 지운다.
+        delete_masters=true 면 종목 목록까지 지운다.
+      - 남기는 것: realized_pnl_archive, 코인/공모주, 부동산 납부 현금조정(re_payment), 투자계획 자체
+    주의: 과거 매수/매도로 이미 변한 현금관리 통장 잔액은 되돌리지 않는다. (직접 확인 필요)"""
+    year = date.today().year
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT COUNT(*) AS n, COALESCE(SUM(pnl),0) AS t FROM realized_pnl_archive WHERE year=%s", (year,))
+    a = cur.fetchone()
+    archive = {'year': year, 'count': int(a['n']), 'total': int(a['t'])}
+
+    if request.method == 'GET':
+        counts = _invest_reset_counts(cur)
+        cur.close(); db.close()
+        return jsonify({'will_delete': counts, 'archive': archive,
+                        'can_reset': archive['count'] > 0,
+                        'note': '종목 목록(stocks/etf)은 기본적으로 남기고 거래만 지웁니다.'})
+
+    body = request.get_json(silent=True) or {}
+    if body.get('confirm') != '초기화':
+        cur.close(); db.close()
+        return jsonify({'error': 'confirm 값에 "초기화"를 정확히 입력해야 실행됩니다.'}), 400
+    if archive['count'] == 0:
+        cur.close(); db.close()
+        return jsonify({'error': f'{year}년 실현손익 아카이브가 없어 초기화를 거부했습니다. '
+                                 f'먼저 /api/realized-archive 로 저장하세요.'}), 409
+    delete_masters = bool(body.get('delete_masters'))
+    before = _invest_reset_counts(cur)
+    try:
+        cur.execute("DELETE FROM cash_auto_adjustments WHERE source_type IN ('stock_tx','etf_tx')")
+        cur.execute("DELETE FROM stock_tx")
+        cur.execute("DELETE FROM etf_tx")
+        if delete_masters:
+            cur.execute("DELETE FROM rebalance_assignments WHERE source_type IN ('stock','etf')")
+            cur.execute("DELETE FROM stocks")
+            cur.execute("DELETE FROM etf")
+        else:
+            # 종목 목록은 남기되 수량/평단 흔적을 지운다. (quantity>0 인 종목은 init_db 의
+            # '기존 데이터 → 거래 이전' 마이그레이션이 재시작 때 매수 거래를 다시 만들어 버리므로 0으로 만든다)
+            cur.execute("""UPDATE stocks SET quantity=0, buy_price=0, qty_override=NULL,
+                           avg_price_override=NULL, realized_pnl_override=NULL, override_anchor_tx_id=NULL""")
+            cur.execute("""UPDATE etf SET quantity=0, buy_price=0, qty_override=NULL,
+                           avg_price_override=NULL, override_anchor_tx_id=NULL""")
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        cur.close(); db.close()
+        return jsonify({'error': str(e)}), 500
+    cur.close(); db.close()
+    return jsonify({'ok': True, 'deleted': before, 'delete_masters': delete_masters})
+
+
 # ── API: 주식 거래내역 ────────────────────────────────────────
 @app.route('/api/stock-tx', methods=['GET', 'POST'])
 def api_stock_tx():
     db = get_db()
     if request.method == 'GET':
         stock_id = request.args.get('stock_id')
-        query  = "SELECT t.*, s.name, s.ticker FROM stock_tx t LEFT JOIN stocks s ON t.stock_id = s.id"
+        query  = ("SELECT t.*, s.name, s.ticker, a.name AS account_name FROM stock_tx t "
+                  "LEFT JOIN stocks s ON t.stock_id = s.id LEFT JOIN invest_accounts a ON t.account_id = a.id")
         params = []
         if stock_id:
             query += " WHERE t.stock_id = %s"
@@ -1800,6 +1968,7 @@ def api_stock_tx():
         pnl_map = compute_realized_pnl_map(rows, 'stock_id', _override_seed_map(db, 'stocks'))
         for r in rows:
             r['realized_pnl'] = pnl_map.get(r['id'], 0.0)
+            r['is_opening'] = 1 if r.get('is_opening') else 0   # 화면 select 값('0'/'1')과 맞추기 위해 정수로
         return jsonify(rows_to_list(rows))
 
     data = request.json
@@ -1816,15 +1985,22 @@ def api_stock_tx():
             db.close()
             return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.'}), 400
 
+    account_id, is_opening, err = _parse_tx_account(cur, data)
+    if err:
+        cur.close(); db.close()
+        return jsonify({'error': err}), 400
+
     cur.execute(
-    "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate, realized_pnl) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+    "INSERT INTO stock_tx (stock_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate, realized_pnl, account_id, is_opening) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
     (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
-    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, 0.0)
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, 0.0, account_id, is_opening)
     )
     new_id = cur.fetchone()[0]
     tx_type = data.get('tx_type')
     sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
-    if tx_type in ('buy', '매수'):
+    if is_opening:
+        pass   # 기초 보유: 이미 갖고 있던 수량을 기록하는 것이라 현금(통장 잔액)을 건드리지 않는다
+    elif tx_type in ('buy', '매수'):
         amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'stock_tx', new_id, amt, f"{sname} 매수", data.get('tx_date'))
     elif tx_type in ('sell', '매도'):
@@ -1858,14 +2034,21 @@ def api_stock_tx_detail(rid):
                 db.close()
                 return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.'}), 400
 
+        account_id, is_opening, err = _parse_tx_account(cur, data)
+        if err:
+            cur.close(); db.close()
+            return jsonify({'error': err}), 400
+
         cur.execute(
-        "UPDATE stock_tx SET stock_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s WHERE id=%s",
+        "UPDATE stock_tx SET stock_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s, account_id=%s, is_opening=%s WHERE id=%s",
         (data.get('stock_id'), data.get('tx_date'), data.get('tx_type'),
-        data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, rid)
+        data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, account_id, is_opening, rid)
         )
         tx_type = data.get('tx_type')
         sname = f"{s['name']}({s['ticker']})" if s and s.get('ticker') else (s['name'] if s else '주식')
-        if tx_type in ('buy', '매수'):
+        if is_opening:
+            _remove_cash_adj(cur, 'stock_tx', rid)   # 일반 매수였던 거래를 기초 보유로 바꾼 경우 이전 현금 조정을 되돌린다
+        elif tx_type in ('buy', '매수'):
             amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
             _upsert_cash_adj(cur, 'stock_tx', rid, amt, f"{sname} 매수", data.get('tx_date'))
         elif tx_type in ('sell', '매도'):
@@ -2006,7 +2189,8 @@ def api_etf_tx():
     db = get_db()
     if request.method == 'GET':
         etf_id = request.args.get('etf_id')
-        query  = "SELECT t.*, e.name, e.ticker FROM etf_tx t LEFT JOIN etf e ON t.etf_id = e.id"
+        query  = ("SELECT t.*, e.name, e.ticker, a.name AS account_name FROM etf_tx t "
+                  "LEFT JOIN etf e ON t.etf_id = e.id LEFT JOIN invest_accounts a ON t.account_id = a.id")
         params = []
         if etf_id:
             query += " WHERE t.etf_id = %s"
@@ -2019,6 +2203,7 @@ def api_etf_tx():
         pnl_map = compute_realized_pnl_map(rows, 'etf_id', _override_seed_map(db, 'etf'))
         for r in rows:
             r['realized_pnl'] = pnl_map.get(r['id'], 0.0)
+            r['is_opening'] = 1 if r.get('is_opening') else 0
         return jsonify(rows_to_list(rows))
 
     data = request.json
@@ -2035,15 +2220,22 @@ def api_etf_tx():
             db.close()
             return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.'}), 400
 
+    account_id, is_opening, err = _parse_tx_account(cur, data)
+    if err:
+        cur.close(); db.close()
+        return jsonify({'error': err}), 400
+
     cur.execute(
-    "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate, realized_pnl) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+    "INSERT INTO etf_tx (etf_id, tx_date, tx_type, price, quantity, fee, memo, exchange_rate, realized_pnl, account_id, is_opening) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
     (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
-    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, 0.0)
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, 0.0, account_id, is_opening)
     )
     new_id = cur.fetchone()[0]
     tx_type = data.get('tx_type')
     ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')
-    if tx_type in ('buy', '매수'):
+    if is_opening:
+        pass   # 기초 보유: 현금을 건드리지 않는다
+    elif tx_type in ('buy', '매수'):
         amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'etf_tx', new_id, amt, f"{ename} ETF 매수", data.get('tx_date'))
     elif tx_type in ('sell', '매도'):
@@ -2087,14 +2279,21 @@ def api_etf_tx_detail(rid):
             db.close()
             return jsonify({'error': f'보유 수량({held:g})보다 많은 수량을 매도할 수 없습니다.'}), 400
 
+    account_id, is_opening, err = _parse_tx_account(cur, data)
+    if err:
+        cur.close(); db.close()
+        return jsonify({'error': err}), 400
+
     cur.execute(
-    "UPDATE etf_tx SET etf_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s WHERE id=%s",
+    "UPDATE etf_tx SET etf_id=%s, tx_date=%s, tx_type=%s, price=%s, quantity=%s, fee=%s, memo=%s, exchange_rate=%s, account_id=%s, is_opening=%s WHERE id=%s",
     (data.get('etf_id'), data.get('tx_date'), data.get('tx_type'),
-    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, rid)
+    data.get('price', 0), data.get('quantity', 0), data.get('fee', 0), data.get('memo'), ex, account_id, is_opening, rid)
     )
     tx_type = data.get('tx_type')
     ename = f"{e['name']}({e['ticker']})" if e and e.get('ticker') else (e['name'] if e else 'ETF')
-    if tx_type in ('buy', '매수'):
+    if is_opening:
+        _remove_cash_adj(cur, 'etf_tx', rid)
+    elif tx_type in ('buy', '매수'):
         amt = -round((float(data.get('price', 0)) * float(data.get('quantity', 0)) + float(data.get('fee', 0))) * ex)
         _upsert_cash_adj(cur, 'etf_tx', rid, amt, f"{ename} ETF 매수", data.get('tx_date'))
     elif tx_type in ('sell', '매도'):
@@ -5175,7 +5374,7 @@ def api_recalc_foreign_cash_adj():
                e.name, e.ticker
         FROM etf_tx t
         JOIN etf e ON e.id = t.etf_id
-        WHERE t.tx_type IN ('buy','매수')
+        WHERE t.tx_type IN ('buy','매수') AND NOT t.is_opening
     """)
     for row in cur.fetchall():
         if not is_foreign_ticker(row['ticker']):
@@ -5194,7 +5393,7 @@ def api_recalc_foreign_cash_adj():
                s.name, s.ticker
         FROM stock_tx t
         JOIN stocks s ON s.id = t.stock_id
-        WHERE t.tx_type IN ('buy','매수')
+        WHERE t.tx_type IN ('buy','매수') AND NOT t.is_opening
     """)
     for row in cur.fetchall():
         if not is_foreign_ticker(row['ticker']):
@@ -5678,7 +5877,7 @@ def api_total_pnl():
         cur.execute(f"""
             SELECT to_char(tx_date::date, 'YYYY-MM') AS ym, tx_type, price, quantity,
                    COALESCE(fee, 0) AS fee, COALESCE(exchange_rate, 1) AS rate
-            FROM {tbl} WHERE tx_date IS NOT NULL
+            FROM {tbl} WHERE tx_date IS NOT NULL AND NOT is_opening
         """)
         for r in cur.fetchall():
             amt = float(r['price'] or 0) * float(r['quantity'] or 0)
@@ -7093,7 +7292,7 @@ def _api_tech_tree_data_inner():
         
         s_buy AS (
             SELECT COALESCE(SUM(price*quantity), 0) AS val FROM stock_tx 
-            WHERE tx_date >= %s AND tx_date < %s AND tx_type IN ('buy','매수')
+            WHERE tx_date >= %s AND tx_date < %s AND tx_type IN ('buy','매수') AND NOT is_opening
         ),
         s_sell AS (
             SELECT COALESCE(SUM(price*quantity), 0) AS val FROM stock_tx
@@ -7742,7 +7941,7 @@ def api_asset_history():
     cur = db.cursor()
     cur.execute("""
         SELECT to_char(tx_date::date, 'YYYY-MM') as ym, 
-               COALESCE(SUM(CASE WHEN tx_type IN ('buy','매수') THEN price*quantity ELSE 0 END), 0) as s_buy,
+               COALESCE(SUM(CASE WHEN tx_type IN ('buy','매수') AND NOT is_opening THEN price*quantity ELSE 0 END), 0) as s_buy,
                COALESCE(SUM(CASE WHEN tx_type IN ('sell','매도') THEN price*quantity ELSE 0 END), 0) as s_sell
         FROM stock_tx
         WHERE tx_date >= %s AND tx_date < %s

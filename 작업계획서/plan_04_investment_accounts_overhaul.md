@@ -66,38 +66,51 @@
 
 ---
 
-## Step 2. 계좌 마스터 + 거래에 계좌 연결 + 데이터 초기화
+## Step 2. 계좌 마스터 + 거래에 계좌 연결 + 데이터 초기화 ✅ 구현됨
 
-### DB (`database.py` `migrations` 목록, 모두 `IF NOT EXISTS`)
+### 구현된 DB (`database.py`, 모두 `IF NOT EXISTS`)
 ```sql
 CREATE TABLE IF NOT EXISTS invest_accounts (
-    id          SERIAL PRIMARY KEY,
-    name        TEXT NOT NULL,           -- 예: "키움 일반", "토스 ISA"
-    broker      TEXT,
-    acct_type   TEXT DEFAULT '일반',     -- 일반 / ISA / 연금저축 / IRP 등 (표시용)
-    sort_order  INTEGER DEFAULT 0,
-    is_active   BOOLEAN DEFAULT TRUE,
-    memo        TEXT
+    id SERIAL PRIMARY KEY, name TEXT NOT NULL, broker TEXT, acct_type TEXT DEFAULT '일반',
+    sort_order INTEGER DEFAULT 0, is_active BOOLEAN NOT NULL DEFAULT TRUE, memo TEXT
 );
 ALTER TABLE stock_tx ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES invest_accounts(id);
 ALTER TABLE etf_tx   ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES invest_accounts(id);
+ALTER TABLE stock_tx ADD COLUMN IF NOT EXISTS is_opening BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE etf_tx   ADD COLUMN IF NOT EXISTS is_opening BOOLEAN NOT NULL DEFAULT FALSE;
 ```
-- `tx_type`에 `init`(기초 보유) 허용. 기존 코드가 `buy/매수`가 아니면 전부 매도로 처리하는 곳이 많다(`_calc_realized_records`, `/api/total-pnl` 등) → **`init`을 매수와 동일하게 취급하도록 해당 분기 전부 수정** (놓치면 기초 보유가 매도로 계산되는 큰 버그. `grep "tx_type"`로 전수 점검).
-- 코인(`crypto`)·공모주(`ipo`)는 이번 범위에서 **계좌 연결 제외**(§11 결정사항 참고). 실현손익은 대시보드에 그대로 합산.
 
-### API / 화면
-- `GET/POST /api/invest-accounts`, `PUT/DELETE /api/invest-accounts/<id>` (거래가 있는 계좌는 삭제 대신 `is_active=false`)
-- `investments.html` 주식/ETF 탭 상단에 **계좌 선택 칩**(전체 / 계좌1 / 계좌2 …) + 거래 입력 폼에 계좌 필수 선택
+### 설계 변경: "기초 보유"는 `tx_type='init'`이 아니라 **`매수 + is_opening 플래그`**
+- 처음 계획은 `tx_type='init'`이었으나, `tx_type`을 보는 곳이 60군데가 넘어(수량·평단·실현손익·강제값 기준점 등) 하나라도 놓치면 기초 보유가 "매도"로 계산되는 큰 버그가 된다.
+- 그래서 **기초 보유 = 매수 거래 + `is_opening=TRUE`** 로 저장한다. 수량/평단/실현손익 계산은 기존 코드가 그대로 처리하고, 아래 곳에서만 `is_opening`을 제외한다.
+  1. 거래 입력/수정 시 현금 자동조정 (`_upsert_cash_adj` 건너뜀, 일반 매수→기초 보유로 바꾸면 이전 조정 되돌림)
+  2. `recalc-foreign` 현금 재계산
+  3. 월별 투자금 집계 (`/api/total-pnl` 순매수, 테크트리 `s_buy`, 자산추이 `s_buy`)
+  4. (Step 5에서) 예수금 원장 기록
+- 기초 보유는 **매수로만** 입력 가능(매도+기초 보유는 400). 단가 칸에는 **평균 매입단가**를 넣는다.
 
-### 데이터 초기화 (이 Step 마지막, 일회성 스크립트 `scripts/reset_invest_data.py`)
-- 지우는 것: `stock_tx`, `etf_tx`, `stocks`, `etf`, `cash_auto_adjustments`(주식/ETF 분만), 분할매수·투자계획 실행 기록 중 거래와 연결된 것
-- **남기는 것**: `realized_pnl_archive`(Step 1), 코인/공모주 데이터, 부동산 납부 관련 `cash_auto_adjustments`(`source_type='re_payment'`)
-- 실행 전 `--dry-run`으로 지울 행 수 출력 → 사용자 확인 후 `--apply`. 운영 `init_db`에 자동 실행되지 않게 분리.
-- 초기화 후 사용자가: 계좌 등록 → 종목별 `init`(기초 보유)로 현재 보유분 입력.
+### 구현된 API
+- `GET/POST /api/invest-accounts`, `PUT/DELETE /api/invest-accounts/<id>` — 거래가 연결된 계좌는 삭제 대신 `is_active=false`(사용 중지). `GET ?active=1` 로 사용 중만 조회.
+- `/api/stock-tx`, `/api/etf-tx` 의 POST/PUT 이 `account_id`(선택), `is_opening` 을 받고, GET 이 `account_id`, `account_name`, `is_opening` 을 돌려준다. 계좌 미지정 거래도 허용(Step 5에서 필수로 전환).
+- **데이터 초기화**: `GET /api/invest-reset`(지울 행 수 미리보기, 아무것도 안 바뀜) / `POST /api/invest-reset` `{"confirm":"초기화","delete_masters":false}`
+  - 올해 `realized_pnl_archive`가 없으면 **409 거부**, `confirm`이 "초기화"가 아니면 400.
+  - 지우는 것: `stock_tx`, `etf_tx`, 주식/ETF의 `cash_auto_adjustments`. 기본은 **종목 목록(stocks/etf)은 남기고** 수량/평단 흔적(`quantity`, `buy_price`, 강제값)만 0/NULL로 비운다. (`quantity`가 남아 있으면 `init_db`의 "기존 데이터→거래 이전" 마이그레이션이 재시작 때 매수 거래를 다시 만들어 버리기 때문)
+  - `delete_masters:true` 면 종목 목록과 리밸런싱 배정까지 삭제.
+  - 남기는 것: `realized_pnl_archive`, 코인/공모주, 부동산 납부 현금조정, 투자계획·분할매수 계획.
+  - **되돌리지 않는 것**: 과거 매수/매도로 이미 변한 현금관리 통장 잔액. 초기화 후 직접 확인·수정.
+- 스크립트 대신 API로 구현한 이유는 Step 1과 같다(앱 import 부작용).
 
-### 완료 확인
-- 계좌 3개 생성, 계좌별로 `init` 거래 입력 시 종목 목록이 계좌별로 분리되어 보임
-- 기초 보유 입력 후 `/api/total-pnl`의 실현손익이 변하지 않음(매도로 오인 안 함)
+### 구현된 화면 (`investments.html`)
+- 상단 **[계좌 관리]** 버튼 → 모달에서 계좌 추가/수정/중지/삭제.
+- 주식·ETF 거래내역 표에 **계좌**, **기초보유** 열 추가(입력·수정 가능).
+
+### 계획에서 Step 3으로 옮긴 것
+- "종목 목록·손익을 계좌별로 나눠 보기"(계좌 칩 선택, 계좌×종목 평단) 는 포지션 계산을 바꾸는 작업이라 **Step 3**에서 한다. Step 2는 계좌를 만들고 거래에 연결하는 데까지.
+
+### 완료 확인 (로컬 PostgreSQL 16 + 실제 브라우저로 검증함)
+- 기초 보유 입력 시 통장 잔액 불변, 일반 매수는 기존처럼 차감, 일반 매수→기초 보유 전환 시 잔액 복구
+- 기초 보유 후 매도 시 실현손익이 기초 보유 평단 기준으로 계산됨
+- 초기화: 아카이브 없으면 거부, 실행 후 아카이브 보존, 재시작(`init_db`) 후 유령 거래 재생성 없음
 
 ---
 
