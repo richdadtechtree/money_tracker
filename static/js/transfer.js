@@ -125,7 +125,7 @@
     $('trTo').value = [...$('trTo').options].some(o => o.value === defTo) ? defTo : $('trTo').value;
     $('trAmount').value = '';
     $('trMemo').value = '';
-    $('trDate').value = new Date().toISOString().split('T')[0];
+    $('trDate').value = todayLocalStr();
     updatePreview();
     bootstrap.Modal.getOrCreateInstance($(MODAL_ID)).show();
   };
