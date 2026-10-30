@@ -1998,6 +1998,93 @@ def api_invest_accounts_detail(aid):
     return jsonify({'ok': True})
 
 
+def _compute_account_positions(db, ex_rate):
+    """계좌별 보유 평가금액/매입금액/보유 종목 수 {account_id(None=미지정): {'eval','cost','holdings'}}.
+    종목 × 계좌 단위 이동평균 포지션이며 해외 종목은 현재 환율로 원화 환산한다.
+    수기 강제값(qty/avg override)은 종목 전체 값이라 '계좌 미지정' 거래 묶음에만 적용한다.
+    계좌별 손익 요약과 상단 총손익 카드가 같은 값을 쓰도록 한 곳에서 계산한다."""
+    out = {}
+    cur = db.cursor()
+    for master, tx_table, col in (('stocks', 'stock_tx', 'stock_id'), ('etf', 'etf_tx', 'etf_id')):
+        cur.execute(f"SELECT id, ticker, current_price, qty_override, avg_price_override, override_anchor_tx_id FROM {master}")
+        masters = {r['id']: dict(r) for r in cur.fetchall()}
+        cur.execute(f"SELECT id, {col} AS item_id, account_id, tx_type, price, quantity FROM {tx_table} "
+                    f"ORDER BY {col}, tx_date, id")
+        groups = {}
+        for tx in cur.fetchall():
+            groups.setdefault((tx['item_id'], tx['account_id']), []).append(tx)
+        for item_id, m in masters.items():
+            seed = _override_seed(m)
+            if seed is not None and (item_id, None) not in groups:
+                groups[(item_id, None)] = []        # 거래 없이 강제값만 있는 종목
+        for (item_id, acct_id), txs in groups.items():
+            m = masters.get(item_id)
+            if m is None:
+                continue
+            _pnl, qty, avg = _walk_positions(txs, _override_seed(m) if acct_id is None else None)
+            if qty <= 0:
+                continue
+            mul = ex_rate if is_foreign_ticker(m['ticker']) else 1.0
+            pos = out.setdefault(acct_id, {'eval': 0.0, 'cost': 0.0, 'holdings': 0})
+            pos['eval'] += round(qty * _sf(m['current_price'])) * mul
+            pos['cost'] += round(qty * avg) * mul
+            pos['holdings'] += 1
+    cur.close()
+    return out
+
+
+def _has_invest_reset(db):
+    """투자 데이터 초기화(/api/invest-reset)를 실행한 적이 있는가. 실행했다면 박제된 이전 실현손익을 합산해야 한다."""
+    cur = db.cursor()
+    cur.execute("SELECT 1 FROM app_settings WHERE key='invest_reset_at'")
+    r = cur.fetchone()
+    cur.close()
+    return bool(r)
+
+
+def _load_archive_rows(db):
+    """박제(realized_pnl_archive)된 주식·ETF 실현손익. 초기화 후에만 의미가 있다.
+    초기화 전에는 같은 거래가 아직 live 거래에서 계산되므로 합산하면 이중 계상이 된다.
+    공모주·코인은 초기화 후에도 live 데이터가 그대로 남아 있어 박제분은 쓰지 않는다."""
+    if not _has_invest_reset(db):
+        return []
+    cur = db.cursor()
+    cur.execute("SELECT year, account_id, pnl FROM realized_pnl_archive WHERE source IN ('stock','etf')")
+    rows = [dict(r) for r in cur.fetchall()]
+    cur.close()
+    return rows
+
+
+def _crypto_sell_rows(db):
+    """코인 매도 기록 [(날짜 문자열, 손익)]"""
+    _ensure_crypto_sell_table(db)
+    cur = db.cursor()
+    cur.execute("SELECT sell_date::text AS d, pnl FROM crypto_sell")
+    rows = [(r['d'], float(r['pnl'] or 0)) for r in cur.fetchall()]
+    cur.close()
+    return rows
+
+
+def _realized_by_year(db, records):
+    """연도별 실현손익 구성 {year: {'stock','etf','ipo','crypto','archive','total'}} (원화).
+    stock/etf/ipo 는 실현손익 원장(_calc_realized_records), crypto 는 코인 매도 기록, archive 는 초기화 전에 박제한 주식·ETF 분."""
+    by = {}
+    def slot(y):
+        return by.setdefault(y, {'stock': 0.0, 'etf': 0.0, 'ipo': 0.0, 'crypto': 0.0, 'archive': 0.0})
+    for r in records:
+        y = (r['date'] or '')[:4]
+        if y.isdigit() and r['source'] in ('stock', 'etf', 'ipo'):
+            slot(int(y))[r['source']] += r['pnl']
+    for d, pnl in _crypto_sell_rows(db):
+        if (d or '')[:4].isdigit():
+            slot(int(d[:4]))['crypto'] += pnl
+    for r in _load_archive_rows(db):
+        slot(int(r['year']))['archive'] += float(r['pnl'] or 0)
+    for v in by.values():
+        v['total'] = sum(v[k] for k in ('stock', 'etf', 'ipo', 'crypto', 'archive'))
+    return by
+
+
 @app.route('/api/invest-accounts/summary')
 def api_invest_accounts_summary():
     """계좌별 평가금액 / 매입금액 / 평가손익 / 실현손익 요약.
@@ -2019,30 +2106,11 @@ def api_invest_accounts_summary():
         a.update({'eval_amount': 0.0, 'cost_amount': 0.0, 'realized_pnl': 0.0, 'holdings': 0,
                   'cash_krw': round(bal['krw']), 'cash_usd': round(bal['usd'], 2)})
 
-    for master, tx_table, col in (('stocks', 'stock_tx', 'stock_id'), ('etf', 'etf_tx', 'etf_id')):
-        cur.execute(f"SELECT id, ticker, current_price, qty_override, avg_price_override, override_anchor_tx_id FROM {master}")
-        masters = {r['id']: dict(r) for r in cur.fetchall()}
-        cur.execute(f"SELECT id, {col} AS item_id, account_id, tx_type, price, quantity FROM {tx_table} "
-                    f"ORDER BY {col}, tx_date, id")
-        groups = {}
-        for tx in cur.fetchall():
-            groups.setdefault((tx['item_id'], tx['account_id']), []).append(tx)
-        for item_id, m in masters.items():
-            seed = _override_seed(m)
-            if seed is not None and (item_id, None) not in groups:
-                groups[(item_id, None)] = []        # 거래 없이 강제값만 있는 종목
-        for (item_id, acct_id), txs in groups.items():
-            m = masters.get(item_id)
-            if m is None:
-                continue
-            _pnl, qty, avg = _walk_positions(txs, _override_seed(m) if acct_id is None else None)
-            if qty <= 0:
-                continue
-            mul = ex_rate if is_foreign_ticker(m['ticker']) else 1.0
-            a = accts.get(acct_id) or accts[None]
-            a['eval_amount'] += round(qty * _sf(m['current_price'])) * mul
-            a['cost_amount'] += round(qty * avg) * mul
-            a['holdings'] += 1
+    for acct_id, pos in _compute_account_positions(db, ex_rate).items():
+        a = accts.get(acct_id) or accts[None]
+        a['eval_amount'] += pos['eval']
+        a['cost_amount'] += pos['cost']
+        a['holdings'] += pos['holdings']
     cur.close(); db.close()
 
     ipo_realized = 0.0
@@ -2054,6 +2122,21 @@ def api_invest_accounts_summary():
             continue
         a = accts.get(r.get('account_id')) or accts[None]
         a['realized_pnl'] += r['pnl']
+
+    # 초기화 전에 박제한 주식·ETF 실현손익 (계좌가 지정된 박제분은 그 계좌에, 아니면 따로 합산)
+    archive_realized = 0.0
+    db2 = get_db()
+    try:
+        for r in _load_archive_rows(db2):
+            if year and int(r['year']) != int(year):
+                continue
+            if r['account_id'] in accts and r['account_id'] is not None:
+                accts[r['account_id']]['realized_pnl'] += float(r['pnl'] or 0)
+            else:
+                archive_realized += float(r['pnl'] or 0)
+        crypto_realized = sum(p for d, p in _crypto_sell_rows(db2) if not year or (d or '').startswith(f"{int(year)}-"))
+    finally:
+        db2.close()
 
     rows, tot = [], {'eval_amount': 0, 'cost_amount': 0, 'unrealized_pnl': 0, 'realized_pnl': 0}
     for a in accts.values():
@@ -2073,7 +2156,8 @@ def api_invest_accounts_summary():
             tot[k] += a[k]
     tot['cash_krw'] = sum(a['cash_krw'] for a in rows)
     tot['cash_usd'] = round(sum(a['cash_usd'] for a in rows), 2)
-    return jsonify({'accounts': rows, 'ipo_realized': round(ipo_realized), 'totals': tot, 'year': int(year) if year else None})
+    return jsonify({'accounts': rows, 'ipo_realized': round(ipo_realized), 'archive_realized': round(archive_realized),
+                    'crypto_realized': round(crypto_realized), 'totals': tot, 'year': int(year) if year else None})
 
 
 # ── 투자 계좌 예수금 (대개편 Step 4) ───────────────────────────
@@ -2551,6 +2635,9 @@ def api_invest_reset():
                            avg_price_override=NULL, realized_pnl_override=NULL, override_anchor_tx_id=NULL""")
             cur.execute("""UPDATE etf SET quantity=0, buy_price=0, qty_override=NULL,
                            avg_price_override=NULL, override_anchor_tx_id=NULL""")
+        # 초기화를 했다는 표시: 이후부터 박제한 주식·ETF 실현손익을 연 실현손익에 합산한다 (_load_archive_rows)
+        cur.execute("INSERT INTO app_settings (key, value) VALUES ('invest_reset_at', %s) "
+                    "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (date.today().isoformat(),))
         db.commit()
         _ensure_and_sync_deposit_row(db)       # 현금관리 '예수금' 행을 남은 원장 합계에 맞춘다
     except Exception as e:
@@ -6537,13 +6624,21 @@ def api_investment_monthly():
 # ── API: 총손익 (실현 + 평가) 카드 / 월간 총손익 그래프 ──────────────
 @app.route('/api/total-pnl')
 def api_total_pnl():
-    """주식+ETF(+공모주 실현) 총손익.
-    - 카드: 총손익 = 실현손익 + 평가손익(미실현). 단기/장기·리밸런싱 구분 없이 계좌 전체 기준.
+    """투자 총손익 (연 단위). ?year=YYYY (기본 올해)
+    - 카드: 총손익 = 그 해 실현손익 + 평가손익.
+        · 실현손익(연) = 그 해 매도 실현손익 (주식·ETF·공모주·코인) + 초기화 전에 박제한 주식·ETF 분(초기화 후에만)
+        · 평가손익 = 현재 보유분의 (현재가 - 이동평균 매입단가) × 수량 의 계좌 합계. 올해는 실시간,
+          과거 연도는 account_year_snapshots 에 기록한 그 해 말 값(없으면 None)
+    - 아래 monthly 는 기존 방식(월말 평가금액 - 누적 순매수) 그대로이고 선택 연도의 달만 돌려준다.
+      카드와 정의가 달라 합계가 정확히 일치하지는 않는다.
+    - 기존 설명: 단기/장기·리밸런싱 구분 없이 계좌 전체 기준.
     - 월간: 누적 총손익(월말) = 월말 평가금액 - 누적 순매수금액. 월간 총손익은 그 월별 차이.
       (순매수 = 매수금액+수수료 - 매도금액+수수료. 종목 구분과 무관해 리밸런싱 매매가 상쇄된다.)
       월말 평가금액은 daily_snapshots.stocks(주식+ETF)의 월말 마지막 값을 쓰고, 현재 월은 실시간 평가금액을 쓴다.
     """
     from collections import defaultdict
+    this_year = date.today().year
+    year = request.args.get('year', type=int) or this_year
     ex_rate = get_current_exchange_rate()
     records = _calc_realized_records()
 
@@ -6630,14 +6725,51 @@ def api_total_pnl():
             })
             prev_total = cum_total
 
+    # ── 카드(연 단위): 계좌 합계 기준 ──
+    db3 = get_db()
+    try:
+        positions = _compute_account_positions(db3, ex_rate)
+        by_year = _realized_by_year(db3, records)
+        cur3 = db3.cursor()
+        cur3.execute("SELECT year, COALESCE(SUM(unrealized_pnl), 0) AS u FROM account_year_snapshots GROUP BY year")
+        snaps = {r['year']: float(r['u']) for r in cur3.fetchall()}
+        cur3.close()
+    finally:
+        db3.close()
+    eval_acct = sum(p['eval'] for p in positions.values())
+    cost_acct = sum(p['cost'] for p in positions.values())
+    br = by_year.get(year, {'stock': 0.0, 'etf': 0.0, 'ipo': 0.0, 'crypto': 0.0, 'archive': 0.0, 'total': 0.0})
+    realized_year = br['total']
+    if year == this_year:
+        unreal_card, unreal_src = eval_acct - cost_acct, 'live'
+    elif year in snaps:
+        unreal_card, unreal_src = snaps[year], 'snapshot'
+    else:
+        unreal_card, unreal_src = None, 'none'
+    years = sorted(set(by_year) | set(snaps) | {this_year})
+
+    # 월간 그래프: 선택 연도의 달만. 누적선은 그 해 시작 시점 대비로 보여준다.
+    prefix = f"{year}-"
+    prior = [m for m in monthly if m['ym'] < prefix]
+    in_year = [dict(m) for m in monthly if m['ym'].startswith(prefix)]
+    base = prior[-1]['cumulative_total_pnl'] if prior else (in_year[0]['cumulative_total_pnl'] if in_year else 0)
+    for m in in_year:
+        m['cumulative_total_pnl'] = m['cumulative_total_pnl'] - base
+
     return jsonify({
-        'realized_pnl': round(realized_total),
-        'unrealized_pnl': round(unrealized),
-        'total_pnl': round(realized_total + unrealized),
-        'eval_amount': round(eval_now),
-        'cost_basis': round(cost_now),
-        'unrealized_rate': round(unrealized / cost_now * 100, 2) if cost_now else None,
-        'monthly': monthly,
+        'year': year,
+        'is_current_year': year == this_year,
+        'years': years,
+        'realized_pnl': round(realized_year),
+        'realized_breakdown': {k: round(v) for k, v in br.items() if k != 'total'},
+        'unrealized_pnl': None if unreal_card is None else round(unreal_card),
+        'unrealized_source': unreal_src,
+        'total_pnl': round(realized_year + (unreal_card or 0)),
+        'eval_amount': round(eval_acct) if year == this_year else None,
+        'cost_basis': round(cost_acct) if year == this_year else None,
+        'unrealized_rate': (round((eval_acct - cost_acct) / cost_acct * 100, 2)
+                            if (year == this_year and cost_acct) else None),
+        'monthly': in_year,
     })
 
 
