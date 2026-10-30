@@ -880,6 +880,30 @@ def init_db():
         "ALTER TABLE etf_tx   ADD COLUMN IF NOT EXISTS is_opening BOOLEAN NOT NULL DEFAULT FALSE",
         "CREATE INDEX IF NOT EXISTS idx_stock_tx_account ON stock_tx(account_id)",
         "CREATE INDEX IF NOT EXISTS idx_etf_tx_account ON etf_tx(account_id)",
+        # 투자 계좌 예수금 원장 (대개편 Step 4)
+        #  - 잔액을 저장하지 않고 이 원장의 합계(통화별)가 곧 예수금이다. 거래를 고치거나 지워도 어긋나지 않는다.
+        #  - amount: 해당 통화 단위의 증가(+)/감소(-). KRW 는 원, USD 는 달러.
+        #  - ref_type/ref_id: 매수·매도·이체·환전 등 원천 거래 연결 (수동 입력은 NULL)
+        "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT FALSE",
+        "CREATE SEQUENCE IF NOT EXISTS account_cash_ref_seq",
+        """CREATE TABLE IF NOT EXISTS account_cash_tx (
+            id          SERIAL PRIMARY KEY,
+            account_id  INTEGER NOT NULL REFERENCES invest_accounts(id),
+            tx_date     DATE NOT NULL,
+            currency    TEXT NOT NULL DEFAULT 'KRW',
+            kind        TEXT NOT NULL,
+            amount      NUMERIC(18,4) NOT NULL,
+            ref_type    TEXT,
+            ref_id      INTEGER,
+            memo        TEXT,
+            created_at  TIMESTAMP DEFAULT NOW(),
+            UNIQUE (ref_type, ref_id, account_id, currency)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_account_cash_tx_account ON account_cash_tx(account_id, tx_date)",
+        # 현금관리의 '예수금' 잠금 행: 모든 투자 계좌 예수금 합계로 자동 갱신되며 직접 수정/삭제할 수 없다
+        """INSERT INTO cash_deposits (name, amount, memo, updated_date, krw_amount, usd_amount, is_system)
+           SELECT '예수금', 0, '투자 계좌 예수금 합계 (자동 연동, 수정 불가)', TO_CHAR(NOW(),'YYYY-MM-DD'), 0, 0, TRUE
+           WHERE NOT EXISTS (SELECT 1 FROM cash_deposits WHERE is_system)""",
         """CREATE TABLE IF NOT EXISTS rebalance_assignments (
             id          SERIAL PRIMARY KEY,
             source_type TEXT NOT NULL,

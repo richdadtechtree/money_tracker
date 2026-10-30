@@ -1873,13 +1873,17 @@ def api_invest_accounts():
         cur.execute(f"""
             SELECT a.id, a.name, a.broker, a.acct_type, a.sort_order, a.is_active, a.memo,
                    (SELECT COUNT(*) FROM stock_tx t WHERE t.account_id = a.id)
-                 + (SELECT COUNT(*) FROM etf_tx t WHERE t.account_id = a.id) AS tx_count
+                 + (SELECT COUNT(*) FROM etf_tx t WHERE t.account_id = a.id)
+                 + (SELECT COUNT(*) FROM account_cash_tx c WHERE c.account_id = a.id) AS tx_count
             FROM invest_accounts a {where}
             ORDER BY a.sort_order, a.id
         """)
         rows = [dict(r) for r in cur.fetchall()]
+        cash_map = get_account_cash_map(db)
         for r in rows:
             r['is_active'] = 1 if r['is_active'] else 0   # 화면 select 값('1'/'0')과 맞춤
+            bal = cash_map.get(r['id'], {'krw': 0.0, 'usd': 0.0})
+            r['cash_krw'], r['cash_usd'] = round(bal['krw']), round(bal['usd'], 2)
         cur.close(); db.close()
         return jsonify(rows)
 
@@ -1917,13 +1921,14 @@ def api_invest_accounts_detail(aid):
 
     # DELETE: 거래가 연결된 계좌는 지우지 않고 '사용 중지'로만 바꾼다 (거래의 계좌 정보 보존)
     cur.execute("""SELECT (SELECT COUNT(*) FROM stock_tx WHERE account_id=%s)
-                        + (SELECT COUNT(*) FROM etf_tx WHERE account_id=%s)""", (aid, aid))
+                        + (SELECT COUNT(*) FROM etf_tx WHERE account_id=%s)
+                        + (SELECT COUNT(*) FROM account_cash_tx WHERE account_id=%s)""", (aid, aid, aid))
     used = cur.fetchone()[0]
     if used:
         cur.execute("UPDATE invest_accounts SET is_active=FALSE WHERE id=%s", (aid,))
         cur.close(); db.commit(); db.close()
         return jsonify({'ok': True, 'deactivated': True,
-                        'message': f'거래 {used}건이 연결된 계좌라 삭제하지 않고 사용 중지로 바꿨습니다.'})
+                        'message': f'거래·예수금 내역 {used}건이 연결된 계좌라 삭제하지 않고 사용 중지로 바꿨습니다.'})
     cur.execute("DELETE FROM invest_accounts WHERE id=%s", (aid,))
     cur.close(); db.commit(); db.close()
     return jsonify({'ok': True})
@@ -1944,8 +1949,11 @@ def api_invest_accounts_summary():
     accts = {r['id']: {'id': r['id'], 'name': r['name'], 'acct_type': r['acct_type'],
                        'is_active': bool(r['is_active'])} for r in cur.fetchall()}
     accts[None] = {'id': None, 'name': '계좌 미지정', 'acct_type': '', 'is_active': True}
+    cash_map = get_account_cash_map(db)
     for a in accts.values():
-        a.update({'eval_amount': 0.0, 'cost_amount': 0.0, 'realized_pnl': 0.0, 'holdings': 0})
+        bal = cash_map.get(a['id'], {'krw': 0.0, 'usd': 0.0}) if a['id'] is not None else {'krw': 0.0, 'usd': 0.0}
+        a.update({'eval_amount': 0.0, 'cost_amount': 0.0, 'realized_pnl': 0.0, 'holdings': 0,
+                  'cash_krw': round(bal['krw']), 'cash_usd': round(bal['usd'], 2)})
 
     for master, tx_table, col in (('stocks', 'stock_tx', 'stock_id'), ('etf', 'etf_tx', 'etf_id')):
         cur.execute(f"SELECT id, ticker, current_price, qty_override, avg_price_override, override_anchor_tx_id FROM {master}")
@@ -1994,12 +2002,203 @@ def api_invest_accounts_summary():
         # 거래도 보유도 없는 중지 계좌 / 비어 있는 '미지정' 은 목록에서 뺀다
         if a['id'] is None and not (a['holdings'] or a['realized_pnl']):
             continue
-        if not a['is_active'] and not (a['holdings'] or a['realized_pnl']):
+        if not a['is_active'] and not (a['holdings'] or a['realized_pnl'] or a['cash_krw'] or a['cash_usd']):
             continue
         rows.append(a)
         for k in tot:
             tot[k] += a[k]
+    tot['cash_krw'] = sum(a['cash_krw'] for a in rows)
+    tot['cash_usd'] = round(sum(a['cash_usd'] for a in rows), 2)
     return jsonify({'accounts': rows, 'ipo_realized': round(ipo_realized), 'totals': tot, 'year': int(year) if year else None})
+
+
+# ── 투자 계좌 예수금 (대개편 Step 4) ───────────────────────────
+_CASH_KIND_SIGN = {'init': 1, 'deposit': 1, 'dividend': 1, 'withdraw': -1, 'fee': -1}
+_CASH_KIND_LABEL = {'init': '기초 예수금', 'deposit': '입금', 'withdraw': '출금', 'dividend': '배당금', 'fee': '수수료',
+                    'exchange': '환전', 'transfer_in': '이체 입금', 'transfer_out': '이체 출금',
+                    'buy': '매수', 'sell': '매도'}
+
+
+def get_account_cash_map(db):
+    """계좌별 예수금 잔액 {account_id: {'krw': 원, 'usd': 달러}} — 원장(account_cash_tx) 합계."""
+    cur = db.cursor()
+    cur.execute("SELECT account_id, currency, COALESCE(SUM(amount), 0) AS bal FROM account_cash_tx GROUP BY account_id, currency")
+    out = {}
+    for r in cur.fetchall():
+        d = out.setdefault(r['account_id'], {'krw': 0.0, 'usd': 0.0})
+        d['usd' if r['currency'] == 'USD' else 'krw'] += float(r['bal'])
+    cur.close()
+    return out
+
+
+def _ensure_and_sync_deposit_row(db):
+    """현금관리의 '예수금' 잠금 행이 없으면 만들고, 모든 계좌 예수금 합계로 금액을 맞춘다.
+    원장에 쓰는 코드는 같은 트랜잭션에서 호출한 뒤 commit 한다.
+    amount(원화 환산) = 원화 합계 + 달러 합계 × 현재 환율 (환율 갱신 시 _refresh_usd_cash_amounts 가 같은 식으로 다시 계산)"""
+    cur = db.cursor()
+    cur.execute("SELECT id FROM cash_deposits WHERE is_system ORDER BY id LIMIT 1")
+    row = cur.fetchone()
+    if not row:
+        cur.execute("""INSERT INTO cash_deposits (name, amount, memo, updated_date, krw_amount, usd_amount, is_system)
+                       VALUES ('예수금', 0, '투자 계좌 예수금 합계 (자동 연동, 수정 불가)', %s, 0, 0, TRUE) RETURNING id""",
+                    (date.today().isoformat(),))
+        row = cur.fetchone()
+    cur.execute("SELECT currency, COALESCE(SUM(amount), 0) AS bal FROM account_cash_tx GROUP BY currency")
+    krw = usd = 0.0
+    for r in cur.fetchall():
+        if r['currency'] == 'USD':
+            usd += float(r['bal'])
+        else:
+            krw += float(r['bal'])
+    amount = int(round(krw + (usd * get_current_exchange_rate() if usd else 0)))
+    cur.execute("UPDATE cash_deposits SET krw_amount=%s, usd_amount=%s, amount=%s, updated_date=%s WHERE id=%s",
+                (krw, usd, amount, date.today().isoformat(), row['id']))
+    cur.close()
+    db.commit()
+
+
+def _parse_cash_date(v):
+    """YYYY-MM-DD 문자열을 검증해 돌려준다. 비어 있으면 오늘."""
+    if not v:
+        return date.today().isoformat()
+    return date.fromisoformat(str(v)[:10]).isoformat()
+
+
+def _parse_cash_amount(v):
+    """양수 금액만 허용. 잘못된 값이면 None."""
+    try:
+        x = float(str(v).replace(',', ''))
+    except (TypeError, ValueError):
+        return None
+    return x if x > 0 and x == x and x != float('inf') else None
+
+
+@app.route('/api/invest-accounts/<int:aid>/cash', methods=['GET', 'POST'])
+def api_invest_account_cash(aid):
+    """GET: 계좌 예수금 잔액 + 원장 내역(최근 500건). POST: 입금/출금/배당/수수료/기초 예수금 수동 기록.
+    POST {kind: init|deposit|withdraw|dividend|fee, currency: KRW|USD, amount(양수), tx_date, memo}"""
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT id, name FROM invest_accounts WHERE id=%s", (aid,))
+    acct = cur.fetchone()
+    if not acct:
+        cur.close(); db.close()
+        return jsonify({'error': '존재하지 않는 계좌입니다.'}), 404
+
+    if request.method == 'GET':
+        cur.execute("""SELECT id, tx_date::text AS tx_date, kind, currency, amount::float AS amount,
+                              ref_type, ref_id, memo
+                       FROM account_cash_tx WHERE account_id=%s ORDER BY tx_date DESC, id DESC LIMIT 500""", (aid,))
+        entries = [dict(r) for r in cur.fetchall()]
+        for e in entries:
+            e['kind_label'] = _CASH_KIND_LABEL.get(e['kind'], e['kind'])
+            e['deletable'] = e['ref_type'] in (None, 'exchange')   # 매수/매도/이체는 원천 거래에서 지운다
+        bal = get_account_cash_map(db).get(aid, {'krw': 0.0, 'usd': 0.0})
+        cur.close(); db.close()
+        return jsonify({'account': acct['name'], 'cash_krw': round(bal['krw']), 'cash_usd': round(bal['usd'], 2),
+                        'entries': entries})
+
+    data = request.json or {}
+    kind = data.get('kind')
+    currency = (data.get('currency') or 'KRW').upper()
+    amount = _parse_cash_amount(data.get('amount'))
+    if kind not in _CASH_KIND_SIGN:
+        cur.close(); db.close()
+        return jsonify({'error': '구분(kind)이 올바르지 않습니다.'}), 400
+    if currency not in ('KRW', 'USD'):
+        cur.close(); db.close()
+        return jsonify({'error': '통화는 KRW 또는 USD 여야 합니다.'}), 400
+    if amount is None:
+        cur.close(); db.close()
+        return jsonify({'error': '금액은 0보다 큰 숫자여야 합니다.'}), 400
+    try:
+        tx_date = _parse_cash_date(data.get('tx_date'))
+    except ValueError:
+        cur.close(); db.close()
+        return jsonify({'error': '날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)'}), 400
+    signed = _CASH_KIND_SIGN[kind] * (round(amount) if currency == 'KRW' else round(amount, 4))
+    try:
+        cur.execute("""INSERT INTO account_cash_tx (account_id, tx_date, currency, kind, amount, memo)
+                       VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (aid, tx_date, currency, kind, signed, data.get('memo')))
+        new_id = cur.fetchone()[0]
+        _ensure_and_sync_deposit_row(db)       # 같은 트랜잭션 안에서 예수금 행도 갱신 후 commit
+    except Exception as e:
+        db.rollback()
+        cur.close(); db.close()
+        return jsonify({'error': str(e)}), 500
+    cur.close(); db.close()
+    return jsonify({'ok': True, 'id': new_id}), 201
+
+
+@app.route('/api/invest-accounts/<int:aid>/exchange', methods=['POST'])
+def api_invest_account_exchange(aid):
+    """같은 계좌 안에서 원화 ↔ 달러 환전. 원장에 KRW 줄과 USD 줄 2개를 한 트랜잭션으로 기록한다.
+    {from_currency: KRW|USD, amount(출발 통화 기준 금액), rate(1달러=원, 생략 시 현재 환율), tx_date, memo}"""
+    data = request.json or {}
+    frm = (data.get('from_currency') or 'KRW').upper()
+    amount = _parse_cash_amount(data.get('amount'))
+    rate = _parse_cash_amount(data.get('rate')) if data.get('rate') not in (None, '') else get_current_exchange_rate()
+    if frm not in ('KRW', 'USD'):
+        return jsonify({'error': 'from_currency 는 KRW 또는 USD 여야 합니다.'}), 400
+    if amount is None or not rate:
+        return jsonify({'error': '금액과 환율은 0보다 큰 숫자여야 합니다.'}), 400
+    try:
+        tx_date = _parse_cash_date(data.get('tx_date'))
+    except ValueError:
+        return jsonify({'error': '날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)'}), 400
+    if frm == 'KRW':
+        krw, usd = -round(amount), round(amount / rate, 2)
+    else:
+        usd, krw = -round(amount, 2), round(amount * rate)
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT 1 FROM invest_accounts WHERE id=%s", (aid,))
+    if not cur.fetchone():
+        cur.close(); db.close()
+        return jsonify({'error': '존재하지 않는 계좌입니다.'}), 404
+    memo = data.get('memo') or f"환전 (1달러={rate:,.2f}원)"
+    try:
+        cur.execute("SELECT nextval('account_cash_ref_seq')")
+        ref = cur.fetchone()[0]
+        for cur_code, amt in (('KRW', krw), ('USD', usd)):
+            cur.execute("""INSERT INTO account_cash_tx (account_id, tx_date, currency, kind, amount, ref_type, ref_id, memo)
+                           VALUES (%s,%s,%s,'exchange',%s,'exchange',%s,%s)""", (aid, tx_date, cur_code, amt, ref, memo))
+        _ensure_and_sync_deposit_row(db)
+    except Exception as e:
+        db.rollback()
+        cur.close(); db.close()
+        return jsonify({'error': str(e)}), 500
+    cur.close(); db.close()
+    return jsonify({'ok': True, 'krw': krw, 'usd': usd, 'rate': rate}), 201
+
+
+@app.route('/api/account-cash/<int:tid>', methods=['DELETE'])
+def api_account_cash_delete(tid):
+    """예수금 원장 한 건 삭제. 수동 입력과 환전(양쪽 줄)만 지울 수 있다.
+    매수/매도/이체로 생긴 줄은 원천 거래를 지워야 하므로 거부한다."""
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT ref_type, ref_id FROM account_cash_tx WHERE id=%s", (tid,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); db.close()
+        return jsonify({'error': '내역을 찾을 수 없습니다.'}), 404
+    if row['ref_type'] not in (None, 'exchange'):
+        cur.close(); db.close()
+        return jsonify({'error': '거래·이체로 생긴 내역은 원래 거래를 수정/삭제해야 합니다.'}), 400
+    try:
+        if row['ref_type'] == 'exchange':
+            cur.execute("DELETE FROM account_cash_tx WHERE ref_type='exchange' AND ref_id=%s", (row['ref_id'],))
+        else:
+            cur.execute("DELETE FROM account_cash_tx WHERE id=%s", (tid,))
+        _ensure_and_sync_deposit_row(db)
+    except Exception as e:
+        db.rollback()
+        cur.close(); db.close()
+        return jsonify({'error': str(e)}), 500
+    cur.close(); db.close()
+    return jsonify({'ok': True})
 
 
 # ── 투자 데이터 초기화 (대개편 Step 2) ─────────────────────────
@@ -5383,7 +5582,7 @@ def _upsert_cash_adj(cur, source_type, source_id, amount, description, adj_date=
     # 현금 최대 잔액 계좌에 차액 즉시 반영
     delta = amount - prev_amount
     if delta != 0:
-        cur.execute("SELECT id, amount FROM cash_deposits WHERE usd_amount = 0 ORDER BY amount DESC LIMIT 1")
+        cur.execute("SELECT id, amount FROM cash_deposits WHERE usd_amount = 0 AND NOT is_system ORDER BY amount DESC LIMIT 1")
         acct = cur.fetchone()
         if acct:
             cur.execute(
@@ -5400,7 +5599,7 @@ def _remove_cash_adj(cur, source_type, source_id):
     prev = cur.fetchone()
     if prev:
         prev_amount = int(prev['amount'])
-        cur.execute("SELECT id, amount FROM cash_deposits WHERE usd_amount = 0 ORDER BY amount DESC LIMIT 1")
+        cur.execute("SELECT id, amount FROM cash_deposits WHERE usd_amount = 0 AND NOT is_system ORDER BY amount DESC LIMIT 1")
         acct = cur.fetchone()
         if acct:
             cur.execute(
@@ -5428,9 +5627,10 @@ def _resolve_cash_amount(data):
 def api_cash_deposits():
     db = get_db()
     if request.method == 'GET':
+        _ensure_and_sync_deposit_row(db)     # 예수금 행을 원장 합계로 최신화 (복구/초기화 후 어긋남 방지)
         _refresh_usd_cash_amounts(db)
         cur = db.cursor()
-        cur.execute("SELECT * FROM cash_deposits ORDER BY name")
+        cur.execute("SELECT * FROM cash_deposits ORDER BY is_system DESC, name")
         rows = cur.fetchall()
         cur.close()
         db.close()
@@ -5453,6 +5653,13 @@ def api_cash_deposits():
 @app.route('/api/cash-deposits/<int:rid>', methods=['PUT', 'DELETE'])
 def api_cash_deposits_detail(rid):
     db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT is_system FROM cash_deposits WHERE id = %s", (rid,))
+    row = cur.fetchone()
+    cur.close()
+    if row and row['is_system']:
+        db.close()
+        return jsonify({'error': '예수금은 투자 계좌 예수금의 합계로 자동 계산됩니다. 투자 관리 > 계좌별 예수금에서 입금/출금/환전으로 관리하세요.'}), 403
     if request.method == 'PUT':
         data = request.json
         today = date.today().isoformat()
@@ -5519,7 +5726,7 @@ def api_cash_auto_adj_apply():
         cur.close(); db.close()
         return jsonify({'ok': True, 'message': '반영할 조정 없음'})
 
-    cur.execute("SELECT id, name, amount FROM cash_deposits WHERE usd_amount = 0 ORDER BY amount DESC LIMIT 1")
+    cur.execute("SELECT id, name, amount FROM cash_deposits WHERE usd_amount = 0 AND NOT is_system ORDER BY amount DESC LIMIT 1")
     account = cur.fetchone()
     if not account:
         cur.close(); db.close()
@@ -9157,7 +9364,7 @@ def api_import_text():
 # 외래키 의존성을 고려한 삭제 순서 (자식 → 부모)
 _BACKUP_DELETE_ORDER = [
     'card_tx', 'card_mappings', 'card_category_rules',
-    'stock_tx', 'etf_tx',
+    'account_cash_tx', 'stock_tx', 'etf_tx', 'invest_accounts', 'realized_pnl_archive',
     'tenant_contracts', 'property_costs',
     'fund_group_rules', 'monthly_fund_budgets',
     'asset_snapshots', 'sold_real_estate',
@@ -9171,12 +9378,13 @@ _BACKUP_DELETE_ORDER = [
 _BACKUP_INSERT_ORDER = [
     'categories', 'budget_categories', 'budget_category_rules',
     'stock_categories', 'card_info', 'fund_groups',
+    'invest_accounts', 'realized_pnl_archive',
     'stocks', 'etf', 'real_estate',
     'budget_recurring',
     'income', 'budget', 'crypto', 'loans', 'pension', 'goals',
     'cash_deposits', 'residence', 'app_settings', 'asset_snapshots', 'sold_real_estate',
     'card_tx', 'card_mappings', 'card_category_rules',
-    'stock_tx', 'etf_tx',
+    'stock_tx', 'etf_tx', 'account_cash_tx',
     'tenant_contracts', 'property_costs',
     'fund_group_rules', 'monthly_fund_budgets',
 ]
@@ -9291,6 +9499,7 @@ def api_restore():
                 cur.close()
 
         db.commit()
+        _ensure_and_sync_deposit_row(db)     # 복구 후 현금관리 '예수금' 행을 원장 합계에 맞춘다
         total = sum(len(v) for v in tables.values())
         return jsonify({'ok': True, 'restored_rows': total})
     except Exception as e:

@@ -47,7 +47,7 @@ async function fetchJSON(url, opts = {}) {
  *     placeholder:'문자열' 또는 fn(row) → 편집 입력칸의 안내 문구 }
  */
 class GridTable {
-  constructor({ tableId, columns, apiUrl, getQueryParams, onLoad, getExtraData, onSave, onDelete, onStartEdit, selectable, onSelectChange, onBeforeDelete }) {
+  constructor({ tableId, columns, apiUrl, getQueryParams, onLoad, getExtraData, onSave, onDelete, onStartEdit, selectable, onSelectChange, onBeforeDelete, isLocked }) {
     this.tableEl  = document.getElementById(tableId);
     this.tbody    = this.tableEl.querySelector('tbody');
     this.columns  = columns;
@@ -59,6 +59,8 @@ class GridTable {
     this.onDelete       = onDelete       || null;
     this.onStartEdit    = onStartEdit    || null;
     this.onBeforeDelete = onBeforeDelete || null;
+    // isLocked(row) 가 true 인 행은 수정/삭제할 수 없다 (자동 연동 행 등). 삭제 버튼 자리에 자물쇠를 보여준다.
+    this.isLocked       = isLocked       || (() => false);
     this.selectable       = selectable       || false;
     this.selected         = new Set();
     this.onSelectChange   = onSelectChange   || null;
@@ -85,7 +87,7 @@ class GridTable {
         return;
       }
       const tr = e.target.closest('tr[data-id]');
-      if (tr && tr !== this._tr) this.startEdit(tr);
+      if (tr && tr !== this._tr && !tr.classList.contains('grid-locked')) this.startEdit(tr);
     });
 
     this._ignoreDocClick = false;
@@ -278,11 +280,14 @@ class GridTable {
       }
       return `<td${cls}>${content}</td>`;
     });
-    cells.push(`<td class="text-center"><button class="btn btn-sm btn-outline-danger py-0" data-ga="d" data-id="${r.id}"><i class="bi bi-trash"></i></button></td>`);
+    const locked = this.isLocked(r);
+    cells.push(locked
+      ? `<td class="text-center"><i class="bi bi-lock-fill text-muted" title="자동 연동 항목이라 수정/삭제할 수 없습니다"></i></td>`
+      : `<td class="text-center"><button class="btn btn-sm btn-outline-danger py-0" data-ga="d" data-id="${r.id}"><i class="bi bi-trash"></i></button></td>`);
     const cbCell = this.selectable
       ? `<td class="text-center"><input type="checkbox" class="form-check-input row-cb" value="${r.id}"${this.selected.has(String(r.id)) ? ' checked' : ''}></td>`
       : '';
-    return `<tr data-id="${r.id}" class="grid-row">${cbCell}${cells.join('')}</tr>`;
+    return `<tr data-id="${r.id}" class="grid-row${locked ? ' grid-locked' : ''}">${cbCell}${cells.join('')}</tr>`;
   }
 
   _editInner(r) {
@@ -328,6 +333,7 @@ class GridTable {
   }
 
   startEdit(tr) {
+    if (tr.classList.contains('grid-locked')) return;
     if (this._tr) this.cancelEdit();
     this._tr = tr;
     const id = tr.dataset.id;
