@@ -144,43 +144,52 @@ ALTER TABLE etf_tx   ADD COLUMN IF NOT EXISTS is_opening BOOLEAN NOT NULL DEFAUL
 
 ---
 
-## Step 4. 예수금 원장 + 현금관리 "예수금" 행(수정 불가)
+## Step 4. 예수금 원장 + 현금관리 "예수금" 행(수정 불가) ✅ 구현됨
 
-### DB
+### DB (`database.py`)
 ```sql
+ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE SEQUENCE IF NOT EXISTS account_cash_ref_seq;          -- 환전/이체 등 원천 거래 묶음 번호
 CREATE TABLE IF NOT EXISTS account_cash_tx (
-    id          SERIAL PRIMARY KEY,
-    account_id  INTEGER NOT NULL REFERENCES invest_accounts(id),
-    tx_date     DATE NOT NULL,
-    currency    TEXT NOT NULL DEFAULT 'KRW',   -- KRW / USD  (계좌 하나가 두 통화 예수금을 동시에 가질 수 있음)
-    kind        TEXT NOT NULL,   -- init / deposit / withdraw / transfer_in / transfer_out / buy / sell / dividend / fee / exchange
-    amount      NUMERIC(18,4) NOT NULL, -- 해당 통화 단위의 증가(+) / 감소(-). KRW는 원, USD는 달러(소수)
-    ref_type    TEXT,            -- stock_tx / etf_tx / transfer / exchange
-    ref_id      INTEGER,
-    memo        TEXT,
-    created_at  TIMESTAMP DEFAULT NOW(),
-    UNIQUE (ref_type, ref_id, account_id, currency)   -- 같은 거래가 중복 기록되지 않게 (환전은 KRW·USD 2줄)
+    id SERIAL PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES invest_accounts(id),
+    tx_date DATE NOT NULL, currency TEXT NOT NULL DEFAULT 'KRW',     -- KRW / USD
+    kind TEXT NOT NULL,        -- init / deposit / withdraw / dividend / fee / exchange (Step 5~6: buy/sell/transfer_in/transfer_out)
+    amount NUMERIC(18,4) NOT NULL,   -- 해당 통화 단위, 증가(+)/감소(-)
+    ref_type TEXT, ref_id INTEGER, memo TEXT, created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (ref_type, ref_id, account_id, currency)
 );
-ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE;
 ```
-- `cash_deposits`에 `name='예수금'`, `is_system=TRUE` 행 1개를 `init_db`에서 보장(없으면 생성).
+- `init_db`가 `cash_deposits`에 `name='예수금', is_system=TRUE` 행 1개를 보장한다.
+- **잔액은 저장하지 않는다.** 예수금 = 원장 합계(통화별). 거래를 고치거나 지워도 어긋나지 않는다.
 
 ### 백엔드
-- `get_account_cash(db, account_id=None)`: 원장 합계 계산 함수 (단일 계좌 / 전체). **통화별로 `{krw, usd}` 두 값**을 반환.
-- `_sync_deposit_row(db)`: 전체 합계를 계산해 `cash_deposits`의 예수금 행에 `krw_amount`=KRW 합계, `usd_amount`=USD 합계, `amount`=KRW + USD×환율로 기록. (이 테이블은 이미 KRW·USD 동시 보유 구조이고 `_refresh_usd_cash_amounts`가 환율 갱신 시 `amount`를 다시 계산하므로 별도 환산 코드가 필요 없음) **원장에 쓰는 모든 코드가 같은 트랜잭션에서 호출**.
-- 기초 예수금 입력 / 입금·출금 수동 기록 API: `POST /api/invest-accounts/<id>/cash` (kind = init/deposit/withdraw/dividend/fee, **currency = KRW/USD 선택**).
-- **환전 API** `POST /api/invest-accounts/<id>/exchange`: 같은 계좌 안에서 KRW↔USD 전환. 원장에 KRW 줄과 USD 줄 2개를 한 트랜잭션으로 기록 (`kind='exchange'`, 적용 환율 입력 가능, 기본값=현재 환율).
-- **잠금**: `PUT/DELETE /api/cash-deposits/<id>`(5077)에서 `is_system` 행이면 403 + 안내 메시지. (직접 수정 시 합계가 어긋나는 것 방지)
-- `api_cash_deposits_detail`(5077~5100)이 통장 수정 시 `DELETE FROM cash_auto_adjustments` 를 전체 삭제하는 코드 확인됨 → 부동산 납부 조정 기록까지 지우지 않도록 `source_type IN ('stock_tx','etf_tx')`로 한정하거나 제거.
+- `get_account_cash_map(db)` : 계좌별 `{krw, usd}` 잔액.
+- `_ensure_and_sync_deposit_row(db)` : 예수금 잠금 행을 `krw_amount`=원화 합계, `usd_amount`=달러 합계, `amount`=원화+달러×환율 로 맞춘다. **원장에 쓰는 모든 API가 같은 트랜잭션에서 호출 후 commit.** 현금관리 조회·백업 복구 후에도 호출(어긋남 자동 복구). 환율 갱신(`_refresh_usd_cash_amounts`)은 기존 로직이 같은 식으로 다시 계산한다.
+- `GET /api/invest-accounts/<id>/cash` : 잔액 + 원장 내역(최근 500건, 삭제 가능 여부 포함)
+- `POST /api/invest-accounts/<id>/cash` : `{kind: init|deposit|withdraw|dividend|fee, currency: KRW|USD, amount(양수), tx_date, memo}`
+- `POST /api/invest-accounts/<id>/exchange` : `{from_currency, amount, rate(생략 시 현재 환율), tx_date, memo}` — 원화 줄·달러 줄 2개를 한 트랜잭션으로 기록 (원화→달러는 달러를 소수 2자리로 반올림)
+- `DELETE /api/account-cash/<id>` : 수동 입력과 환전(양쪽 줄)만 삭제 가능. 거래·이체로 생긴 줄은 400.
+- **잠금**: `PUT/DELETE /api/cash-deposits/<id>` 가 `is_system` 행이면 403.
+- **예수금 행이 옛 현금 자동조정에 걸리지 않게**: `_upsert_cash_adj` / `_remove_cash_adj` / `apply` 의 "잔액 최대 통장" 선택에서 `is_system` 제외.
+- `GET /api/invest-accounts`, `/api/invest-accounts/summary` 에 `cash_krw`, `cash_usd` 추가(요약 합계 포함). 원장이 있는 계좌는 삭제 대신 사용 중지.
+- **백업/복구 대상에 새 테이블 추가**: `invest_accounts`, `account_cash_tx`, `realized_pnl_archive` (FK 순서 반영). Step 2에서 `stock_tx.account_id` 가 생긴 뒤 계좌 테이블이 백업에 없으면 복구가 FK 오류로 실패할 수 있었다.
+- 변경하지 않은 것: `api_cash_deposits_detail` 의 "통장 수기 수정 시 `cash_auto_adjustments` 전체 삭제". 이는 "직접 고친 잔액이 기존 자동 조정을 흡수한다"는 기존 의도된 동작이라 유지한다. (계획 초안의 "stock/etf로 한정"은 철회)
 
 ### 화면
-- `cash.html`: 예수금 행은 자물쇠 아이콘 + 입력칸 비활성 + "계좌 합계 자동 연동" 배지. 클릭하면 계좌별 예수금 내역 펼침(읽기 전용).
-- `investments.html`: 계좌 칩 옆에 해당 계좌 예수금을 **원화 / 달러 두 칸**으로 표시 + 입금/출금/환전 버튼.
+- **현금관리**: 예수금 행에 자물쇠·"계좌 합계 자동 연동" 배지, 클릭해도 편집 안 됨, 이미지 드롭도 무시. 아래에 투자 계좌별 예수금 구성 표(읽기 전용). (`GridTable` 에 `isLocked` 옵션 추가)
+- **투자 관리**: 예수금 바(선택한 계좌, 전체면 합계의 원화/달러) + [입금][출금][환전][내역] 창, 계좌별 손익 표에 예수금 열. 입금/출금/환전은 계좌를 하나 골랐을 때만 활성화.
+- 모달은 입력 유실 방지(Form Guard) 규칙에 맞춰 `_afterSaveSuccess` 로 닫는다.
 
-### 완료 확인
-- 계좌별 예수금 입력 → 현금관리 예수금 행이 합계와 같고 수정 불가
-- 원화·달러를 둘 다 입력 → 예수금 행의 원화/달러/환산 합계가 각각 맞음, 환전 시 원화↓ 달러↑ 이고 환산 합계는 (환율 차이 외) 변하지 않음
-- 대시보드 순자산(현금 포함)이 입력 전후로 예수금만큼만 변함 (이중 계상 없음)
+### 알아둘 점
+- **아직 매수·매도는 예수금에 반영되지 않는다** (Step 5). 지금은 기존 방식(은행 통장 중 잔액 최대 통장 차감)이 그대로이며 예수금 행은 건드리지 않는다.
+- 예수금은 마이너스가 될 수 있다(과거 거래를 순서 없이 입력 가능하도록 경고만): 음수는 빨간색으로 표시.
+- 달러 예수금은 환율에 따라 원화 환산액과 순자산이 매일 변한다(기존 달러 통장과 동일).
+
+### 완료 확인 (로컬 PostgreSQL 16 + 브라우저로 검증함)
+- 원화·달러 입금/출금/수수료 후 예수금 행의 원화·달러·환산 합계가 정확, 환전 시 양쪽 줄 반영/삭제
+- 예수금 행 수정·삭제 403, 잔액 불변. 입력 검증(0원/통화/날짜/없는 계좌) 400·404
+- 일반 매수의 옛 현금 차감은 은행 통장에만 적용(예수금 행 불변)
+- 백업 → 복구 왕복 후 계좌 잔액·예수금 행 동일, 예수금 행 1개 유지
 
 ---
 

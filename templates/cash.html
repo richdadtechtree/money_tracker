@@ -39,6 +39,20 @@
     </div>
 </div>
 
+<!-- 예수금 구성: 투자 계좌별 예수금 (읽기 전용) -->
+<div class="card border-0 shadow-sm mt-3" id="depositBreakdownCard" style="display:none">
+  <div class="card-body py-3">
+    <div class="fw-semibold mb-2"><i class="bi bi-bank2 me-2 text-primary"></i>예수금 구성
+      <small class="text-muted fw-normal">투자 계좌별 · 입금/출금/환전은 <a href="/investments">투자 관리</a>에서</small></div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light"><tr><th>투자 계좌</th><th class="text-end">원화(KRW)</th><th class="text-end">달러(USD)</th></tr></thead>
+        <tbody id="depositBreakdownBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <div class="mt-3 text-end">
     <h4 class="fw-bold">총 현금 합계: <span id="totalCash" class="text-primary">0</span>원</h4>
 </div>
@@ -111,8 +125,13 @@ let _cashTotal = 0;
 grid = new GridTable({
     tableId: 'cashTable',
     apiUrl: '/api/cash-deposits',
+    // '예수금' 행은 투자 계좌 예수금 합계로 자동 연동되므로 수정/삭제할 수 없다
+    isLocked: r => !!r.is_system,
     columns: [
-        { key: 'name', type: 'text' },
+        { key: 'name', type: 'text',
+          render: (v, r) => r.is_system
+            ? `<i class="bi bi-lock-fill text-muted me-1"></i><strong>${v}</strong> <span class="badge bg-info-subtle text-info-emphasis">계좌 합계 자동 연동</span>`
+            : v },
         { key: 'krw_amount', type: 'number', align: 'end',
           render: v => (v ? fmt(v) + '원' : '-') },
         { key: 'usd_amount', type: 'number', align: 'end',
@@ -126,6 +145,7 @@ grid = new GridTable({
         _cashTotal = data.reduce((sum, r) => sum + (parseInt(r.amount) || 0), 0);
         document.getElementById('totalCash').textContent = fmt(_cashTotal);
         loadAutoAdjustments();
+        loadDepositBreakdown();
     },
     onSave: () => loadAutoAdjustments(),
 });
@@ -152,6 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
     tbody.addEventListener('drop', (e) => {
         e.preventDefault();
         const tr = e.target.closest('tr[data-id]');
+        if (tr && tr.classList.contains('grid-locked')) { tr.classList.remove('table-primary'); return; }
         if (tr) {
             tr.classList.remove('table-primary');
             const files = e.dataTransfer.files;
@@ -211,6 +232,20 @@ async function processOCR(file) {
         ocrModal.hide();
         alert('인식 중 오류가 발생했습니다.');
     }
+}
+
+// ── 예수금 구성 (읽기 전용) ───────────────────────────────
+async function loadDepositBreakdown() {
+    const accts = (await fetchJSON('/api/invest-accounts')) || [];
+    const rows = accts.filter(a => a.is_active || a.cash_krw || a.cash_usd);
+    const card = document.getElementById('depositBreakdownCard');
+    if (!rows.length) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    const neg = v => v < 0 ? ' text-danger' : '';
+    document.getElementById('depositBreakdownBody').innerHTML = rows.map(a => `
+        <tr><td>${a.name}${a.is_active ? '' : ' <span class="badge bg-secondary-subtle text-secondary">중지</span>'}</td>
+            <td class="text-end${neg(a.cash_krw)}">${fmt(a.cash_krw)}원</td>
+            <td class="text-end${neg(a.cash_usd)}">${a.cash_usd < 0 ? '-$' : '$'}${Math.abs(Number(a.cash_usd)).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>`).join('');
 }
 
 // ── 자동 조정 ─────────────────────────────────────────────

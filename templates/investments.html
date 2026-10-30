@@ -56,12 +56,28 @@
           <thead class="table-light">
             <tr><th>계좌</th><th class="text-end">평가금액</th><th class="text-end">매입금액</th>
                 <th class="text-end">평가손익</th><th class="text-end">수익률</th>
-                <th class="text-end">실현손익(누적)</th><th class="text-end">합계</th></tr>
+                <th class="text-end">실현손익(누적)</th><th class="text-end">합계</th>
+                <th class="text-end">예수금</th></tr>
           </thead>
           <tbody id="accountSummaryBody2"></tbody>
         </table>
       </div>
       <div class="small text-muted" id="accountSummaryNote"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 예수금 바: 선택한 계좌(전체면 합계)의 원화/달러 예수금과 입출금·환전 -->
+<div class="card border-0 shadow-sm mb-3" id="cashBar" style="display:none">
+  <div class="card-body py-2 d-flex flex-wrap align-items-center gap-3">
+    <div class="small text-muted"><i class="bi bi-wallet2 me-1"></i><span id="cashBarLabel">예수금</span></div>
+    <div class="fw-bold" id="cashBarKrw">-</div>
+    <div class="fw-bold" id="cashBarUsd">-</div>
+    <div class="ms-auto d-flex gap-2 flex-wrap" id="cashBarBtns">
+      <button class="btn btn-sm btn-outline-primary" onclick="openCashModal('deposit')"><i class="bi bi-box-arrow-in-down me-1"></i>입금</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="openCashModal('withdraw')"><i class="bi bi-box-arrow-up me-1"></i>출금</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="openFxModal()"><i class="bi bi-currency-exchange me-1"></i>환전</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="openCashLedger()"><i class="bi bi-list-ul me-1"></i>내역</button>
     </div>
   </div>
 </div>
@@ -1042,6 +1058,82 @@
   </div>
 </div>
 
+<!-- 예수금 입금/출금 모달 -->
+<div class="modal fade" id="cashModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="cashModalTitle">예수금 입력</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label small mb-1">구분</label>
+            <select class="form-select form-select-sm" id="cashKind">
+              <option value="deposit">입금</option><option value="withdraw">출금</option>
+              <option value="dividend">배당금</option><option value="fee">수수료</option>
+              <option value="init">기초 예수금</option></select></div>
+          <div class="col-6"><label class="form-label small mb-1">통화</label>
+            <select class="form-select form-select-sm" id="cashCurrency">
+              <option value="KRW">원화 (KRW)</option><option value="USD">달러 (USD)</option></select></div>
+          <div class="col-6"><label class="form-label small mb-1">금액</label>
+            <input type="text" inputmode="decimal" class="form-control form-control-sm" id="cashAmount" placeholder="0"></div>
+          <div class="col-6"><label class="form-label small mb-1">날짜</label>
+            <input type="date" class="form-control form-control-sm" id="cashDate"></div>
+          <div class="col-12"><label class="form-label small mb-1">메모</label>
+            <input type="text" class="form-control form-control-sm" id="cashMemo"></div>
+        </div>
+        <div class="small text-muted mt-2">기초 예수금은 처음 등록할 때 현재 증권사 예수금을 넣는 용도입니다. 은행 통장과 연동되지 않으니 이미 있는 돈을 기록할 때 쓰세요.</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary btn-sm" onclick="saveCash()">저장</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- 환전 모달 -->
+<div class="modal fade" id="fxModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title"><i class="bi bi-currency-exchange me-2"></i>환전</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="row g-2">
+          <div class="col-12"><label class="form-label small mb-1">방향</label>
+            <select class="form-select form-select-sm" id="fxFrom" onchange="updateFxPreview()">
+              <option value="KRW">원화 → 달러</option><option value="USD">달러 → 원화</option></select></div>
+          <div class="col-6"><label class="form-label small mb-1" id="fxAmountLabel">환전할 원화</label>
+            <input type="text" inputmode="decimal" class="form-control form-control-sm" id="fxAmount" oninput="updateFxPreview()"></div>
+          <div class="col-6"><label class="form-label small mb-1">적용 환율 (1달러=원)</label>
+            <input type="text" inputmode="decimal" class="form-control form-control-sm" id="fxRate" oninput="updateFxPreview()"></div>
+          <div class="col-6"><label class="form-label small mb-1">날짜</label>
+            <input type="date" class="form-control form-control-sm" id="fxDate"></div>
+          <div class="col-6"><label class="form-label small mb-1">메모</label>
+            <input type="text" class="form-control form-control-sm" id="fxMemo"></div>
+        </div>
+        <div class="small mt-2 fw-semibold" id="fxPreview"></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary btn-sm" onclick="saveFx()">환전</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- 예수금 내역 모달 -->
+<div class="modal fade" id="cashLedgerModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="cashLedgerTitle">예수금 내역</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light"><tr><th>날짜</th><th>구분</th><th>통화</th><th class="text-end">금액</th><th>메모</th><th></th></tr></thead>
+            <tbody id="cashLedgerBody"></tbody>
+          </table>
+        </div>
+        <div class="small text-muted mt-2">매수·매도로 생긴 내역은 해당 거래를 수정/삭제하면 함께 바뀝니다. 입금·출금·환전만 여기서 지울 수 있습니다.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- 투자 계좌 관리 모달 -->
 <div class="modal fade" id="accountModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -1330,7 +1422,8 @@ function renderAccountBar() {
       <td class="text-end">${pnlHtml(r.unrealized_pnl)}</td>
       <td class="text-end">${rateHtml(r.cost_amount ? r.return_rate : null)}</td>
       <td class="text-end">${pnlHtml(r.realized_pnl)}</td>
-      <td class="text-end fw-semibold">${pnlHtml(r.total_pnl)}</td></tr>`;
+      <td class="text-end fw-semibold">${pnlHtml(r.total_pnl)}</td>
+      <td class="text-end small">${cashCellHtml(r.cash_krw, r.cash_usd)}</td></tr>`;
   }).join('');
   const t = accountSummary.totals;
   const foot = `<tr class="table-light fw-semibold"><td>합계</td>
@@ -1338,12 +1431,120 @@ function renderAccountBar() {
       <td class="text-end">${pnlHtml(t.unrealized_pnl)}</td>
       <td class="text-end">${rateHtml(t.cost_amount ? Math.round(t.unrealized_pnl / t.cost_amount * 10000) / 100 : null)}</td>
       <td class="text-end">${pnlHtml(t.realized_pnl)}</td>
-      <td class="text-end">${pnlHtml(t.unrealized_pnl + t.realized_pnl)}</td></tr>`;
+      <td class="text-end">${pnlHtml(t.unrealized_pnl + t.realized_pnl)}</td>
+      <td class="text-end small">${cashCellHtml(t.cash_krw, t.cash_usd)}</td></tr>`;
   document.getElementById('accountSummaryBody2').innerHTML = body + foot;
+  renderCashBar();
   document.getElementById('accountSummaryNote').textContent =
     '주식·ETF 기준이며 종목×계좌 단위 이동평균 매입단가로 계산합니다.' +
     (accountSummary.ipo_realized ? ` 공모주 실현손익 ${fmt(accountSummary.ipo_realized)}원은 계좌에 속하지 않아 위 합계에 포함되지 않습니다.` : '') +
     ' 한 줄을 누르면 그 계좌로 필터링됩니다.';
+}
+
+function fmtUsdCash(v) {
+  const n = Number(v);   // 음수는 -$1.50 형태로
+  return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+/** 요약 표의 예수금 칸: 원화/달러를 줄바꿈으로, 음수는 빨간색 */
+function cashCellHtml(krw, usd) {
+  const parts = [];
+  if (krw || !usd) parts.push(`<span class="${krw < 0 ? 'text-danger' : ''}">${fmt(krw || 0)}원</span>`);
+  if (usd) parts.push(`<span class="${usd < 0 ? 'text-danger' : ''}">${fmtUsdCash(usd)}</span>`);
+  return parts.join('<br>');
+}
+
+// ── 예수금 바 / 입금·출금 / 환전 / 내역 ───────────────────────
+/** 선택한 계좌의 예수금(전체면 합계). 계좌 미지정 선택 시엔 숨긴다 */
+function renderCashBar() {
+  const bar = document.getElementById('cashBar');
+  const rows = accountSummary?.accounts || [];
+  if (!accountSummary || currentAccount === '0' || !allAccounts.length) { bar.style.display = 'none'; return; }
+  bar.style.display = '';
+  const acct = currentAccount === '' ? null : rows.find(r => String(r.id) === currentAccount);
+  const krw = acct ? acct.cash_krw : accountSummary.totals.cash_krw;
+  const usd = acct ? acct.cash_usd : accountSummary.totals.cash_usd;
+  document.getElementById('cashBarLabel').textContent = acct ? `${acct.name} 예수금` : '전체 예수금 합계';
+  const el = (id, txt, neg) => { const e = document.getElementById(id); e.textContent = txt; e.className = 'fw-bold' + (neg ? ' text-danger' : ''); };
+  el('cashBarKrw', `${fmt(krw || 0)}원`, krw < 0);
+  el('cashBarUsd', fmtUsdCash(usd || 0), usd < 0);
+  // 입금/출금/환전은 계좌를 하나 골랐을 때만 (전체 보기에서는 어느 계좌인지 알 수 없다)
+  document.getElementById('cashBarBtns').style.display = acct ? '' : 'none';
+}
+
+function _todayStr() { return new Date().toISOString().split('T')[0]; }
+function _num(id) { return parseFloat((document.getElementById(id).value || '').replace(/,/g, '')) || 0; }
+
+function openCashModal(kind) {
+  document.getElementById('cashKind').value = kind || 'deposit';
+  document.getElementById('cashCurrency').value = 'KRW';
+  document.getElementById('cashAmount').value = '';
+  document.getElementById('cashMemo').value = '';
+  document.getElementById('cashDate').value = _todayStr();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('cashModal')).show();
+}
+
+async function saveCash() {
+  const body = {
+    kind: document.getElementById('cashKind').value,
+    currency: document.getElementById('cashCurrency').value,
+    amount: _num('cashAmount'), tx_date: document.getElementById('cashDate').value,
+    memo: document.getElementById('cashMemo').value,
+  };
+  const res = await fetchJSON(`/api/invest-accounts/${currentAccount}/cash`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (res === null) { alert(fetchJSON.lastError || '저장하지 못했습니다.'); return; }
+  _afterSaveSuccess('cashModal', refreshAccountBar);   // 입력 유실 방지(Form Guard) 확인창 없이 닫고 임시저장도 지운다
+}
+
+function openFxModal() {
+  document.getElementById('fxFrom').value = 'KRW';
+  document.getElementById('fxAmount').value = '';
+  document.getElementById('fxRate').value = usdKrw ? String(Math.round(usdKrw * 100) / 100) : '';
+  document.getElementById('fxMemo').value = '';
+  document.getElementById('fxDate').value = _todayStr();
+  updateFxPreview();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('fxModal')).show();
+}
+
+function updateFxPreview() {
+  const from = document.getElementById('fxFrom').value, amt = _num('fxAmount'), rate = _num('fxRate');
+  document.getElementById('fxAmountLabel').textContent = from === 'KRW' ? '환전할 원화' : '환전할 달러';
+  const pv = document.getElementById('fxPreview');
+  if (!amt || !rate) { pv.textContent = ''; return; }
+  pv.textContent = from === 'KRW'
+    ? `원화 ${fmt(Math.round(amt))}원 → 달러 ${fmtUsdCash(Math.round(amt / rate * 100) / 100)}`
+    : `달러 ${fmtUsdCash(Math.round(amt * 100) / 100)} → 원화 ${fmt(Math.round(amt * rate))}원`;
+}
+
+async function saveFx() {
+  const body = { from_currency: document.getElementById('fxFrom').value, amount: _num('fxAmount'), rate: _num('fxRate'),
+                 tx_date: document.getElementById('fxDate').value, memo: document.getElementById('fxMemo').value };
+  const res = await fetchJSON(`/api/invest-accounts/${currentAccount}/exchange`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (res === null) { alert(fetchJSON.lastError || '환전하지 못했습니다.'); return; }
+  _afterSaveSuccess('fxModal', refreshAccountBar);
+}
+
+async function openCashLedger() {
+  const data = await fetchJSON(`/api/invest-accounts/${currentAccount}/cash`);
+  if (!data) { alert(fetchJSON.lastError || '내역을 불러오지 못했습니다.'); return; }
+  document.getElementById('cashLedgerTitle').textContent = `${data.account} 예수금 내역`;
+  document.getElementById('cashLedgerBody').innerHTML = data.entries.length ? data.entries.map(e => `
+    <tr><td>${e.tx_date}</td><td><span class="badge bg-secondary-subtle text-secondary-emphasis">${e.kind_label}</span></td>
+        <td>${e.currency}</td>
+        <td class="text-end ${e.amount < 0 ? 'text-primary' : 'text-danger'}">${e.amount > 0 ? '+' : ''}${e.currency === 'USD' ? fmtUsdCash(e.amount) : fmt(e.amount) + '원'}</td>
+        <td class="small text-muted">${e.memo || ''}</td>
+        <td class="text-end">${e.deletable ? `<button class="btn btn-sm btn-outline-danger py-0" onclick="deleteCashEntry(${e.id})"><i class="bi bi-trash"></i></button>` : '<i class="bi bi-link-45deg text-muted" title="거래와 연결된 내역"></i>'}</td></tr>`).join('')
+    : '<tr><td colspan="6" class="text-center text-muted py-3">내역이 없습니다.</td></tr>';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('cashLedgerModal')).show();
+}
+
+async function deleteCashEntry(id) {
+  if (!confirm('이 예수금 내역을 삭제할까요?\n(환전은 원화·달러 두 줄이 함께 삭제됩니다)')) return;
+  const res = await fetchJSON(`/api/account-cash/${id}`, { method: 'DELETE' });
+  if (res === null) { alert(fetchJSON.lastError || '삭제하지 못했습니다.'); return; }
+  await refreshAccountBar();
+  openCashLedger();
 }
 
 /** 계좌 칩 선택 → 주식/ETF 탭을 그 계좌 기준으로 다시 불러온다 */
