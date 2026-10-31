@@ -150,6 +150,16 @@ def _scheduled_snapshot():
     except Exception as e:
         print(f"[scheduler] 스냅샷 저장 실패: {e}")
 
+def _scheduled_year_end_snapshot():
+    """매년 12/31 23:58 — 계좌별 평가금액·평가손익·실현손익·예수금을 그 해의 '연말 기록'으로 저장한다.
+    직접 입력(수정)한 기록이 있는 해는 건드리지 않는다. (연도별 기록 탭의 자료)"""
+    try:
+        with app.app_context():
+            n = _save_year_snapshot(date.today().year, replace_manual=False)
+            print(f"[scheduler] 연말 기록 저장 완료 ({n}행)")
+    except Exception as e:
+        print(f"[scheduler] 연말 기록 저장 실패: {e}")
+
 def _keep_alive():
     """10분마다 자기 자신에 HTTP 요청 — Render 슬립 방지"""
     try:
@@ -172,6 +182,7 @@ def _scheduled_price_update():
 if HAS_SCHEDULER:
     _scheduler = BackgroundScheduler(timezone='Asia/Seoul')
     _scheduler.add_job(_scheduled_snapshot, CronTrigger(hour=23, minute=59, second=30))
+    _scheduler.add_job(_scheduled_year_end_snapshot, CronTrigger(month=12, day=31, hour=23, minute=58, second=0))
     _scheduler.add_job(_scheduled_price_update, CronTrigger(hour=9, minute=0, second=0))
     _scheduler.add_job(_scheduled_price_update, CronTrigger(hour=16, minute=0, second=0))
     _scheduler.add_job(_keep_alive, IntervalTrigger(minutes=10))
@@ -2087,12 +2098,16 @@ def _realized_by_year(db, records):
 
 @app.route('/api/invest-accounts/summary')
 def api_invest_accounts_summary():
+    return jsonify(_account_summary_data(request.args.get('year')))
+
+
+def _account_summary_data(year):
     """계좌별 평가금액 / 매입금액 / 평가손익 / 실현손익 요약.
     - 평가·매입: 종목 × 계좌 단위 이동평균 포지션 (해외 종목은 현재 환율로 원화 환산)
     - 실현손익: _calc_realized_records() 와 같은 기준(수수료 반영). ?year=YYYY 를 주면 그 해 매도분만.
     - 수기 강제값(qty/avg override)은 종목 전체 값이라 '계좌 미지정' 거래 묶음에만 적용한다.
-    - 공모주 실현손익은 계좌에 속하지 않아 ipo_realized 로 따로 돌려준다."""
-    year = request.args.get('year')
+    - 공모주 실현손익은 계좌에 속하지 않아 ipo_realized 로 따로 돌려준다.
+    year: 'YYYY' 문자열/정수/None(전 기간). 결과는 dict (엔드포인트가 jsonify 한다)."""
     ex_rate = get_current_exchange_rate()
     db = get_db()
     cur = db.cursor()
@@ -2156,8 +2171,236 @@ def api_invest_accounts_summary():
             tot[k] += a[k]
     tot['cash_krw'] = sum(a['cash_krw'] for a in rows)
     tot['cash_usd'] = round(sum(a['cash_usd'] for a in rows), 2)
-    return jsonify({'accounts': rows, 'ipo_realized': round(ipo_realized), 'archive_realized': round(archive_realized),
-                    'crypto_realized': round(crypto_realized), 'totals': tot, 'year': int(year) if year else None})
+    return {'accounts': rows, 'ipo_realized': round(ipo_realized), 'archive_realized': round(archive_realized),
+            'crypto_realized': round(crypto_realized), 'totals': tot, 'year': int(year) if year else None}
+
+
+# ── 연도별 기록 (대개편 Step 8) ─────────────────────────────────
+_SNAP_NUM_FIELDS = ('eval_amount', 'cost_amount', 'unrealized_pnl', 'realized_pnl', 'cash_krw', 'cash_usd')
+
+
+def _live_year_rows(year):
+    """현재 데이터 기준으로 그 해의 '계좌별 기록 행'을 만든다 (연말 스냅샷·편집 창 미리 채우기 공용).
+    각 계좌: 평가금액·매입금액·평가손익·실현손익(그 해)·예수금. account_id=None 행은 '계좌 미지정 보유분 +
+    계좌에 속하지 않는 실현손익(공모주·코인·초기화 전 박제분)'을 담는다."""
+    data = _account_summary_data(year)
+    rows, none_row = [], None
+    for a in data['accounts']:
+        r = {'account_id': a['id'], 'account_name': a['name'], 'eval_amount': a['eval_amount'],
+             'cost_amount': a['cost_amount'], 'unrealized_pnl': a['unrealized_pnl'], 'realized_pnl': a['realized_pnl'],
+             'cash_krw': a['cash_krw'], 'cash_usd': a['cash_usd']}
+        if a['id'] is None:
+            none_row = r
+        else:
+            rows.append(r)
+    other = data['ipo_realized'] + data['crypto_realized'] + data['archive_realized']
+    if none_row is None and other:
+        none_row = {'account_id': None, 'account_name': '', 'eval_amount': 0, 'cost_amount': 0, 'unrealized_pnl': 0,
+                    'realized_pnl': 0, 'cash_krw': 0, 'cash_usd': 0}
+    if none_row is not None:
+        none_row['realized_pnl'] += other
+        none_row['account_name'] = '계좌 외 (미지정·공모주·코인 등)'
+        rows.append(none_row)
+    return rows
+
+
+def _save_year_snapshot(year, replace_manual=False):
+    """live 값을 그 해의 연말 기록으로 저장한다(is_manual=FALSE). 직접 입력한 기록이 있으면 replace_manual=True 일 때만 덮어쓴다.
+    반환: 저장한 행 수 (직접 입력 기록 때문에 건너뛰면 0)."""
+    rows = _live_year_rows(year)
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("SELECT COUNT(*) FROM account_year_snapshots WHERE year=%s AND is_manual", (year,))
+        if cur.fetchone()[0] and not replace_manual:
+            return 0
+        cur.execute("DELETE FROM account_year_snapshots WHERE year=%s", (year,))
+        for r in rows:
+            cur.execute("""INSERT INTO account_year_snapshots
+                           (year, account_id, eval_amount, cost_amount, unrealized_pnl, realized_pnl, cash_krw, cash_usd, is_manual, memo)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s)""",
+                        (year, r['account_id'], r['eval_amount'], r['cost_amount'], r['unrealized_pnl'], r['realized_pnl'],
+                         r['cash_krw'], r['cash_usd'], '연말 자동 저장'))
+        db.commit()
+        return len(rows)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cur.close(); db.close()
+
+
+def _year_flows(db):
+    """연도별 외부 입출금 {year: {'krw','usd'}} — 입금(+)/출금(-)과 현금관리 통장 ↔ 투자 계좌 이체.
+    계좌 사이 이체·환전·잔액 조정·기초 예수금은 돈이 밖에서 들어오거나 나간 것이 아니므로 제외한다."""
+    flows = {}
+    def add(y, cur_code, v):
+        d = flows.setdefault(int(y), {'krw': 0.0, 'usd': 0.0})
+        d['usd' if cur_code == 'USD' else 'krw'] += float(v)
+    cur = db.cursor()
+    cur.execute("""SELECT EXTRACT(YEAR FROM tx_date)::int AS y, currency, COALESCE(SUM(amount), 0) AS v
+                   FROM account_cash_tx WHERE kind IN ('deposit','withdraw') GROUP BY 1, 2""")
+    for r in cur.fetchall():
+        add(r['y'], r['currency'], r['v'])
+    cur.execute("""SELECT EXTRACT(YEAR FROM tx_date)::int AS y, currency, from_type, to_type, COALESCE(SUM(amount), 0) AS v
+                   FROM account_transfers GROUP BY 1, 2, 3, 4""")
+    for r in cur.fetchall():
+        if r['from_type'] == 'bank' and r['to_type'] == 'invest':
+            add(r['y'], r['currency'], r['v'])
+        elif r['from_type'] == 'invest' and r['to_type'] == 'bank':
+            add(r['y'], r['currency'], -float(r['v']))
+    cur.close()
+    return flows
+
+
+@app.route('/api/year-records', methods=['GET'])
+def api_year_records():
+    """연도별 기록 목록. 각 해의 출처(source):
+      - live     : 올해. 실시간 계산
+      - snapshot : 연말 자동 저장 또는 직접 입력한 기록이 있는 해 (is_manual 로 구분)
+      - computed : 기록은 없고 거래·코인·공모주 데이터에서 실현손익만 계산되는 해 (평가손익 없음)"""
+    this_year = date.today().year
+    db = get_db()
+    try:
+        records = _calc_realized_records()
+        by_year = _realized_by_year(db, records)
+        cur = db.cursor()
+        cur.execute("""SELECT year, COUNT(*) AS n, BOOL_OR(is_manual) AS manual,
+                              COALESCE(SUM(eval_amount),0) AS ev, COALESCE(SUM(cost_amount),0) AS cost,
+                              COALESCE(SUM(unrealized_pnl),0) AS u, COALESCE(SUM(realized_pnl),0) AS r,
+                              COALESCE(SUM(cash_krw),0) AS ck, COALESCE(SUM(cash_usd),0) AS cu
+                       FROM account_year_snapshots GROUP BY year""")
+        snaps = {r['year']: dict(r) for r in cur.fetchall()}
+        cur.close()
+        flows = _year_flows(db)
+    finally:
+        db.close()
+    cur_data = _account_summary_data(this_year)
+    years = sorted(set(by_year) | set(snaps) | set(flows) | {this_year})
+    out = []
+    for y in years:
+        f = flows.get(y, {'krw': 0.0, 'usd': 0.0})
+        row = {'year': y, 'flow_krw': round(f['krw']), 'flow_usd': round(f['usd'], 2), 'manual': False, 'rows': 0}
+        if y == this_year:
+            t = cur_data['totals']
+            row.update(source='live', realized_pnl=round(by_year.get(y, {}).get('total', 0)), unrealized_pnl=t['unrealized_pnl'],
+                       eval_amount=t['eval_amount'], cash_krw=t['cash_krw'], cash_usd=t['cash_usd'])
+        elif y in snaps:
+            sn = snaps[y]
+            row.update(source='snapshot', manual=bool(sn['manual']), rows=sn['n'], realized_pnl=round(float(sn['r'])),
+                       unrealized_pnl=round(float(sn['u'])), eval_amount=round(float(sn['ev'])),
+                       cash_krw=round(float(sn['ck'])), cash_usd=round(float(sn['cu']), 2))
+        else:
+            row.update(source='computed', realized_pnl=round(by_year.get(y, {}).get('total', 0)), unrealized_pnl=None,
+                       eval_amount=None, cash_krw=None, cash_usd=None)
+        row['total_pnl'] = row['realized_pnl'] + (row['unrealized_pnl'] or 0)
+        out.append(row)
+    return jsonify({'current_year': this_year, 'years': out})
+
+
+@app.route('/api/year-records/<int:year>', methods=['GET', 'PUT', 'DELETE'])
+def api_year_record_detail(year):
+    """GET: 그 해의 계좌별 행. 기록이 있으면 기록을, 없으면 현재 데이터로 계산한 값을 미리 채워 돌려준다(편집 창용).
+    PUT {rows:[{account_id|null, eval_amount, cost_amount, unrealized_pnl, realized_pnl, cash_krw, cash_usd, memo}]}:
+        과거 연도 기록을 통째로 교체(직접 입력). 비어 있는 행은 건너뛴다. 올해/미래 연도는 실시간 계산이라 입력할 수 없다.
+    DELETE: 그 해의 기록을 지워 계산값으로 되돌린다."""
+    this_year = date.today().year
+    db = get_db()
+    cur = db.cursor()
+    if request.method == 'GET':
+        cur.execute("""SELECT s.account_id, a.name AS account_name, s.eval_amount, s.cost_amount, s.unrealized_pnl,
+                              s.realized_pnl, s.cash_krw, s.cash_usd::float AS cash_usd, s.is_manual, s.memo
+                       FROM account_year_snapshots s LEFT JOIN invest_accounts a ON a.id = s.account_id
+                       WHERE s.year=%s ORDER BY (s.account_id IS NULL), a.sort_order, s.account_id""", (year,))
+        rows = [dict(r) for r in cur.fetchall()]
+        cur.close(); db.close()
+        for r in rows:
+            if r['account_id'] is None:
+                r['account_name'] = '계좌 외 (미지정·공모주·코인 등)'
+        if rows:
+            return jsonify({'year': year, 'source': 'snapshot', 'editable': year < this_year, 'rows': rows})
+        live_rows = _live_year_rows(year)
+        if year < this_year:
+            # 지난 해의 평가금액·평가손익·예수금은 '지금' 값으로 알 수 없다. 그 해 실현손익(거래·코인·공모주 계산분)만 미리 채우고 나머지는 비워 둔다.
+            for r in live_rows:
+                for f in ('eval_amount', 'cost_amount', 'unrealized_pnl', 'cash_krw', 'cash_usd'):
+                    r[f] = 0
+        return jsonify({'year': year, 'source': 'live' if year == this_year else 'computed',
+                        'editable': year < this_year, 'rows': live_rows})
+
+    if request.method == 'DELETE':
+        if year >= this_year:
+            cur.close(); db.close()
+            return jsonify({'error': '올해 이후 연도는 실시간 계산이라 삭제할 기록이 없습니다.'}), 400
+        cur.execute("DELETE FROM account_year_snapshots WHERE year=%s", (year,))
+        db.commit(); cur.close(); db.close()
+        return jsonify({'ok': True})
+
+    # PUT
+    if year >= this_year or year < 1990:
+        cur.close(); db.close()
+        return jsonify({'error': '올해 이후 연도는 실시간으로 계산되어 입력할 수 없습니다. (연도는 지난 해만 입력)'}), 400
+    body = request.get_json(silent=True) or {}
+    rows_in = body.get('rows')
+    if not isinstance(rows_in, list):
+        cur.close(); db.close()
+        return jsonify({'error': 'rows 목록이 필요합니다.'}), 400
+    cur.execute("SELECT id FROM invest_accounts")
+    valid_accts = {r['id'] for r in cur.fetchall()}
+    clean, seen = [], set()
+    for r in rows_in:
+        aid = r.get('account_id')
+        aid = None if aid in (None, '', 'null') else int(aid)
+        if aid is not None and aid not in valid_accts:
+            cur.close(); db.close()
+            return jsonify({'error': '존재하지 않는 계좌가 포함되어 있습니다.'}), 400
+        if aid in seen:
+            cur.close(); db.close()
+            return jsonify({'error': '같은 계좌가 두 번 들어 있습니다.'}), 400
+        seen.add(aid)
+        vals, any_val = {}, False
+        for f in _SNAP_NUM_FIELDS:
+            raw = r.get(f)
+            if raw in (None, ''):
+                vals[f] = 0
+                continue
+            try:
+                v = float(str(raw).replace(',', ''))
+            except (TypeError, ValueError):
+                cur.close(); db.close()
+                return jsonify({'error': f'숫자가 아닌 값이 있습니다. ({f})'}), 400
+            vals[f] = round(v, 2) if f == 'cash_usd' else round(v)
+            any_val = True
+        if any_val or (r.get('memo') or '').strip():
+            clean.append((aid, vals, (r.get('memo') or '').strip() or None))
+    try:
+        cur.execute("DELETE FROM account_year_snapshots WHERE year=%s", (year,))
+        for aid, v, memo in clean:
+            cur.execute("""INSERT INTO account_year_snapshots
+                           (year, account_id, eval_amount, cost_amount, unrealized_pnl, realized_pnl, cash_krw, cash_usd, is_manual, memo)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,TRUE,%s)""",
+                        (year, aid, v['eval_amount'], v['cost_amount'], v['unrealized_pnl'], v['realized_pnl'],
+                         v['cash_krw'], v['cash_usd'], memo))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        cur.close(); db.close()
+        return jsonify({'error': str(e)}), 500
+    cur.close(); db.close()
+    return jsonify({'ok': True, 'rows': len(clean)})
+
+
+@app.route('/api/year-records/<int:year>/snapshot-now', methods=['POST'])
+def api_year_record_snapshot_now(year):
+    """올해 현재 값을 연말 기록처럼 지금 저장한다 (연말 자동 저장이 놓쳤을 때 대비 / 미리 확인용).
+    직접 입력한 기록이 있으면 {"force": true} 없이는 거부한다. 올해만 가능하다(지난 해는 지금 값으로 만들 수 없다)."""
+    if year != date.today().year:
+        return jsonify({'error': '올해만 지금 값으로 저장할 수 있습니다.'}), 400
+    force = bool((request.get_json(silent=True) or {}).get('force'))
+    n = _save_year_snapshot(year, replace_manual=force)
+    if n == 0:
+        return jsonify({'error': '직접 입력한 기록이 있어 저장하지 않았습니다. 덮어쓰려면 force 를 보내세요.'}), 409
+    return jsonify({'ok': True, 'rows': n})
 
 
 # ── 투자 계좌 예수금 (대개편 Step 4) ───────────────────────────
@@ -6731,8 +6974,10 @@ def api_total_pnl():
         positions = _compute_account_positions(db3, ex_rate)
         by_year = _realized_by_year(db3, records)
         cur3 = db3.cursor()
-        cur3.execute("SELECT year, COALESCE(SUM(unrealized_pnl), 0) AS u FROM account_year_snapshots GROUP BY year")
-        snaps = {r['year']: float(r['u']) for r in cur3.fetchall()}
+        cur3.execute("SELECT year, COALESCE(SUM(unrealized_pnl), 0) AS u, COALESCE(SUM(realized_pnl), 0) AS r "
+                     "FROM account_year_snapshots GROUP BY year")
+        snap_rows = {r['year']: (float(r['u']), float(r['r'])) for r in cur3.fetchall()}
+        snaps = {y: v[0] for y, v in snap_rows.items()}
         cur3.close()
     finally:
         db3.close()
@@ -6740,6 +6985,10 @@ def api_total_pnl():
     cost_acct = sum(p['cost'] for p in positions.values())
     br = by_year.get(year, {'stock': 0.0, 'etf': 0.0, 'ipo': 0.0, 'crypto': 0.0, 'archive': 0.0, 'total': 0.0})
     realized_year = br['total']
+    if year != this_year and year in snap_rows:
+        # 과거 연도에 연말/직접 입력 기록이 있으면 그 기록이 기준이다 (거래 데이터가 사라졌거나 나중에 바뀌어도 그 해 값이 유지된다)
+        realized_year = snap_rows[year][1]
+        br = {'record': realized_year, 'total': realized_year}
     if year == this_year:
         unreal_card, unreal_src = eval_acct - cost_acct, 'live'
     elif year in snaps:
@@ -6762,6 +7011,7 @@ def api_total_pnl():
         'years': years,
         'realized_pnl': round(realized_year),
         'realized_breakdown': {k: round(v) for k, v in br.items() if k != 'total'},
+        'realized_source': 'record' if (year != this_year and year in snap_rows) else 'computed',
         'unrealized_pnl': None if unreal_card is None else round(unreal_card),
         'unrealized_source': unreal_src,
         'total_pnl': round(realized_year + (unreal_card or 0)),
@@ -9792,7 +10042,7 @@ def api_import_text():
 # 외래키 의존성을 고려한 삭제 순서 (자식 → 부모)
 _BACKUP_DELETE_ORDER = [
     'card_tx', 'card_mappings', 'card_category_rules',
-    'account_transfers', 'account_cash_tx', 'stock_tx', 'etf_tx', 'invest_accounts', 'realized_pnl_archive',
+    'account_transfers', 'account_cash_tx', 'account_year_snapshots', 'stock_tx', 'etf_tx', 'invest_accounts', 'realized_pnl_archive',
     'tenant_contracts', 'property_costs',
     'fund_group_rules', 'monthly_fund_budgets',
     'asset_snapshots', 'sold_real_estate',
@@ -9806,7 +10056,7 @@ _BACKUP_DELETE_ORDER = [
 _BACKUP_INSERT_ORDER = [
     'categories', 'budget_categories', 'budget_category_rules',
     'stock_categories', 'card_info', 'fund_groups',
-    'invest_accounts', 'realized_pnl_archive', 'account_transfers',
+    'invest_accounts', 'realized_pnl_archive', 'account_transfers', 'account_year_snapshots',
     'stocks', 'etf', 'real_estate',
     'budget_recurring',
     'income', 'budget', 'crypto', 'loans', 'pension', 'goals',
