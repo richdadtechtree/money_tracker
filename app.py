@@ -6226,7 +6226,9 @@ def _refresh_usd_cash_amounts(db, ex_rate=None):
 
 
 def _upsert_cash_adj(cur, source_type, source_id, amount, description, adj_date=None):
-    """자동조정 기록 후 즉시 현금 잔액에 반영 (잔액 최대 계좌 차감)"""
+    """자동조정 기록 후 즉시 현금 잔액에 반영 (현금관리 통장 중 잔액 최대 통장 증감).
+    지금은 부동산 납입(re_payment)에서만 새로 기록한다. 주식·ETF 매수/매도는 투자 계좌 예수금 원장으로 옮겨졌고
+    (_record_trade_cash), 이 기록은 그 이전에 쌓인 옛 거래의 통장 차감을 되돌릴 때(_remove_cash_adj)만 남아 있다."""
     if adj_date is None:
         adj_date = date.today().isoformat()
 
@@ -6380,45 +6382,6 @@ def api_cash_auto_adj_item(aid):
     db.commit(); db.close()
     return jsonify({'ok': True})
 
-
-@app.route('/api/cash-auto-adjustments/apply', methods=['POST'])
-def api_cash_auto_adj_apply():
-    """자동 조정을 현금 잔액에 반영 (잔액이 가장 큰 계좌에 적용)"""
-    db = get_db()
-    cur = db.cursor()
-
-    cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_auto_adjustments WHERE applied=FALSE")
-    total_adj = int(cur.fetchone()[0])
-
-    if total_adj == 0:
-        cur.close(); db.close()
-        return jsonify({'ok': True, 'message': '반영할 조정 없음'})
-
-    cur.execute("SELECT id, name, amount FROM cash_deposits WHERE usd_amount = 0 AND NOT is_system ORDER BY amount DESC LIMIT 1")
-    account = cur.fetchone()
-    if not account:
-        cur.close(); db.close()
-        return jsonify({'error': '현금 계좌가 없습니다.'}), 400
-
-    new_amount = int(account['amount']) + total_adj
-    today = date.today().isoformat()
-    cur.execute(
-        "UPDATE cash_deposits SET amount=%s, updated_date=%s WHERE id=%s",
-        (new_amount, today, account['id'])
-    )
-    cur.execute("UPDATE cash_auto_adjustments SET applied=TRUE WHERE applied=FALSE")
-
-    cur.close()
-    db.commit(); db.close()
-    return jsonify({'ok': True, 'account': account['name'], 'adjusted': total_adj, 'new_amount': new_amount})
-
-
-@app.route('/api/cash-auto-adjustments/recalc-foreign', methods=['POST'])
-def api_recalc_foreign_cash_adj():
-    """(폐지) 달러 주식/ETF 거래의 통장 차감 재계산.
-    주식·ETF 매수·매도는 이제 투자 계좌 예수금(원화/달러 각각)에 기록되므로 환산이 필요 없다.
-    옛 화면이 호출해도 통장을 건드리지 않도록 아무 것도 하지 않고 돌려보낸다."""
-    return jsonify({'ok': True, 'fixed': 0, 'message': '주식·ETF 거래는 계좌 예수금에 직접 기록되어 재계산이 필요 없습니다.'})
 
 # ── API: 구분별 실현손익 ─────────────────────────────────────
 def _calc_realized_records():
