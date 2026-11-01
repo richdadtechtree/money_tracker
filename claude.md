@@ -105,6 +105,7 @@ d:\python work\Money\
    * 데이터 초기화는 `GET/POST /api/invest-reset` (올해 박제가 없으면 거부, `confirm:"초기화"` 필요, 거래 연동 예수금만 지우고 입금·출금·환전·이체·잔액 조정은 유지). 실행 전 앱의 백업 파일을 받아 둔다.
    * **운영 DB(Supabase)는 오래전에 만든 테이블이라 컬럼 구성이 개발 DB와 다를 수 있다**(예: `stocks`에 `quantity`/`buy_price` 컬럼이 없음). 일회성 정리 작업처럼 컬럼을 직접 지정하는 SQL은 `information_schema.columns`로 존재하는 컬럼만 골라 쓴다(`/api/invest-reset` 참고). 한 컬럼이라도 없으면 트랜잭션 전체가 롤백된다.
    * 백업/복구(`/api/backup`, `/api/restore`)는 `invest_accounts`, `account_cash_tx`, `account_transfers`, `account_year_snapshots`, `realized_pnl_archive`를 FK 순서(`_BACKUP_DELETE_ORDER`/`_BACKUP_INSERT_ORDER`)에 맞춰 포함한다. 새 테이블을 만들면 두 목록에 반드시 추가한다.
+   * **현재가 조회 순서**(`_fetch_stock_price`): 국내(6자리)는 pykrx → 네이버 → Yahoo(.KS/.KQ), 해외는 Yahoo 직접 호출(query2→query1, 429/5xx는 쉬었다 재시도) → yfinance → Stooq(`spcx.us` 형식) → Alpha Vantage(키가 있을 때) → 나스닥 공식 API(최근 상장 종목 대비). 특정 종목의 가격이 안 잡히면 로그인한 브라우저에서 `/api/price-test?ticker=SPCX`로 조회처별 원본 응답·실패 이유를 확인한다(아무것도 저장하지 않음). 클라우드 서버 IP는 Yahoo가 일시적으로 거절(429)하는 경우가 있다.
 7. **프런트엔드 규칙**:
    * 달러 금액은 소수점 **4자리**까지 저장·표시한다(서버 `round(x, 4)`, 화면 `fmtUsdAmount`). `cash_deposits.usd_amount`는 DOUBLE PRECISION, 원장·이체는 `NUMERIC(18,4)`, 연도 기록 `cash_usd`는 `NUMERIC(18,4)`. 단가·수수료 컬럼은 `REAL`이라 $1,000 이상에서는 4번째 소수가 반올림될 수 있다.
    * 화면의 "오늘" 기본값은 `todayLocalStr()`(`common.js`)를 쓴다. `new Date().toISOString()`은 UTC 기준이라 한국 시간 0~9시에 어제 날짜가 나온다.
