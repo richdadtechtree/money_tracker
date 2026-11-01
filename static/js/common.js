@@ -62,7 +62,7 @@ async function fetchJSON(url, opts = {}) {
  *     placeholder:'문자열' 또는 fn(row) → 편집 입력칸의 안내 문구 }
  */
 class GridTable {
-  constructor({ tableId, columns, apiUrl, getQueryParams, onLoad, getExtraData, onSave, onDelete, onStartEdit, selectable, onSelectChange, onBeforeDelete, isLocked, sortable, rowUrl }) {
+  constructor({ tableId, columns, apiUrl, getQueryParams, onLoad, getExtraData, onSave, onDelete, onStartEdit, selectable, onSelectChange, onBeforeDelete, isLocked, sortable, rowUrl, prepareData }) {
     this.tableEl  = document.getElementById(tableId);
     this.tbody    = this.tableEl.querySelector('tbody');
     this.columns  = columns;
@@ -78,6 +78,8 @@ class GridTable {
     this.isLocked       = isLocked       || (() => false);
     // rowUrl(id, data): 행마다 저장/삭제 주소가 다를 때(예: 주식·ETF를 한 표로 합친 경우) 주소를 직접 정한다. 기본은 apiUrl/id
     this.rowUrl         = rowUrl         || null;
+    // prepareData(id, data): 저장 직전에 보낼 데이터를 손본다 (합친 표에서 '종목' 선택값을 stock_id/etf_id 로 풀어줄 때 등)
+    this.prepareData    = prepareData    || null;
     this.selectable       = selectable       || false;
     this.selected         = new Set();
     this.onSelectChange   = onSelectChange   || null;
@@ -413,6 +415,7 @@ class GridTable {
     });
     tr.removeEventListener('keydown', this._keyFn);
     this._tr = null;
+    if (this.prepareData) this.prepareData(id, data);
     const method = id === 'new' ? 'POST' : 'PUT';
     const url    = this.rowUrl ? this.rowUrl(id, data) : (id === 'new' ? this.apiUrl : `${this.apiUrl}/${id}`);
     const result = await fetchJSON(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });

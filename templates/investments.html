@@ -170,7 +170,7 @@
     <!-- 거래내역 -->
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-white border-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
-        <span class="fw-semibold"><i class="bi bi-journal-text me-2 text-secondary"></i>주식 매매 거래내역</span>
+        <span class="fw-semibold"><i class="bi bi-journal-text me-2 text-secondary"></i>매매 거래내역 <span class="text-muted fw-normal small">(주식·ETF)</span></span>
         <div class="d-flex gap-2 align-items-center">
           <button class="btn btn-outline-secondary btn-sm" onclick="recalcAllRealizedPnl()">
             <i class="bi bi-arrow-repeat me-1"></i>실현손익 재계산
@@ -178,7 +178,7 @@
           <small class="text-muted d-none d-lg-inline" title="매수·매도는 선택한 계좌의 예수금에서 자동으로 빠지고 더해집니다 (국내=원화, 해외=달러, 원화로 결제했다면 '결제'에서 원화 선택). 이미 보유 중인 종목을 처음 등록할 때는 구분=매수, 기초보유=기초 보유로 입력하세요. 단가에는 평균 매입단가를 넣으며 예수금은 변하지 않습니다.">
             <i class="bi bi-info-circle"></i> 매매는 계좌 예수금에 자동 반영 · 종목 줄의 [매수]/[매도]로 빠르게 등록 · 기존 보유분은 '기초보유'
           </small>
-          <button class="btn btn-primary btn-sm" onclick="stockTxGrid.addRow()">
+          <button class="btn btn-primary btn-sm" onclick="txGrid.addRow()">
             <i class="bi bi-plus-lg me-1"></i>거래 입력
           </button>
         </div>
@@ -197,6 +197,13 @@
             </div>
           </div>
           <!-- 거래 유형 필터 -->
+          <div class="col-md-1">
+            <select class="form-select form-select-sm" id="tx-search-kind" onchange="filterTxTable()" title="주식/ETF">
+              <option value="">전체 종류</option>
+              <option value="stock">주식</option>
+              <option value="etf">ETF</option>
+            </select>
+          </div>
           <div class="col-md-2">
             <select class="form-select form-select-sm" id="tx-search-type" onchange="filterTxTable()">
               <option value="">전체 유형</option>
@@ -205,11 +212,11 @@
             </select>
           </div>
           <!-- 날짜 범위 -->
-          <div class="col-md-2">
+          <div class="col-md-1">
             <input type="date" class="form-control form-control-sm" id="tx-search-from"
                    onchange="filterTxTable()" title="시작 날짜">
           </div>
-          <div class="col-md-2">
+          <div class="col-md-1">
             <input type="date" class="form-control form-control-sm" id="tx-search-to"
                    onchange="filterTxTable()" title="종료 날짜">
           </div>
@@ -238,7 +245,7 @@
           <table class="table table-hover mb-0" id="stockTxTable">
             <thead class="table-light">
               <tr>
-                <th>날짜</th><th>종목</th><th>계좌</th><th>구분</th><th>기초보유</th>
+                <th>날짜</th><th>종류</th><th>종목</th><th>계좌</th><th>구분</th><th>기초보유</th>
                 <th class="text-end">단가</th>
                 <th class="text-end">수량</th>
                 <th class="text-end">거래금액</th>
@@ -274,43 +281,6 @@
     </div>
 
     <!-- 거래내역 -->
-    <div class="card border-0 shadow-sm">
-      <div class="card-header bg-white border-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
-        <span class="fw-semibold"><i class="bi bi-journal-text me-2 text-secondary"></i>ETF 매매 거래내역</span>
-        <div class="d-flex gap-2 align-items-center">
-          <select id="txEtfFilter" class="form-select form-select-sm" style="width:auto" onchange="etfTxGrid.load()">
-            <option value="">전체 종목</option>
-          </select>
-          <small class="text-muted d-none d-lg-inline" title="매수·매도는 선택한 계좌의 예수금에서 자동으로 빠지고 더해집니다 (국내=원화, 해외=달러, 원화로 결제했다면 '결제'에서 원화 선택). 이미 보유 중인 종목을 처음 등록할 때는 구분=매수, 기초보유=기초 보유로 입력하세요. 단가에는 평균 매입단가를 넣으며 예수금은 변하지 않습니다.">
-            <i class="bi bi-info-circle"></i> 매매는 계좌 예수금에 자동 반영 · 종목 줄의 [매수]/[매도]로 빠르게 등록 · 기존 보유분은 '기초보유'
-          </small>
-          <button class="btn btn-primary btn-sm" onclick="etfTxGrid.addRow()">
-            <i class="bi bi-plus-lg me-1"></i>거래 입력
-          </button>
-        </div>
-      </div>
-      <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover mb-0" id="etfTxTable">
-            <thead class="table-light">
-              <tr>
-                <th>날짜</th><th>종목</th><th>계좌</th><th>구분</th><th>기초보유</th>
-                <th class="text-end">단가</th>
-                <th class="text-end">수량</th>
-                <th class="text-end">거래금액</th>
-                <th class="text-end">수수료</th>
-                <th>결제</th>
-                <th class="text-end">실현손익</th>
-                <th>메모</th>
-                <th class="text-center">삭제</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
     <!-- ETF 분할매수 계획 계산기 패널 -->
     <div class="card mt-4 border-0 shadow-sm" id="invest-plan-panel">
       <div class="card-header bg-white border-0 pt-3 pb-2 fw-semibold">
@@ -1387,7 +1357,7 @@ function toKrw(amount, ticker) {
 
 async function recalcAllRealizedPnl() {
   await fetchJSON('/api/recalc-realized-pnl', { method: 'POST' });
-  await Promise.all([stockGrid.load(), stockTxGrid.load(), etfGrid.load(), etfTxGrid.load()]);
+  await Promise.all([stockGrid.load(), etfGrid.load(), txGrid.load()]);
   alert('실현손익을 재계산했습니다.');
 }
 
@@ -1530,12 +1500,6 @@ const stockGrid = new GridTable({
     // 계좌별 보기에서는 rows 가 그 계좌의 종목뿐이라, 거래 입력 폼의 종목 선택지는 전체 목록을 따로 유지한다
     if (currentAccount === '') allStocks = rows;
     else fetchJSON('/api/stocks').then(all => { if (all) allStocks = all; });
-    const sel = document.getElementById('txStockFilter') || document.getElementById('tx-search-stock');
-    if (sel) {
-      const cur = sel.value;
-      sel.innerHTML = '<option value="">전체 종목</option>' +
-        rows.map(r => `<option value="${r.id}"${String(r.id) === cur ? ' selected' : ''}>${r.name}${r.ticker ? ` (${r.ticker})` : ''}</option>`).join('');
-    }
     let tv = 0, tp = 0, tr = 0;
     rows.forEach(r => {
       const mul = isForeign(r.ticker) ? usdKrw : 1;
@@ -1549,7 +1513,7 @@ const stockGrid = new GridTable({
     document.getElementById('stocks-profit').innerHTML   = pnlHtml(tp);
     document.getElementById('stocks-realized').innerHTML = pnlHtml(tr);
     _updateCombinedTotal();
-    stockTxGrid.load();
+    scheduleTxLoad();
   },
 });
 
@@ -2094,13 +2058,33 @@ function openAccountModal() {
 }
 refreshAccountBar();
 
-// ── 주식 거래내역 ──
-const stockTxGrid = new GridTable({
-  tableId: 'stockTxTable',
+// ── 주식 + ETF 합친 거래내역 ──
+// 두 API(/api/stock-tx, /api/etf-tx)의 거래를 합쳐 한 표로 보여준다. 행 id 는 's12'(주식 거래) / 'e5'(ETF 거래),
+// '종목' 선택값(_item)도 's3'(주식 id 3) / 'e7'(ETF id 7) 형태이며 저장 직전에 stock_id / etf_id 로 풀어서 보낸다.
+function txRowUrl(id, data) {
+  const kind = id === 'new' ? data._kind : (id[0] === 'e' ? 'etf' : 'stock');
+  const base = kind === 'etf' ? '/api/etf-tx' : '/api/stock-tx';
+  return id === 'new' ? base : `${base}/${id.slice(1)}`;
+}
+const txGrid = new GridTable({
+  tableId: 'stockTxTable',      // 기존 표 id 유지 (본문은 #tx-tbody 에 검색·페이지 기능과 함께 그린다)
+  apiUrl: '/api/stock-tx',
+  rowUrl: txRowUrl,
+  prepareData: (id, data) => {
+    const item = String(data._item || '');
+    data._kind = item[0] === 'e' ? 'etf' : 'stock';
+    if (item.length > 1) data[data._kind === 'etf' ? 'etf_id' : 'stock_id'] = item.slice(1);
+  },
   columns: [
     { key: 'tx_date',  type: 'date' },
-    { key: 'stock_id', type: 'select',
-      options: () => allStocks.map(s => ({ value: String(s.id), label: s.name + (s.ticker ? ` (${s.ticker})` : '') })),
+    { key: '_kind_badge', type: 'computed', noEdit: true,
+      compute: r => r._kind === 'etf' ? '<span class="badge bg-primary-subtle text-primary">ETF</span>'
+                  : r._kind === 'stock' ? '<span class="badge bg-success-subtle text-success">주식</span>' : '' },
+    { key: '_item', type: 'select',
+      options: () => [
+        ...allStocks.map(s => ({ value: 's' + s.id, label: '[주식] ' + s.name + (s.ticker ? ` (${s.ticker})` : '') })),
+        ...allEtfs.map(e => ({ value: 'e' + e.id, label: '[ETF] ' + e.name + (e.ticker ? ` (${e.ticker})` : '') })),
+      ],
       render: (v, row) => row.name || '-' },
     TX_ACCOUNT_COLUMN,
     { key: 'tx_type',  type: 'select',
@@ -2128,22 +2112,25 @@ const stockTxGrid = new GridTable({
       }},
     { key: 'memo',     type: 'text' },
   ],
-  apiUrl: '/api/stock-tx',
-  getQueryParams: () => {
-    const filterEl = document.getElementById('txStockFilter') || document.getElementById('tx-search-stock');
-    const sid = filterEl ? filterEl.value : '';
-    return withAccount(sid ? `stock_id=${sid}` : '');
-  },
-  onLoad: () => {
-    loadStockTx();
-  },
-  onSave:   (res) => { if (res?.warning) alert(res.warning); stockGrid.load(); loadAccountSummary().then(renderAccountBar); },
-  onDelete: () => { stockGrid.load(); loadAccountSummary().then(renderAccountBar); },
+  onSave:   (res) => { if (res?.warning) alert(res.warning); Promise.all([stockGrid.load(), etfGrid.load()]); loadAccountSummary().then(renderAccountBar); },
+  onDelete: () => { Promise.all([stockGrid.load(), etfGrid.load()]); loadAccountSummary().then(renderAccountBar); },
   onStartEdit: (tr, r) => {
-    bindTxEditFields(tr, r, false);
     prefillAccount(tr, r);
+    // 이미 입력된 거래의 종목은 같은 종류(주식↔ETF) 안에서만 바꿀 수 있다 (저장 주소가 종류별로 다르므로)
+    if (r && r._kind) {
+      const sel = tr.querySelector('[data-key="_item"]');
+      if (sel) [...sel.options].forEach(o => { if (o.value && o.value[0] !== r._kind[0]) o.remove(); });
+    }
   },
 });
+// 합친 거래내역 불러오기: 저장/삭제 뒤 GridTable 이 부르는 load() 도 이 함수로 대신한다
+txGrid.load = async function () { await loadStockTx(); };
+// 주식 표·ETF 표가 거의 동시에 다시 불러와지므로, 거래내역은 한 번만 다시 불러오게 모아서 실행한다
+let _txLoadTimer = null;
+function scheduleTxLoad() {
+  clearTimeout(_txLoadTimer);
+  _txLoadTimer = setTimeout(() => { txGrid.load(); }, 60);
+}
 
 // ── ETF 포지션 ──
 let allEtfs = [];
@@ -2184,10 +2171,6 @@ const etfGrid = new GridTable({
   onLoad: rows => {
     if (currentAccount === '') allEtfs = rows;
     else fetchJSON('/api/etf').then(all => { if (all) allEtfs = all; });
-    const sel = document.getElementById('txEtfFilter');
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">전체 종목</option>' +
-      rows.map(r => `<option value="${r.id}"${String(r.id) === cur ? ' selected' : ''}>${r.name}${r.ticker ? ` (${r.ticker})` : ''}</option>`).join('');
     let tv = 0, tp = 0, tr = 0;
     rows.forEach(r => {
       const mul = isForeign(r.ticker) ? usdKrw : 1;
@@ -2201,7 +2184,7 @@ const etfGrid = new GridTable({
     document.getElementById('etf-profit').innerHTML    = pnlHtml(tp);
     document.getElementById('etf-realized').innerHTML  = pnlHtml(tr);
     _updateCombinedTotal();
-    etfTxGrid.load();
+    scheduleTxLoad();
   },
 });
 
@@ -2288,54 +2271,6 @@ function refreshPosGrid() {
 }
 // posGrid.load(): 두 원본을 함께 다시 불러온다 (저장/삭제 뒤 GridTable 이 이 함수를 부른다)
 posGrid.load = async function () { await Promise.all([stockGrid.load(), etfGrid.load()]); };
-
-// ── ETF 거래내역 ──
-const etfTxGrid = new GridTable({
-  tableId: 'etfTxTable',
-  columns: [
-    { key: 'tx_date',  type: 'date' },
-    { key: 'etf_id',   type: 'select',
-      options: () => allEtfs.map(e => ({ value: String(e.id), label: e.name + (e.ticker ? ` (${e.ticker})` : '') })),
-      render: (v, row) => row.name || '-' },
-    TX_ACCOUNT_COLUMN,
-    { key: 'tx_type',  type: 'select',
-      options: [{value:'buy',label:'매수'},{value:'sell',label:'매도'}],
-      render: v => v === 'buy'
-        ? '<span class="badge bg-danger-subtle text-danger">매수</span>'
-        : '<span class="badge bg-primary-subtle text-primary">매도</span>' },
-    TX_OPENING_COLUMN,
-    { key: 'price',    type: 'number', align: 'end',
-      render: (v, r) => isForeign(r?.ticker) ? fmtUsd(v) : fmt(v) },
-    { key: 'quantity', type: 'number', align: 'end', step: 0.001 },
-    { key: '_amount',  type: 'computed', align: 'end',
-      compute: r => {
-        const rate = r.exchange_rate || (isForeign(r.ticker) ? usdKrw : 1.0);
-        const krw = Math.round(r.price * r.quantity * rate);
-        return `<span class="fw-semibold">${fmt(krw)}원</span>`;
-      }},
-    { key: 'fee',      type: 'number', align: 'end', step: 0.01,
-      render: (v, r) => v ? (isForeign(r?.ticker) ? fmtUsd(v) : fmt(v)) : '-' },
-    TX_SETTLE_COLUMN,
-    { key: 'realized_pnl', type: 'computed', align: 'end',
-      compute: r => {
-        if (r && (r.tx_type === 'buy' || r.tx_type === '매수')) return '-';
-        return pnlHtml(toKrw(r.realized_pnl || 0, r?.ticker));
-      }},
-    { key: 'memo',     type: 'text' },
-  ],
-  apiUrl: '/api/etf-tx',
-  getQueryParams: () => {
-    const eid = document.getElementById('txEtfFilter').value;
-    return withAccount(eid ? `etf_id=${eid}` : '');
-  },
-  onLoad: () => {},
-  onSave:   (res) => { if (res?.warning) alert(res.warning); etfGrid.load(); loadAccountSummary().then(renderAccountBar); },
-  onDelete: () => { etfGrid.load(); loadAccountSummary().then(renderAccountBar); },
-  onStartEdit: (tr, r) => {
-    bindTxEditFields(tr, r, true);
-    prefillAccount(tr, r);
-  },
-});
 
 // ── 코인 ──
 const cryptoGrid = new GridTable({
@@ -3009,19 +2944,27 @@ let filteredTxData = []; // 검색 필터 적용 후
 let txCurrentPage  = 1;
 
 // ── 거래내역 로드 (기존 API 그대로 활용) ──
-async function loadStockTx(stockId = null) {
-  const url = '/api/stock-tx' + (withAccount(stockId ? `stock_id=${stockId}` : '') ? '?' + withAccount(stockId ? `stock_id=${stockId}` : '') : '');
-  const data = await fetchJSON(url);
-  allTxData  = data || [];
-  
-  // 종목 선택 드롭다운 업데이트
+async function loadStockTx() {
+  const qs = withAccount('');
+  const q = qs ? '?' + qs : '';
+  const [stx, etx] = await Promise.all([fetchJSON('/api/stock-tx' + q), fetchJSON('/api/etf-tx' + q)]);
+  const tag = (rows, kind) => (rows || []).map(t => ({
+    ...t, _kind: kind, _rid: t.id, id: kind[0] + t.id,
+    _item: kind[0] + (kind === 'etf' ? t.etf_id : t.stock_id),
+  }));
+  allTxData = [...tag(stx, 'stock'), ...tag(etx, 'etf')]
+    .sort((a, b) => (b.tx_date || '').localeCompare(a.tx_date || '') || (b._rid - a._rid));
+  txGrid.rows = allTxData;      // 행을 눌러 수정할 때 GridTable 이 이 목록에서 행을 찾는다
+
+  // 종목 선택 드롭다운 업데이트 (현재 선택값은 유지)
   const stockSelect = document.getElementById('tx-search-stock');
+  const keep = stockSelect.value;
   const names = [...new Set(allTxData.map(t => t.name).filter(Boolean))];
   stockSelect.innerHTML = '<option value="">전체 종목</option>';
   names.forEach(n => {
-    stockSelect.insertAdjacentHTML('beforeend', `<option value="${n}">${n}</option>`);
+    stockSelect.insertAdjacentHTML('beforeend', `<option value="${n}"${n === keep ? ' selected' : ''}>${n}</option>`);
   });
-  
+
   filterTxTable();  // 초기 필터 적용 및 렌더링
 }
 
@@ -3032,6 +2975,7 @@ function filterTxTable() {
   const fromDt  = document.getElementById('tx-search-from').value;
   const toDt    = document.getElementById('tx-search-to').value;
   const stock   = document.getElementById('tx-search-stock').value;
+  const kind    = document.getElementById('tx-search-kind').value;
   
   filteredTxData = allTxData.filter(t => {
     // 키워드: 종목명 or 티커 매칭
@@ -3041,6 +2985,9 @@ function filterTxTable() {
       (t.memo   || '').toLowerCase().includes(keyword)
     )) return false;
     
+    // 종류(주식/ETF)
+    if (kind && t._kind !== kind) return false;
+
     // 거래 유형
     if (txType && t.tx_type !== txType) return false;
     
@@ -3058,7 +3005,7 @@ function filterTxTable() {
   const total = allTxData.length;
   const found = filteredTxData.length;
   document.getElementById('tx-search-summary').textContent =
-    keyword || txType || fromDt || toDt || stock
+    keyword || txType || fromDt || toDt || stock || kind
       ? `${total}건 중 ${found}건 검색됨`
       : `전체 ${total}건`;
   
@@ -3072,6 +3019,7 @@ function resetTxSearch() {
   document.getElementById('tx-search-from').value    = '';
   document.getElementById('tx-search-to').value      = '';
   document.getElementById('tx-search-stock').value   = '';
+  document.getElementById('tx-search-kind').value    = '';
   filterTxTable();
 }
 
@@ -3092,7 +3040,7 @@ function renderTxPage(page) {
   tbody.innerHTML = '';
   
   if (pageData.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="13" class="text-center text-muted py-4">
+    tbody.innerHTML = `<tr><td colspan="14" class="text-center text-muted py-4">
       검색 결과가 없습니다.</td></tr>`;
   } else {
     pageData.forEach(t => {
@@ -3101,6 +3049,7 @@ function renderTxPage(page) {
       tbody.insertAdjacentHTML('beforeend', `
         <tr data-id="${t.id}" class="grid-row">
           <td>${t.tx_date}</td>
+          <td>${t._kind === 'etf' ? '<span class="badge bg-primary-subtle text-primary">ETF</span>' : '<span class="badge bg-success-subtle text-success">주식</span>'}</td>
           <td>${t.name || '-'}</td>
           <td>${t.account_name || '<span class="text-muted">-</span>'}</td>
           <td class="text-center">
