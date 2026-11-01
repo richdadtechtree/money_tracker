@@ -62,7 +62,7 @@ async function fetchJSON(url, opts = {}) {
  *     placeholder:'문자열' 또는 fn(row) → 편집 입력칸의 안내 문구 }
  */
 class GridTable {
-  constructor({ tableId, columns, apiUrl, getQueryParams, onLoad, getExtraData, onSave, onDelete, onStartEdit, selectable, onSelectChange, onBeforeDelete, isLocked, sortable }) {
+  constructor({ tableId, columns, apiUrl, getQueryParams, onLoad, getExtraData, onSave, onDelete, onStartEdit, selectable, onSelectChange, onBeforeDelete, isLocked, sortable, rowUrl }) {
     this.tableEl  = document.getElementById(tableId);
     this.tbody    = this.tableEl.querySelector('tbody');
     this.columns  = columns;
@@ -76,6 +76,8 @@ class GridTable {
     this.onBeforeDelete = onBeforeDelete || null;
     // isLocked(row) 가 true 인 행은 수정/삭제할 수 없다 (자동 연동 행 등). 삭제 버튼 자리에 자물쇠를 보여준다.
     this.isLocked       = isLocked       || (() => false);
+    // rowUrl(id, data): 행마다 저장/삭제 주소가 다를 때(예: 주식·ETF를 한 표로 합친 경우) 주소를 직접 정한다. 기본은 apiUrl/id
+    this.rowUrl         = rowUrl         || null;
     this.selectable       = selectable       || false;
     this.selected         = new Set();
     this.onSelectChange   = onSelectChange   || null;
@@ -412,7 +414,7 @@ class GridTable {
     tr.removeEventListener('keydown', this._keyFn);
     this._tr = null;
     const method = id === 'new' ? 'POST' : 'PUT';
-    const url    = id === 'new' ? this.apiUrl : `${this.apiUrl}/${id}`;
+    const url    = this.rowUrl ? this.rowUrl(id, data) : (id === 'new' ? this.apiUrl : `${this.apiUrl}/${id}`);
     const result = await fetchJSON(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
     // 저장 실패를 조용히 넘기면 사용자는 "왜 입력이 사라졌는지" 알 수 없다
     if (result === null) {
@@ -428,9 +430,8 @@ class GridTable {
     if (this._tr) this.cancelEdit();
     if (this.onBeforeDelete) {
       await this.onBeforeDelete(id, async (mode = 'single') => {
-        const url = mode === 'forward'
-          ? `${this.apiUrl}/${id}?mode=forward`
-          : `${this.apiUrl}/${id}`;
+        const base = this.rowUrl ? this.rowUrl(id, {}) : `${this.apiUrl}/${id}`;
+        const url = mode === 'forward' ? `${base}?mode=forward` : base;
         await fetchJSON(url, { method: 'DELETE' });
         await this.load();
         this.onDelete?.();
@@ -438,7 +439,7 @@ class GridTable {
       return;
     }
     if (!confirm('삭제하시겠습니까?')) return;
-    const res = await fetchJSON(`${this.apiUrl}/${id}`, { method: 'DELETE' });
+    const res = await fetchJSON(this.rowUrl ? this.rowUrl(id, {}) : `${this.apiUrl}/${id}`, { method: 'DELETE' });
     if (res === null) alert(fetchJSON.lastError || '삭제하지 못했습니다.');
     await this.load();
     this.onDelete?.();
