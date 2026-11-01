@@ -4556,15 +4556,15 @@ def _fetch_alphavantage_price(ticker: str) -> float | None:
     return None
 
 
-def _fetch_stooq_price(ticker: str) -> float | None:
-    """Stooq CSV 피드로 주식 현재가(종가) 조회"""
+def _fetch_stooq_price(ticker: str, diag=None) -> float | None:
+    """Stooq CSV 피드로 주식 현재가(종가) 조회. 미국 종목은 'spcx.us' 처럼 .us 를 붙여야 조회된다."""
     ticker = (ticker or '').strip()
     if not ticker:
         return None
     if not _is_krx_ticker(ticker):
         ticker = ticker.upper()
     try:
-        stooq_sym = (ticker + '.kr') if _is_krx_ticker(ticker) else ticker
+        stooq_sym = (ticker + '.kr') if _is_krx_ticker(ticker) else (ticker.lower() + '.us')   # 미국 종목은 spcx.us 형식
         res = http_req.get(
             f'https://stooq.com/q/l/?s={stooq_sym}&f=sd2t2ohlcv&h&e=csv',
             timeout=8,
@@ -4572,9 +4572,11 @@ def _fetch_stooq_price(ticker: str) -> float | None:
         )
         print(f'[price] stooq {stooq_sym}: status={res.status_code} body={res.text[:100]}', file=sys.stderr)
         if not res.ok:
+            _diag_add(diag, f'HTTP {res.status_code}')
             return None
         lines = [line.strip() for line in res.text.strip().split('\n') if line.strip()]
         if len(lines) < 2:
+            _diag_add(diag, '응답이 비어 있음')
             return None
         headers = [h.strip().lower() for h in lines[0].split(',')]
         parts = [p.strip() for p in lines[1].split(',')]
@@ -4583,47 +4585,131 @@ def _fetch_stooq_price(ticker: str) -> float | None:
             if idx < len(parts):
                 close = parts[idx]
                 if close and close not in ('N/D', '0', ''):
+                    _diag_add(diag, f'성공 {close}')
                     return float(close)
+        _diag_add(diag, f'{stooq_sym}: 가격 없음(N/D)')
     except Exception as e:
         print(f'[price] stooq error {ticker}: {e}', file=sys.stderr)
+        _diag_add(diag, f'오류 {type(e).__name__}: {e}')
     return None
 
 
-def _fetch_yf_direct_price(ticker: str) -> float | None:
-    """Yahoo Finance v8 API 직접 호출 (regularMarketPrice 또는 Close 종가 반영)"""
+_PRICE_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
+
+def _diag_add(diag, msg):
+    """진단용 기록(리스트)이 주어졌을 때만 한 줄 추가한다."""
+    if diag is not None:
+        diag.append(msg)
+
+
+def _fetch_yf_direct_price(ticker: str, diag=None) -> float | None:
+    """Yahoo Finance v8 API 직접 호출 (regularMarketPrice 또는 Close 종가 반영).
+    query2 → query1 두 호스트를 번갈아 시도하고, 클라우드 서버에서 흔한 429(요청 과다)/5xx 는 잠깐 쉬었다가 재시도한다."""
     ticker = (ticker or '').strip()
     if not ticker:
         return None
     if not _is_krx_ticker(ticker):
         ticker = ticker.upper()
+    yf_sym = (ticker + '.KS') if _is_krx_ticker(ticker) else ticker
     time.sleep(0.5)  # rate limit 방지
+    for attempt in range(2):
+        for host in ('query2', 'query1'):
+            try:
+                res = http_req.get(
+                    f'https://{host}.finance.yahoo.com/v8/finance/chart/{yf_sym}',
+                    params={'interval': '1d', 'range': '5d'},
+                    headers={'User-Agent': _PRICE_UA, 'Accept': 'application/json'},
+                    timeout=8
+                )
+            except Exception as e:
+                print(f'[price] yf_direct error {yf_sym} ({host}): {e}', file=sys.stderr)
+                _diag_add(diag, f'{host}: 연결 오류 {type(e).__name__}')
+                continue
+            print(f'[price] yf_direct {yf_sym} ({host}): status={res.status_code} body={res.text[:100]}', file=sys.stderr)
+            if res.status_code == 429 or res.status_code >= 500:
+                _diag_add(diag, f'{host}: HTTP {res.status_code} (요청 과다/서버 오류)')
+                continue
+            if not res.ok:
+                _diag_add(diag, f'{host}: HTTP {res.status_code} {res.text[:80]}')
+                continue
+            try:
+                result = res.json().get('chart', {}).get('result', [])
+            except Exception:
+                _diag_add(diag, f'{host}: 응답을 해석하지 못함')
+                continue
+            if result:
+                market_price = result[0].get('meta', {}).get('regularMarketPrice')
+                if market_price is not None:
+                    _diag_add(diag, f'{host}: 성공 {market_price}')
+                    return float(market_price)
+                closes = result[0].get('indicators', {}).get('quote', [{}])[0].get('close', [])
+                closes = [c for c in closes if c is not None and not (isinstance(c, float) and math.isnan(c))]
+                if closes:
+                    _diag_add(diag, f'{host}: 성공(종가) {closes[-1]}')
+                    return float(closes[-1])
+            _diag_add(diag, f'{host}: 응답은 왔지만 가격이 없음 (티커가 없거나 거래 이력이 없음)')
+        if attempt == 0:
+            time.sleep(1.5)
+    return None
+
+
+def _fetch_nasdaq_price(ticker: str, diag=None) -> float | None:
+    """나스닥 공식 시세 API (api.nasdaq.com). 최근 상장한 종목(예: SPCX)처럼 다른 곳에서 안 잡힐 때의 보조 조회처.
+    주식(stocks) → ETF(etf) 순으로 시도하고, 응답의 primaryData.lastSalePrice(예: '$135.00')를 숫자로 바꾼다."""
+    ticker = (ticker or '').strip().upper()
+    if not ticker or _is_krx_ticker(ticker):
+        return None
+    for assetclass in ('stocks', 'etf'):
+        try:
+            res = http_req.get(
+                f'https://api.nasdaq.com/api/quote/{ticker}/info',
+                params={'assetclass': assetclass},
+                headers={'User-Agent': _PRICE_UA, 'Accept': 'application/json, text/plain, */*',
+                         'Origin': 'https://www.nasdaq.com', 'Referer': 'https://www.nasdaq.com/'},
+                timeout=8
+            )
+            print(f'[price] nasdaq {ticker} ({assetclass}): status={res.status_code}', file=sys.stderr)
+            if not res.ok:
+                _diag_add(diag, f'{assetclass}: HTTP {res.status_code}')
+                continue
+            data = (res.json() or {}).get('data') or {}
+            raw = (data.get('primaryData') or {}).get('lastSalePrice') or ''
+            num = re.sub(r'[^0-9.\-]', '', str(raw))
+            if num:
+                val = float(num)
+                if val > 0:
+                    _diag_add(diag, f'{assetclass}: 성공 {val}')
+                    return val
+            _diag_add(diag, f'{assetclass}: 가격 없음')
+        except Exception as e:
+            print(f'[price] nasdaq error {ticker}: {e}', file=sys.stderr)
+            _diag_add(diag, f'{assetclass}: 오류 {type(e).__name__}')
+    return None
+
+
+def _fetch_yfinance_lib_price(ticker: str, diag=None) -> float | None:
+    """yfinance 라이브러리로 최근 5일 종가 조회 (설치돼 있을 때만)"""
+    if not HAS_YFINANCE:
+        _diag_add(diag, 'yfinance 라이브러리 없음')
+        return None
     try:
-        yf_sym = (ticker + '.KS') if _is_krx_ticker(ticker) else ticker
-        res = http_req.get(
-            f'https://query2.finance.yahoo.com/v8/finance/chart/{yf_sym}',
-            params={'interval': '1d', 'range': '5d'},
-            headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Accept': 'application/json'},
-            timeout=8
-        )
-        print(f'[price] yf_direct {yf_sym}: status={res.status_code} body={res.text[:100]}', file=sys.stderr)
-        if not res.ok:
-            return None
-        result = res.json().get('chart', {}).get('result', [])
-        if result:
-            market_price = result[0].get('meta', {}).get('regularMarketPrice')
-            if market_price is not None:
-                return float(market_price)
-            closes = result[0].get('indicators', {}).get('quote', [{}])[0].get('close', [])
-            closes = [c for c in closes if c is not None and not (isinstance(c, float) and math.isnan(c))]
-            if closes:
-                return float(closes[-1])
+        hist = yf.Ticker(ticker).history(period="5d")
+        if not hist.empty and 'Close' in hist.columns:
+            val = float(hist['Close'].iloc[-1])
+            if not math.isnan(val):
+                _diag_add(diag, f'성공 {val}')
+                return val
+        _diag_add(diag, '시세 이력이 비어 있음')
     except Exception as e:
-        print(f'[price] yf_direct error {ticker}: {e}', file=sys.stderr)
+        print(f'[price] yfinance error {ticker}: {e}', file=sys.stderr)
+        _diag_add(diag, f'오류 {type(e).__name__}: {str(e)[:80]}')
     return None
 
 
 def _fetch_stock_price(ticker: str) -> float | None:
-    """pykrx (국내) / yfinance (해외) 우선 시도 후 외부 HTTP API 순차 시도"""
+    """pykrx (국내) / Yahoo·yfinance (해외) 우선 시도 후 Stooq → Alpha Vantage → 나스닥 API 순차 시도"""
+    price = None
     ticker = (ticker or '').strip()
     if not ticker:
         return None
@@ -4699,21 +4785,16 @@ def _fetch_stock_price(ticker: str) -> float | None:
         price = _fetch_yf_direct_price(ticker)
         if price is not None and not (isinstance(price, float) and math.isnan(price)):
             return price
-        if HAS_YFINANCE:
-            try:
-                t = yf.Ticker(ticker)
-                hist = t.history(period="5d")
-                if not hist.empty and 'Close' in hist.columns:
-                    val = float(hist['Close'].iloc[-1])
-                    if not math.isnan(val):
-                        return val
-            except Exception as e:
-                print(f'[price] yfinance error {ticker}: {e}', file=sys.stderr)
+        price = _fetch_yfinance_lib_price(ticker)
+        if price is not None:
+            return price
 
     if price is None or (isinstance(price, float) and math.isnan(price)):
         price = _fetch_stooq_price(ticker)
     if price is None or (isinstance(price, float) and math.isnan(price)):
         price = _fetch_alphavantage_price(ticker)
+    if (price is None or (isinstance(price, float) and math.isnan(price))) and not _is_krx_ticker(ticker):
+        price = _fetch_nasdaq_price(ticker)       # 최근 상장 종목 등 마지막 보조 조회처
     if price is not None and isinstance(price, float) and (math.isnan(price) or math.isinf(price)):
         return None
     return price
@@ -4987,10 +5068,15 @@ def api_price_update_status():
 
 @app.route('/api/price-test')
 def api_price_test():
-    """주식 가격 소스별 진단 (예: /api/price-test?ticker=005930)"""
-    ticker = request.args.get('ticker', '005930')
+    """주식 가격 소스별 진단 (예: /api/price-test?ticker=SPCX, 국내는 ?ticker=005930)
+    - sources : 각 조회처가 돌려준 원본 응답(HTTP 상태 + 앞부분)
+    - lookup  : 앱이 실제 쓰는 조회 경로별 성공/실패 이유 (Yahoo 재시도·yfinance·Stooq·나스닥 API)
+    - final_price : 앱이 최종적으로 얻는 현재가 (None 이면 모든 경로 실패)
+    아무것도 저장하지 않는다."""
+    ticker = (request.args.get('ticker', '005930') or '').strip()
+    ticker = ticker if _is_krx_ticker(ticker) else ticker.upper()
     av_key = os.environ.get('ALPHAVANTAGE_API_KEY', '')
-    result = {'ticker': ticker, 'av_key_set': bool(av_key), 'sources': {}}
+    result = {'ticker': ticker, 'av_key_set': bool(av_key), 'sources': {}, 'lookup': []}
 
     # 1. Alpha Vantage
     try:
@@ -5002,26 +5088,43 @@ def api_price_test():
     except Exception as e:
         result['sources']['alphavantage'] = {'error': str(e)}
 
-    # 2. Stooq
+    # 2. Stooq (미국 종목은 .us)
     try:
-        stooq_sym = (ticker + '.kr') if _is_krx_ticker(ticker) else ticker
+        stooq_sym = (ticker + '.kr') if _is_krx_ticker(ticker) else (ticker.lower() + '.us')
         r = http_req.get(f'https://stooq.com/q/l/?s={stooq_sym}&f=sd2t2ohlcv&h&e=csv',
             timeout=8, headers={'User-Agent': 'Mozilla/5.0'})
-        result['sources']['stooq'] = {'status': r.status_code, 'body': r.text[:300]}
+        result['sources']['stooq'] = {'symbol': stooq_sym, 'status': r.status_code, 'body': r.text[:300]}
     except Exception as e:
         result['sources']['stooq'] = {'error': str(e)}
 
-    # 3. Yahoo Finance 직접
-    try:
-        yf_sym = (ticker + '.KS') if _is_krx_ticker(ticker) else ticker
-        r = http_req.get(f'https://query2.finance.yahoo.com/v8/finance/chart/{yf_sym}',
-            params={'interval': '1d', 'range': '5d'},
-            headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
-            timeout=8)
-        result['sources']['yahoo'] = {'status': r.status_code, 'body': r.text[:300]}
-    except Exception as e:
-        result['sources']['yahoo'] = {'error': str(e)}
+    # 3. Yahoo Finance 직접 (query2 / query1)
+    for host in ('query2', 'query1'):
+        try:
+            yf_sym = (ticker + '.KS') if _is_krx_ticker(ticker) else ticker
+            r = http_req.get(f'https://{host}.finance.yahoo.com/v8/finance/chart/{yf_sym}',
+                params={'interval': '1d', 'range': '5d'},
+                headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'},
+                timeout=8)
+            result['sources'][f'yahoo_{host}'] = {'status': r.status_code, 'body': r.text[:300]}
+        except Exception as e:
+            result['sources'][f'yahoo_{host}'] = {'error': str(e)}
 
+    # 4. 앱이 실제 쓰는 조회 경로별 결과 (왜 실패했는지 한 줄씩)
+    def run(name, fn):
+        diag = []
+        try:
+            price = fn(diag)
+        except Exception as e:
+            price, diag = None, diag + [f'예외 {type(e).__name__}: {e}']
+        result['lookup'].append({'source': name, 'price': price, 'ok': price is not None, 'detail': diag})
+    if not _is_krx_ticker(ticker):
+        run('yahoo 직접(query2→query1, 재시도)', lambda d: _fetch_yf_direct_price(ticker, d))
+        run('yfinance 라이브러리', lambda d: _fetch_yfinance_lib_price(ticker, d))
+        run('stooq(.us)', lambda d: _fetch_stooq_price(ticker, d))
+        run('나스닥 공식 API', lambda d: _fetch_nasdaq_price(ticker, d))
+    else:
+        run('stooq(.kr)', lambda d: _fetch_stooq_price(ticker, d))
+    result['final_price'] = _fetch_stock_price(ticker)
     return jsonify(result)
 
 
