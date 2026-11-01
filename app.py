@@ -5478,7 +5478,7 @@ def _calc_asset_totals(rows, ex_rate):
         cost += cost_amt * mul
     return float(val), float(cost)
 
-def _fetch_stock_rows(db):
+def _fetch_stock_rows(db, exclude_pension=False):
     cur = db.cursor()
     cur.execute("""
         SELECT s.ticker, s.current_price, s.qty_override, s.avg_price_override,
@@ -5493,13 +5493,13 @@ def _fetch_stock_rows(db):
             COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
             COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty,
             COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
-        FROM stocks s LEFT JOIN stock_tx t ON t.stock_id = s.id
+        FROM stocks s LEFT JOIN stock_tx t ON t.stock_id = s.id {pen_filter}
         GROUP BY s.id
-    """)
+    """.replace('{pen_filter}', _PENSION_TX_FILTER if exclude_pension else ''))
     rows = cur.fetchall(); cur.close()
     return rows
 
-def _fetch_etf_rows(db):
+def _fetch_etf_rows(db, exclude_pension=False):
     cur = db.cursor()
     cur.execute("""
         SELECT e.ticker, e.current_price, e.qty_override, e.avg_price_override,
@@ -5514,16 +5514,65 @@ def _fetch_etf_rows(db):
             COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.quantity ELSE 0 END), 0) AS buy_qty,
             COALESCE(SUM(CASE WHEN t.tx_type IN ('sell','매도') THEN t.quantity ELSE 0 END), 0) AS sell_qty,
             COALESCE(SUM(CASE WHEN t.tx_type IN ('buy','매수') THEN t.price * t.quantity ELSE 0 END), 0) AS total_buy_amt
-        FROM etf e LEFT JOIN etf_tx t ON t.etf_id = e.id
+        FROM etf e LEFT JOIN etf_tx t ON t.etf_id = e.id {pen_filter}
         GROUP BY e.id
-    """)
+    """.replace('{pen_filter}', _PENSION_TX_FILTER if exclude_pension else ''))
     rows = cur.fetchall(); cur.close()
     return rows
 
-def get_stocks_etf_totals(db, ex_rate):
-    """(stocks_val, stocks_cost, etf_val, etf_cost) — 세 페이지 공통 계산 함수."""
-    s_val, s_cost = _calc_asset_totals(_fetch_stock_rows(db), ex_rate)
-    e_val, e_cost = _calc_asset_totals(_fetch_etf_rows(db), ex_rate)
+# 투자관리 계좌 유형 중 연금(pension) 메뉴로 연동되는 유형. IRP 등을 추가하려면 여기에 넣는다.
+PENSION_LINK_TYPES = ('연금저축',)
+# 연금 연동 계좌의 거래를 주식/ETF 합계에서 빼는 JOIN 조건
+_PENSION_TX_FILTER = ("AND (t.account_id IS NULL OR t.account_id NOT IN (SELECT id FROM invest_accounts WHERE acct_type IN ("
+                      + ",".join("'%s'" % t for t in PENSION_LINK_TYPES) + ")))")
+
+
+def _sync_pension_accounts(db):
+    """투자관리의 '연금저축' 계좌 평가액을 연금(pension) 표에 자동 반영한다 (계좌당 1행, account_id 로 연결).
+    연금 메뉴는 이 행을 읽기 전용으로 보여주고, 총자산 계산은 pension 합계를 그대로 쓰므로
+    연금저축 계좌 값이 투자관리와 연금 양쪽에서 중복 입력될 일이 없다.
+    계좌 유형이 바뀌거나 계좌가 사라지면 연동 행도 지운다. 실패해도 본 계산은 계속되게 한다."""
+    try:
+        ex_rate = get_current_exchange_rate()
+        pos = _compute_account_positions(db, ex_rate)
+        cur = db.cursor()
+        cur.execute("SELECT id, name, broker FROM invest_accounts WHERE acct_type = ANY(%s)", (list(PENSION_LINK_TYPES),))
+        accts = cur.fetchall()
+        cur.execute("SELECT id, account_id FROM pension WHERE account_id IS NOT NULL")
+        existing = {r['account_id']: r['id'] for r in cur.fetchall()}
+        keep = set()
+        for a in accts:
+            p = pos.get(a['id'], {'eval': 0.0, 'cost': 0.0})
+            ev, cost = int(round(p['eval'])), p['cost']
+            rate = round((p['eval'] - cost) / cost * 100, 2) if cost > 0 else 0
+            keep.add(a['id'])
+            if a['id'] in existing:
+                cur.execute("UPDATE pension SET pension_type='연금저축펀드', name=%s, institution=%s, accumulated=%s, "
+                            "return_rate=%s, entry_type='account' WHERE id=%s",
+                            (a['name'], a['broker'], ev, rate, existing[a['id']]))
+            else:
+                cur.execute("INSERT INTO pension (pension_type, name, institution, monthly_payment, accumulated, return_rate, memo, entry_type, account_id) "
+                            "VALUES ('연금저축펀드', %s, %s, 0, %s, %s, '투자관리 계좌 연동 (수정 불가)', 'account', %s)",
+                            (a['name'], a['broker'], ev, rate, a['id']))
+        for acc_id, row_id in existing.items():
+            if acc_id not in keep:
+                cur.execute("DELETE FROM pension WHERE id=%s", (row_id,))
+        cur.close()
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[pension-sync] 실패: {e}")
+
+
+def get_stocks_etf_totals(db, ex_rate, exclude_pension=False):
+    """(stocks_val, stocks_cost, etf_val, etf_cost) — 공통 계산 함수.
+    exclude_pension=True: '연금저축' 계좌의 거래를 뺀다. 연금저축 계좌 평가액은 연금(pension) 자산군으로
+    따로 잡히므로(_sync_pension_accounts), 총자산·순자산 계산에서는 반드시 True 로 불러 이중 계상을 막는다.
+    투자관리 화면 자체의 합산(api_stocks_etf_total, 올해 손익 카드)은 모든 계좌를 보여주므로 기본값(False)."""
+    if exclude_pension:
+        _sync_pension_accounts(db)      # 연금 합계를 읽기 전에 연동 행을 최신으로 맞춘다
+    s_val, s_cost = _calc_asset_totals(_fetch_stock_rows(db, exclude_pension), ex_rate)
+    e_val, e_cost = _calc_asset_totals(_fetch_etf_rows(db, exclude_pension), ex_rate)
     return s_val, s_cost, e_val, e_cost
 
 def get_real_estate_value(db):
@@ -5565,17 +5614,17 @@ def get_real_estate_value(db):
 
 # 하위 호환 래퍼 (기존 호출부 유지)
 def get_stocks_total_value(db, ex_rate):
-    return get_stocks_etf_totals(db, ex_rate)[0]
+    return get_stocks_etf_totals(db, ex_rate, exclude_pension=True)[0]
 
 def get_etf_total_value(db, ex_rate):
-    return get_stocks_etf_totals(db, ex_rate)[2]
+    return get_stocks_etf_totals(db, ex_rate, exclude_pension=True)[2]
 
 def get_stocks_total_and_cost(db, ex_rate):
-    s_val, s_cost, _, _ = get_stocks_etf_totals(db, ex_rate)
+    s_val, s_cost, _, _ = get_stocks_etf_totals(db, ex_rate, exclude_pension=True)
     return s_val, s_cost
 
 def get_etf_total_and_cost(db, ex_rate):
-    _, _, e_val, e_cost = get_stocks_etf_totals(db, ex_rate)
+    _, _, e_val, e_cost = get_stocks_etf_totals(db, ex_rate, exclude_pension=True)
     return e_val, e_cost
 
 @app.route('/api/exchange-rate')
@@ -6258,6 +6307,10 @@ def api_loans_detail(rid):
     return jsonify({'ok': True})
 
 
+_PENSION_MANUAL_BLOCK_MSG = ("연금저축펀드는 여기서 직접 입력하지 않습니다. 투자관리 > 계좌 관리에서 "
+                             "계좌 유형을 '연금저축'으로 등록하고 종목을 입력하면 자동 연동됩니다.")
+
+
 def _pension_fields(data):
     """연금 저장 데이터 정리: entry_type='stock'이면 수량*현재가로 누적액/수익률을 자동 계산."""
     entry_type = data.get('entry_type') or 'cash'
@@ -6284,6 +6337,7 @@ def _pension_fields(data):
 def api_pension():
     db = get_db()
     if request.method == 'GET':
+        _sync_pension_accounts(db)          # 투자관리 연금저축 계좌 값을 먼저 반영
         cur = db.cursor()
         cur.execute("SELECT * FROM pension ORDER BY pension_type, name")
         rows = cur.fetchall()
@@ -6292,6 +6346,9 @@ def api_pension():
         return jsonify(rows_to_list(rows))
 
     data = request.json
+    if data.get('pension_type') == '연금저축펀드':
+        db.close()
+        return jsonify({'error': _PENSION_MANUAL_BLOCK_MSG}), 400
     entry_type, ticker, quantity, buy_price, current_price, accumulated, return_rate = _pension_fields(data)
     cur = db.cursor()
     cur.execute(
@@ -6310,8 +6367,19 @@ def api_pension():
 @app.route('/api/pension/<int:rid>', methods=['PUT', 'DELETE'])
 def api_pension_detail(rid):
     db = get_db()
+    # 투자관리 계좌와 연동된 행은 여기서 수정/삭제할 수 없다 (계좌 쪽에서 바꾸면 자동 반영)
+    cur = db.cursor()
+    cur.execute("SELECT account_id FROM pension WHERE id=%s", (rid,))
+    row = cur.fetchone()
+    cur.close()
+    if row and row['account_id'] is not None:
+        db.close()
+        return jsonify({'error': '투자관리 연금저축 계좌와 자동 연동된 행입니다. 투자관리 메뉴에서 수정하세요.'}), 400
     if request.method == 'PUT':
         data = request.json
+        if data.get('pension_type') == '연금저축펀드':
+            db.close()
+            return jsonify({'error': _PENSION_MANUAL_BLOCK_MSG}), 400
         entry_type, ticker, quantity, buy_price, current_price, accumulated, return_rate = _pension_fields(data)
         cur = db.cursor()
         cur.execute(
@@ -7250,6 +7318,7 @@ def _compute_asset_class_items(db, category, ex_rate):
         cur.close()
 
     elif category == 'pension':
+        _sync_pension_accounts(db)
         cur = db.cursor()
         cur.execute("SELECT id, name, pension_type, institution, accumulated FROM pension")
         for r in cur.fetchall():
@@ -7281,7 +7350,7 @@ def _save_daily_snapshot(db):
     today_str = date.today().isoformat()
     ex_rate = get_current_exchange_rate()
     _refresh_usd_cash_amounts(db, ex_rate)
-    stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate)
+    stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate, exclude_pension=True)
     
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
@@ -7819,7 +7888,7 @@ def api_lifecycle_simulate():
     # ── 2. 현재 자산 기준점 ──
     ex_rate = get_current_exchange_rate()
     _refresh_usd_cash_amounts(db, ex_rate)
-    stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate)
+    stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate, exclude_pension=True)
     
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(amount),0) FROM cash_deposits")
@@ -8076,7 +8145,7 @@ def _api_dashboard_inner():
 
     ex_rate = get_current_exchange_rate()
     _refresh_usd_cash_amounts(db, ex_rate)
-    stocks_val, stocks_cost, etf_val, etf_cost = get_stocks_etf_totals(db, ex_rate)
+    stocks_val, stocks_cost, etf_val, etf_cost = get_stocks_etf_totals(db, ex_rate, exclude_pension=True)
 
     # 코인 평가액
     cur = db.cursor()
@@ -8446,7 +8515,7 @@ def _api_tech_tree_data_inner():
     db = get_db()
     ex_rate = get_current_exchange_rate()
     _refresh_usd_cash_amounts(db, ex_rate)
-    stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate)
+    stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate, exclude_pension=True)
 
     today = date.today()
     ym = today.strftime('%Y-%m')
@@ -8895,7 +8964,7 @@ def _api_tech_tree_yearly_stats_inner():
     # 2. 실시간 현재 자산 가져오기
     ex_rate = get_current_exchange_rate()
     _refresh_usd_cash_amounts(db, ex_rate)
-    stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate)
+    stocks_val, _, etf_val, _ = get_stocks_etf_totals(db, ex_rate, exclude_pension=True)
 
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
@@ -9076,13 +9145,14 @@ def api_asset_history():
     cur.execute("SELECT COALESCE(SUM(accumulated),0) FROM pension")
     curr_pension = float(cur.fetchone()[0] or 0)
     cur.close()
+    _sync_pension_accounts(db)
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(monthly_payment),0) FROM pension")
     p_monthly = float(cur.fetchone()[0] or 0)
     cur.close()
     ex_rate = get_current_exchange_rate()
     _refresh_usd_cash_amounts(db, ex_rate)
-    _sv, _, _ev, _ = get_stocks_etf_totals(db, ex_rate)
+    _sv, _, _ev, _ = get_stocks_etf_totals(db, ex_rate, exclude_pension=True)
     curr_stocks = _sv + _ev
     cur = db.cursor()
     cur.execute("SELECT COALESCE(SUM(current_price * quantity),0) FROM crypto")
@@ -9488,6 +9558,7 @@ def api_tech_tree_detail():
         cur.close()
         res = [{'date': r[0], 'name': r[1], 'amount': r[2], 'memo': r[3]} for r in rows]
     elif ttype == 'pension':
+        _sync_pension_accounts(db)
         cur = db.cursor()
         cur.execute("SELECT pension_type as date, name, accumulated as amount, institution as memo FROM pension")
         rows = cur.fetchall()
@@ -10495,6 +10566,7 @@ def api_assets_detailed():
             })
 
         # 연금
+        _sync_pension_accounts(db)
         cur.execute("SELECT name, accumulated as val FROM pension WHERE accumulated > 0")
         pension = [{'name': r['name'] or '이름없음', 'val': round(float(r['val'] or 0))} for r in cur.fetchall()]
 

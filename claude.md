@@ -75,6 +75,8 @@ d:\python work\Money\
   * `property_costs`: 부동산 유지 관리비 지출 내역
   * `loans`: 대출 현황 (원금, 잔액, 이자율, 월 상환액)
   * `pension`: 연금 자산 (국민연금, 퇴직연금, 개인연금 등 누적액 및 수익률)
+    * `account_id` 가 있는 행은 투자관리 `연금저축` 계좌와 자동 연동된 읽기 전용 행 (`_sync_pension_accounts`가 계좌 평가액으로 갱신, PUT/DELETE 차단). 직접 입력은 '연금저축펀드' 유형 불가.
+    * 총자산·순자산 계산은 `get_stocks_etf_totals(..., exclude_pension=True)`로 연금저축 계좌 거래를 주식/ETF 합계에서 빼서 이중 계상을 막는다 (투자관리 화면 자체 합산은 전체 계좌 포함).
 * **기타 및 시뮬레이션**:
   * `goals`: 목돈 만들기 등의 자산 목표 및 달성률
   * `cash_deposits`: 예적금 및 일반 현금 자산 정보. `is_system=TRUE`인 **"예수금" 행**은 모든 투자 계좌 예수금의 합계(원화·달러)로 자동 갱신되며 직접 수정/삭제할 수 없다. 그래서 `SUM(cash_deposits.amount)`을 쓰는 대시보드·테크트리·생애주기 등은 수정 없이 예수금을 한 번만 포함한다.

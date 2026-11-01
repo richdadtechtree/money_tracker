@@ -36,6 +36,15 @@
   </div>
 </div>
 
+<div class="alert alert-info py-2 small" role="alert">
+  <i class="bi bi-link-45deg me-1"></i>
+  <strong>연금저축펀드</strong>는 <strong>투자관리 &gt; 계좌 관리</strong>에서 계좌 유형을 '연금저축'으로 만들고 그 계좌에 종목을 입력하면
+  이 표에 <span class="badge bg-info-subtle text-info-emphasis">계좌 연동</span> 행으로 자동 반영됩니다. 이 화면에서는 수정할 수 없습니다.
+</div>
+<div class="alert alert-warning py-2 small d-none" id="legacyWarn" role="alert">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  직접 입력해 둔 <strong>연금저축펀드</strong> 행이 있습니다. 투자관리 계좌와 <strong>이중 계상</strong>되니 내용을 투자관리로 옮긴 뒤 이 행은 삭제해 주세요.
+</div>
 <p class="text-muted small mb-2">
   <i class="bi bi-info-circle me-1"></i>
   '종목'으로 등록하면 티커/수량/매입가만 입력하면 되고, 누적액과 수익률은 현재가 기준으로 자동 계산됩니다.
@@ -84,16 +93,19 @@ const grid = new GridTable({
   columns: [
     { key: 'entry_type', type: 'select',
       options: [{ value: 'cash', label: '현금' }, { value: 'stock', label: '종목' }],
-      render: v => v === 'stock'
-        ? '<span class="badge bg-info-subtle text-info">종목</span>'
-        : '<span class="badge bg-secondary-subtle text-secondary">현금</span>' },
+      render: v => v === 'account'
+        ? '<span class="badge bg-info-subtle text-info-emphasis">계좌 연동</span>'
+        : v === 'stock'
+          ? '<span class="badge bg-info-subtle text-info">종목</span>'
+          : '<span class="badge bg-secondary-subtle text-secondary">현금</span>' },
     { key: 'pension_type', type: 'select',
-      options: ['국민연금','퇴직연금(DB)','퇴직연금(DC)','IRP','연금저축펀드','연금저축보험','개인연금'],
+      options: ['국민연금','퇴직연금(DB)','퇴직연금(DC)','IRP','연금저축보험','개인연금'],   // 연금저축펀드는 투자관리 계좌로만 입력
       render: v => {
         const cls = typeColors[v] || 'bg-secondary-subtle text-secondary';
         return v ? `<span class="badge ${cls}">${v}</span>` : '-';
       }},
-    { key: 'name',            type: 'text' },
+    { key: 'name',            type: 'text',
+      render: (v, r) => r.account_id ? `<i class="bi bi-lock-fill text-muted me-1"></i><strong>${v || ''}</strong>` : (v || '') },
     { key: 'institution',     type: 'text' },
     { key: 'monthly_payment', type: 'number', align: 'end', render: v => fmt(v) + '원' },
     { key: 'ticker',        type: 'text', render: (v, r) => r.entry_type === 'stock' ? (v || '-') : '-' },
@@ -110,6 +122,8 @@ const grid = new GridTable({
     { key: 'memo',            type: 'text' },
   ],
   apiUrl: '/api/pension',
+  // 투자관리 계좌와 연동된 행은 수정/삭제 불가 (자물쇠 표시)
+  isLocked: r => !!r.account_id,
   onStartEdit: (tr, r) => {
     const typeSel = tr.querySelector('[data-key="entry_type"]');
     const tickerInp = tr.querySelector('[data-key="ticker"]');
@@ -139,6 +153,8 @@ const grid = new GridTable({
   },
   onLoad: rows => {
     let sumA = 0, sumM = 0, sumR = 0;
+    // 직접 입력한 연금저축펀드 행이 남아 있으면 이중 계상 경고
+    document.getElementById('legacyWarn').classList.toggle('d-none', !rows.some(r => r.pension_type === '연금저축펀드' && !r.account_id));
     rows.forEach(r => { sumA += r.accumulated; sumM += r.monthly_payment; sumR += r.return_rate; });
     document.getElementById('sum-acc').textContent    = fmt(sumA) + '원';
     document.getElementById('sum-monthly').textContent = fmt(sumM) + '원';

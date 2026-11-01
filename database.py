@@ -862,6 +862,8 @@ def init_db():
             created_at  TIMESTAMP DEFAULT NOW()
         )""",
         "CREATE INDEX IF NOT EXISTS idx_realized_pnl_archive_year ON realized_pnl_archive(year)",
+        # 연금 표의 한 행이 투자관리 '연금저축' 계좌와 자동 연동된 행임을 표시 (NULL이면 직접 입력 행)
+        "ALTER TABLE pension ADD COLUMN IF NOT EXISTS account_id INTEGER",
         # 투자 계좌 마스터 + 거래에 계좌/기초보유 표시 연결 (투자 관리 대개편 Step 2)
         #  - is_opening: "기초 보유" 거래. tx_type 은 'buy' 로 저장해 기존 수량/평단 계산을 그대로 쓰되,
         #    현금 자동조정·월별 투자금 집계에서만 제외한다.
