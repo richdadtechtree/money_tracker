@@ -932,7 +932,7 @@ def init_db():
             unrealized_pnl  BIGINT DEFAULT 0,
             realized_pnl    BIGINT DEFAULT 0,
             cash_krw        BIGINT DEFAULT 0,
-            cash_usd        NUMERIC(18,2) DEFAULT 0,
+            cash_usd        NUMERIC(18,4) DEFAULT 0,
             is_manual       BOOLEAN DEFAULT FALSE,
             memo            TEXT
         )""",
@@ -976,6 +976,22 @@ def init_db():
         # currency(택1)+original_amount 대신 krw_amount/usd_amount를 함께 저장하는 방식으로 전환.
         "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS krw_amount BIGINT NOT NULL DEFAULT 0",
         "ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS usd_amount REAL NOT NULL DEFAULT 0",
+        # 달러 금액을 소수점 4자리까지 정확히 저장하기 위해 REAL(유효숫자 약 7자리) → DOUBLE PRECISION.
+        # ::text 를 거치면 REAL 이 보여주는 값(예: 4819.97) 그대로 옮겨져 float4 찌꺼기 자릿수가 생기지 않는다.
+        # 이미 변환된 DB 에서는 아무 것도 하지 않는다(매 시작마다 테이블을 다시 쓰지 않도록 조건 검사).
+        """DO $$ BEGIN
+            IF (SELECT data_type FROM information_schema.columns
+                WHERE table_schema = current_schema() AND table_name = 'cash_deposits' AND column_name = 'usd_amount') = 'real' THEN
+                ALTER TABLE cash_deposits ALTER COLUMN usd_amount TYPE DOUBLE PRECISION USING usd_amount::text::double precision;
+            END IF;
+        END $$""",
+        # 연도 기록의 달러 예수금도 소수점 4자리까지
+        """DO $$ BEGIN
+            IF (SELECT numeric_scale FROM information_schema.columns
+                WHERE table_schema = current_schema() AND table_name = 'account_year_snapshots' AND column_name = 'cash_usd') = 2 THEN
+                ALTER TABLE account_year_snapshots ALTER COLUMN cash_usd TYPE NUMERIC(18,4);
+            END IF;
+        END $$""",
         """UPDATE cash_deposits SET
             krw_amount = CASE WHEN currency = 'USD' THEN 0 ELSE original_amount END,
             usd_amount = CASE WHEN currency = 'USD' THEN original_amount ELSE 0 END

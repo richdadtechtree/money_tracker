@@ -15,6 +15,13 @@ function fmt(n) {
  * fetchJSON.lastError 에 담아둔다. 그래야 화면에서 "왜 저장이 안 됐는지"를
  * 사용자에게 보여줄 수 있다. (예: "보유 수량(0)보다 많은 수량을 매도할 수 없습니다.")
  */
+/** 달러 금액 표시: $1,234.50 처럼 최소 2자리, 값에 따라 최대 4자리까지(예: $0.1234, -$1,234.5678).
+ *  달러 예수금·통장·단가는 소수점 4자리까지 저장되므로 화면도 4자리까지 보여준다. */
+function fmtUsdAmount(v) {
+  const n = Number(v || 0);
+  return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+}
+
 /** 오늘 날짜(YYYY-MM-DD)를 사용자 기기의 현지 시간 기준으로 돌려준다.
  *  new Date().toISOString() 은 UTC 기준이라 한국 시간 0~9시에는 어제 날짜가 나온다. */
 function todayLocalStr() {
@@ -55,7 +62,7 @@ async function fetchJSON(url, opts = {}) {
  *     placeholder:'문자열' 또는 fn(row) → 편집 입력칸의 안내 문구 }
  */
 class GridTable {
-  constructor({ tableId, columns, apiUrl, getQueryParams, onLoad, getExtraData, onSave, onDelete, onStartEdit, selectable, onSelectChange, onBeforeDelete, isLocked }) {
+  constructor({ tableId, columns, apiUrl, getQueryParams, onLoad, getExtraData, onSave, onDelete, onStartEdit, selectable, onSelectChange, onBeforeDelete, isLocked, sortable }) {
     this.tableEl  = document.getElementById(tableId);
     this.tbody    = this.tableEl.querySelector('tbody');
     this.columns  = columns;
@@ -104,7 +111,8 @@ class GridTable {
     this.sortKey = null;
     this.sortAsc = true;
     const thead = this.tableEl.querySelector('thead');
-    if (thead) {
+    // sortable:false 면 머리글 클릭 정렬을 끈다 (표의 순서 자체가 의미 있는 경우, 예: 계좌 순서)
+    if (thead && sortable !== false) {
       thead.style.cursor = 'pointer';
       thead.style.userSelect = 'none';
       thead.addEventListener('click', e => {
