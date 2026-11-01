@@ -103,6 +103,7 @@ d:\python work\Money\
    * **원장에 쓰는 모든 코드는 같은 트랜잭션에서 `_ensure_and_sync_deposit_row(db)`를 호출**해 현금관리 "예수금" 행을 맞춘다(커밋 포함).
    * **총손익(연)** = 그 해 실현손익(주식·ETF·공모주·코인 + 초기화 후 박제분) + 평가손익(현재 보유분의 (현재가−평단)×수량, 계좌 합계). 지난 해에 `account_year_snapshots` 기록이 있으면 실현·평가손익 모두 그 기록을 쓴다. 박제분은 `invest_reset_at`(초기화 실행 표시)이 있을 때만 합산한다(이중 계상 방지).
    * 데이터 초기화는 `GET/POST /api/invest-reset` (올해 박제가 없으면 거부, `confirm:"초기화"` 필요, 거래 연동 예수금만 지우고 입금·출금·환전·이체·잔액 조정은 유지). 실행 전 앱의 백업 파일을 받아 둔다.
+   * **운영 DB(Supabase)는 오래전에 만든 테이블이라 컬럼 구성이 개발 DB와 다를 수 있다**(예: `stocks`에 `quantity`/`buy_price` 컬럼이 없음). 일회성 정리 작업처럼 컬럼을 직접 지정하는 SQL은 `information_schema.columns`로 존재하는 컬럼만 골라 쓴다(`/api/invest-reset` 참고). 한 컬럼이라도 없으면 트랜잭션 전체가 롤백된다.
    * 백업/복구(`/api/backup`, `/api/restore`)는 `invest_accounts`, `account_cash_tx`, `account_transfers`, `account_year_snapshots`, `realized_pnl_archive`를 FK 순서(`_BACKUP_DELETE_ORDER`/`_BACKUP_INSERT_ORDER`)에 맞춰 포함한다. 새 테이블을 만들면 두 목록에 반드시 추가한다.
 7. **프런트엔드 규칙**:
    * 화면의 "오늘" 기본값은 `todayLocalStr()`(`common.js`)를 쓴다. `new Date().toISOString()`은 UTC 기준이라 한국 시간 0~9시에 어제 날짜가 나온다.

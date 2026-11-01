@@ -2874,10 +2874,17 @@ def api_invest_reset():
         else:
             # 종목 목록은 남기되 수량/평단 흔적을 지운다. (quantity>0 인 종목은 init_db 의
             # '기존 데이터 → 거래 이전' 마이그레이션이 재시작 때 매수 거래를 다시 만들어 버리므로 0으로 만든다)
-            cur.execute("""UPDATE stocks SET quantity=0, buy_price=0, qty_override=NULL,
-                           avg_price_override=NULL, realized_pnl_override=NULL, override_anchor_tx_id=NULL""")
-            cur.execute("""UPDATE etf SET quantity=0, buy_price=0, qty_override=NULL,
-                           avg_price_override=NULL, override_anchor_tx_id=NULL""")
+            # 운영 DB는 오래 전에 만든 테이블이라 컬럼 구성이 개발 DB와 다를 수 있다(예: quantity 컬럼이 없는 경우).
+            # 그래서 실제로 존재하는 컬럼만 골라서 초기화한다. (없는 컬럼을 지정하면 전체가 롤백되어 초기화가 실패한다)
+            reset_values = {'quantity': '0', 'buy_price': '0', 'qty_override': 'NULL', 'avg_price_override': 'NULL',
+                            'realized_pnl_override': 'NULL', 'override_anchor_tx_id': 'NULL'}
+            for table in ('stocks', 'etf'):
+                cur.execute("SELECT column_name FROM information_schema.columns "
+                            "WHERE table_schema = current_schema() AND table_name = %s", (table,))
+                have = {r[0] for r in cur.fetchall()}
+                sets = [f"{col} = {val}" for col, val in reset_values.items() if col in have]
+                if sets:
+                    cur.execute(f"UPDATE {table} SET " + ", ".join(sets))
         # 초기화를 했다는 표시: 이후부터 박제한 주식·ETF 실현손익을 연 실현손익에 합산한다 (_load_archive_rows)
         cur.execute("INSERT INTO app_settings (key, value) VALUES ('invest_reset_at', %s) "
                     "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (date.today().isoformat(),))
