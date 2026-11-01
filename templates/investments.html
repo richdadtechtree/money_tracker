@@ -84,10 +84,9 @@
     <div class="fw-bold" id="cashBarUsd">-</div>
     <div class="ms-auto d-flex gap-2 flex-wrap" id="cashBarBtns">
       <button class="btn btn-sm btn-outline-primary" onclick="openBalanceModal()"><i class="bi bi-pencil-square me-1"></i>잔액 설정</button>
-      <button class="btn btn-sm btn-outline-primary" onclick="openCashModal('deposit')"><i class="bi bi-box-arrow-in-down me-1"></i>입금</button>
-      <button class="btn btn-sm btn-outline-secondary" onclick="openCashModal('withdraw')"><i class="bi bi-box-arrow-up me-1"></i>출금</button>
+      <button class="btn btn-sm btn-outline-primary" onclick="openAccountFlowModal(currentAccount, 'in')"><i class="bi bi-box-arrow-in-down me-1"></i>입금</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="openAccountFlowModal(currentAccount, 'out')"><i class="bi bi-box-arrow-up me-1"></i>출금</button>
       <button class="btn btn-sm btn-outline-secondary" onclick="openFxModal()"><i class="bi bi-currency-exchange me-1"></i>환전</button>
-      <button class="btn btn-sm btn-outline-success" onclick="openTransferModal({to:'invest:' + currentAccount})"><i class="bi bi-arrow-left-right me-1"></i>이체</button>
       <button class="btn btn-sm btn-outline-secondary" onclick="openCashLedger()"><i class="bi bi-list-ul me-1"></i>내역</button>
     </div>
   </div>
@@ -1183,36 +1182,6 @@
   </div>
 </div>
 
-<!-- 예수금 입금/출금 모달 -->
-<div class="modal fade" id="cashModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title" id="cashModalTitle">예수금 입력</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-      <div class="modal-body">
-        <div class="row g-2">
-          <div class="col-6"><label class="form-label small mb-1">구분</label>
-            <select class="form-select form-select-sm" id="cashKind">
-              <option value="deposit">입금</option><option value="withdraw">출금</option>
-              <option value="dividend">배당금</option><option value="fee">수수료</option>
-              <option value="init">기초 예수금</option></select></div>
-          <div class="col-6"><label class="form-label small mb-1">통화</label>
-            <select class="form-select form-select-sm" id="cashCurrency">
-              <option value="KRW">원화 (KRW)</option><option value="USD">달러 (USD)</option></select></div>
-          <div class="col-6"><label class="form-label small mb-1">금액</label>
-            <input type="text" inputmode="decimal" class="form-control form-control-sm" id="cashAmount" placeholder="0"></div>
-          <div class="col-6"><label class="form-label small mb-1">날짜</label>
-            <input type="date" class="form-control form-control-sm" id="cashDate"></div>
-          <div class="col-12"><label class="form-label small mb-1">메모</label>
-            <input type="text" class="form-control form-control-sm" id="cashMemo"></div>
-        </div>
-        <div class="small text-muted mt-2">기초 예수금은 처음 등록할 때 현재 증권사 예수금을 넣는 용도입니다. 은행 통장과 연동되지 않으니 이미 있는 돈을 기록할 때 쓰세요.</div>
-      </div>
-      <div class="modal-footer"><button class="btn btn-primary btn-sm" onclick="saveCash()">저장</button></div>
-    </div>
-  </div>
-</div>
-
 <!-- 예수금 잔액 직접 설정 모달 -->
 <div class="modal fade" id="balanceModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
@@ -1615,10 +1584,9 @@ function accountCashCellHtml(r) {
     <div class="${r.cash_usd < 0 ? 'text-danger' : ''}">${fmtUsdCash(r.cash_usd || 0)}</div>
     <div class="d-flex flex-wrap gap-1 justify-content-end mt-1">
       ${btn('잔액설정', `openBalanceModal('${id}')`, 'btn-outline-primary')}
-      ${btn('입금', `openCashModal('deposit','${id}')`)}
-      ${btn('출금', `openCashModal('withdraw','${id}')`)}
+      ${btn('입금', `openAccountFlowModal('${id}', 'in')`)}
+      ${btn('출금', `openAccountFlowModal('${id}', 'out')`)}
       ${btn('환전', `openFxModal('${id}')`)}
-      ${btn('이체', `openTransferModal({to:'invest:${id}'})`, 'btn-outline-success')}
       ${btn('내역', `openCashLedger('${id}')`)}
     </div>`;
 }
@@ -1653,29 +1621,6 @@ function _num(id) { return parseFloat((document.getElementById(id).value || '').
 
 window.onTransferDone = () => refreshAccountBar();   // 이체 후 예수금 표시를 새로 그린다
 let cashTargetAccount = '';   // 예수금 창들이 작업 중인 계좌 id (행 버튼/예수금 바 어느 쪽에서 열어도 같은 흐름)
-
-function openCashModal(kind, acctId) {
-  cashTargetAccount = acctId || currentAccount;
-  document.getElementById('cashKind').value = kind || 'deposit';
-  document.getElementById('cashCurrency').value = 'KRW';
-  document.getElementById('cashAmount').value = '';
-  document.getElementById('cashMemo').value = '';
-  document.getElementById('cashDate').value = _todayStr();
-  bootstrap.Modal.getOrCreateInstance(document.getElementById('cashModal')).show();
-}
-
-async function saveCash() {
-  const body = {
-    kind: document.getElementById('cashKind').value,
-    currency: document.getElementById('cashCurrency').value,
-    amount: _num('cashAmount'), tx_date: document.getElementById('cashDate').value,
-    memo: document.getElementById('cashMemo').value,
-  };
-  const res = await fetchJSON(`/api/invest-accounts/${cashTargetAccount}/cash`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  if (res === null) { alert(fetchJSON.lastError || '저장하지 못했습니다.'); return; }
-  _afterSaveSuccess('cashModal', refreshAccountBar);   // 입력 유실 방지(Form Guard) 확인창 없이 닫고 임시저장도 지운다
-}
 
 /** 잔액 직접 설정: 현재 증권사에 있는 금액을 그대로 입력하면 차액이 '잔액 조정'으로 기록된다 */
 function openBalanceModal(acctId) {
