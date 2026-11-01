@@ -106,6 +106,7 @@ d:\python work\Money\
    * **운영 DB(Supabase)는 오래전에 만든 테이블이라 컬럼 구성이 개발 DB와 다를 수 있다**(예: `stocks`에 `quantity`/`buy_price` 컬럼이 없음). 일회성 정리 작업처럼 컬럼을 직접 지정하는 SQL은 `information_schema.columns`로 존재하는 컬럼만 골라 쓴다(`/api/invest-reset` 참고). 한 컬럼이라도 없으면 트랜잭션 전체가 롤백된다.
    * 백업/복구(`/api/backup`, `/api/restore`)는 `invest_accounts`, `account_cash_tx`, `account_transfers`, `account_year_snapshots`, `realized_pnl_archive`를 FK 순서(`_BACKUP_DELETE_ORDER`/`_BACKUP_INSERT_ORDER`)에 맞춰 포함한다. 새 테이블을 만들면 두 목록에 반드시 추가한다.
 7. **프런트엔드 규칙**:
+   * 달러 금액은 소수점 **4자리**까지 저장·표시한다(서버 `round(x, 4)`, 화면 `fmtUsdAmount`). `cash_deposits.usd_amount`는 DOUBLE PRECISION, 원장·이체는 `NUMERIC(18,4)`, 연도 기록 `cash_usd`는 `NUMERIC(18,4)`. 단가·수수료 컬럼은 `REAL`이라 $1,000 이상에서는 4번째 소수가 반올림될 수 있다.
    * 화면의 "오늘" 기본값은 `todayLocalStr()`(`common.js`)를 쓴다. `new Date().toISOString()`은 UTC 기준이라 한국 시간 0~9시에 어제 날짜가 나온다.
    * 모달은 입력 유실 방지(Form Guard)가 걸려 있어 저장 후에는 `_afterSaveSuccess(modalId, callback)`로 닫고, 미리 채운 입력칸에는 `data-no-dirty`를 붙인다.
    * Flask 템플릿은 서버 시작 시 캐시되므로 템플릿을 고친 뒤 로컬 서버를 다시 띄워야 반영된다.

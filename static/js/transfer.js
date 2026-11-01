@@ -12,7 +12,7 @@
   let accts = [];    // 사용 중인 투자 계좌
 
   const $ = id => document.getElementById(id);
-  const usdText = v => (v < 0 ? '-$' : '$') + Math.abs(Number(v || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const usdText = v => fmtUsdAmount(v);
   const krwText = v => Math.round(Number(v || 0)).toLocaleString('ko-KR') + '원';
   const money = (v, cur) => (cur === 'USD' ? usdText(v) : krwText(v));
 
@@ -147,7 +147,7 @@
   let banks = [], accts = [];
 
   const $ = id => document.getElementById(id);
-  const usdText = v => (v < 0 ? '-$' : '$') + Math.abs(Number(v || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const usdText = v => fmtUsdAmount(v);
   const krwText = v => Math.round(Number(v || 0)).toLocaleString('ko-KR') + '원';
   const money = (v, cur) => (cur === 'USD' ? usdText(v) : krwText(v));
 

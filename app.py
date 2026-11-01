@@ -1903,7 +1903,7 @@ def _trade_cash_amount(ticker, tx_type, price, quantity, fee, exchange_rate, set
     amt = -(gross + fee) if tx_type in ('buy', '매수') else (gross - fee)
     if settle == 'KRW' and is_foreign_ticker(ticker):
         amt *= float(exchange_rate or 1.0)
-    return round(amt) if settle == 'KRW' else round(amt, 2)
+    return round(amt) if settle == 'KRW' else round(amt, 4)
 
 
 def _record_trade_cash(cur, ref_type, ref_id, account_id, is_opening, tx_type, ticker, price, quantity, fee, ex,
@@ -1958,7 +1958,7 @@ def api_invest_accounts():
         for r in rows:
             r['is_active'] = 1 if r['is_active'] else 0   # 화면 select 값('1'/'0')과 맞춤
             bal = cash_map.get(r['id'], {'krw': 0.0, 'usd': 0.0})
-            r['cash_krw'], r['cash_usd'] = round(bal['krw']), round(bal['usd'], 2)
+            r['cash_krw'], r['cash_usd'] = round(bal['krw']), round(bal['usd'], 4)
         cur.close(); db.close()
         return jsonify(rows)
 
@@ -2119,7 +2119,7 @@ def _account_summary_data(year):
     for a in accts.values():
         bal = cash_map.get(a['id'], {'krw': 0.0, 'usd': 0.0}) if a['id'] is not None else {'krw': 0.0, 'usd': 0.0}
         a.update({'eval_amount': 0.0, 'cost_amount': 0.0, 'realized_pnl': 0.0, 'holdings': 0,
-                  'cash_krw': round(bal['krw']), 'cash_usd': round(bal['usd'], 2)})
+                  'cash_krw': round(bal['krw']), 'cash_usd': round(bal['usd'], 4)})
 
     for acct_id, pos in _compute_account_positions(db, ex_rate).items():
         a = accts.get(acct_id) or accts[None]
@@ -2170,7 +2170,7 @@ def _account_summary_data(year):
         for k in tot:
             tot[k] += a[k]
     tot['cash_krw'] = sum(a['cash_krw'] for a in rows)
-    tot['cash_usd'] = round(sum(a['cash_usd'] for a in rows), 2)
+    tot['cash_usd'] = round(sum(a['cash_usd'] for a in rows), 4)
     return {'accounts': rows, 'ipo_realized': round(ipo_realized), 'archive_realized': round(archive_realized),
             'crypto_realized': round(crypto_realized), 'totals': tot, 'year': int(year) if year else None}
 
@@ -2280,7 +2280,7 @@ def api_year_records():
     out = []
     for y in years:
         f = flows.get(y, {'krw': 0.0, 'usd': 0.0})
-        row = {'year': y, 'flow_krw': round(f['krw']), 'flow_usd': round(f['usd'], 2), 'manual': False, 'rows': 0}
+        row = {'year': y, 'flow_krw': round(f['krw']), 'flow_usd': round(f['usd'], 4), 'manual': False, 'rows': 0}
         if y == this_year:
             t = cur_data['totals']
             row.update(source='live', realized_pnl=round(by_year.get(y, {}).get('total', 0)), unrealized_pnl=t['unrealized_pnl'],
@@ -2289,7 +2289,7 @@ def api_year_records():
             sn = snaps[y]
             row.update(source='snapshot', manual=bool(sn['manual']), rows=sn['n'], realized_pnl=round(float(sn['r'])),
                        unrealized_pnl=round(float(sn['u'])), eval_amount=round(float(sn['ev'])),
-                       cash_krw=round(float(sn['ck'])), cash_usd=round(float(sn['cu']), 2))
+                       cash_krw=round(float(sn['ck'])), cash_usd=round(float(sn['cu']), 4))
         else:
             row.update(source='computed', realized_pnl=round(by_year.get(y, {}).get('total', 0)), unrealized_pnl=None,
                        eval_amount=None, cash_krw=None, cash_usd=None)
@@ -2369,7 +2369,7 @@ def api_year_record_detail(year):
             except (TypeError, ValueError):
                 cur.close(); db.close()
                 return jsonify({'error': f'숫자가 아닌 값이 있습니다. ({f})'}), 400
-            vals[f] = round(v, 2) if f == 'cash_usd' else round(v)
+            vals[f] = round(v, 4) if f == 'cash_usd' else round(v)
             any_val = True
         if any_val or (r.get('memo') or '').strip():
             clean.append((aid, vals, (r.get('memo') or '').strip() or None))
@@ -2486,7 +2486,7 @@ def api_invest_account_cash(aid):
             e['deletable'] = e['ref_type'] in (None, 'exchange', 'transfer')   # 매수/매도는 원천 거래에서 지운다 (이체는 이체 삭제로 양쪽 되돌림)
         bal = get_account_cash_map(db).get(aid, {'krw': 0.0, 'usd': 0.0})
         cur.close(); db.close()
-        return jsonify({'account': acct['name'], 'cash_krw': round(bal['krw']), 'cash_usd': round(bal['usd'], 2),
+        return jsonify({'account': acct['name'], 'cash_krw': round(bal['krw']), 'cash_usd': round(bal['usd'], 4),
                         'entries': entries})
 
     data = request.json or {}
@@ -2539,7 +2539,7 @@ def api_invest_account_cash_balance(aid):
             return jsonify({'error': '금액이 올바르지 않습니다.'}), 400
         if v != v or v in (float('inf'), float('-inf')):
             return jsonify({'error': '금액이 올바르지 않습니다.'}), 400
-        targets[cur_code] = round(v) if cur_code == 'KRW' else round(v, 2)
+        targets[cur_code] = round(v) if cur_code == 'KRW' else round(v, 4)
     if not targets:
         return jsonify({'error': '맞출 금액(krw 또는 usd)을 입력해 주세요.'}), 400
     try:
@@ -2590,9 +2590,9 @@ def api_invest_account_exchange(aid):
     except ValueError:
         return jsonify({'error': '날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)'}), 400
     if frm == 'KRW':
-        krw, usd = -round(amount), round(amount / rate, 2)
+        krw, usd = -round(amount), round(amount / rate, 4)
     else:
-        usd, krw = -round(amount, 2), round(amount * rate)
+        usd, krw = -round(amount, 4), round(amount * rate)
     db = get_db()
     cur = db.cursor()
     cur.execute("SELECT 1 FROM invest_accounts WHERE id=%s", (aid,))
@@ -2661,7 +2661,7 @@ def _bank_adjust(cur, bank_id, currency, delta, allow_negative=False):
         raise ValueError('예수금 행은 이체 대상이 될 수 없습니다. 투자 계좌를 선택하세요.')
     krw, usd = float(row['krw_amount'] or 0), float(row['usd_amount'] or 0)
     if currency == 'USD':
-        usd = round(usd + delta, 2)
+        usd = round(usd + delta, 4)
     else:
         krw = round(krw + delta)
     if not allow_negative and ((currency == 'USD' and usd < 0) or (currency != 'USD' and krw < 0)):
@@ -2758,7 +2758,7 @@ def api_account_transfers():
         db.close()
         return jsonify({'error': err}), 400
 
-    amount = round(amount) if currency == 'KRW' else round(amount, 2)
+    amount = round(amount) if currency == 'KRW' else round(amount, 4)
     cur = db.cursor()
     from_name = _transfer_side_name(cur, ft, fid)
     to_name = _transfer_side_name(cur, tt, tid_)
@@ -6294,8 +6294,11 @@ def _resolve_cash_amount(data):
     """요청 바디에서 krw_amount/usd_amount를 받아 (krw_amount, usd_amount, amount)를 계산한다.
     한 계좌가 원화·달러를 동시에 보유할 수 있으므로, 원화 환산 총액(amount)은 항상
     krw_amount + usd_amount×현재환율로 계산한다."""
-    krw_amount = float(data.get('krw_amount') or 0)
-    usd_amount = float(data.get('usd_amount') or 0)
+    def _num(v):
+        # 화면은 쉼표를 지워서 보내지만, 직접 호출해도 '1,234.5678' 형태를 받아들인다
+        return float(str(v).replace(',', '')) if v not in (None, '') else 0.0
+    krw_amount = _num(data.get('krw_amount'))
+    usd_amount = _num(data.get('usd_amount'))
     amount = int(round(krw_amount + (usd_amount * get_current_exchange_rate() if usd_amount else 0)))
     return krw_amount, usd_amount, amount
 
