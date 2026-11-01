@@ -5,6 +5,9 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2 class="fw-bold mb-0"><i class="bi bi-graph-up-arrow me-2 text-primary"></i>투자 관리</h2>
   <div class="d-flex gap-2">
+    <button class="btn btn-success price-update-btn" onclick="updateAllPrices()" title="주식·ETF·코인 현재가를 모두 새로 가져옵니다">
+      <i class="bi bi-arrow-repeat me-1"></i>현재가 업데이트
+    </button>
     <button class="btn btn-outline-secondary" onclick="openAccountModal()" title="투자 계좌 관리">
       <i class="bi bi-bank me-1"></i>계좌 관리
     </button>
@@ -125,7 +128,7 @@
         <button class="btn btn-outline-primary btn-sm" onclick="stockGrid.addRow()">
           <i class="bi bi-plus-lg me-1"></i>종목 등록
         </button>
-        <button class="btn btn-success btn-sm" id="priceUpdateBtn" onclick="updateAllPrices()">
+        <button class="btn btn-success btn-sm price-update-btn" id="priceUpdateBtn" onclick="updateAllPrices()">
           <i class="bi bi-arrow-repeat me-1"></i>현재가 업데이트
         </button>
       </div>
@@ -3605,10 +3608,13 @@ function switchToSplitPlanTab() {
 }
 
 async function updateAllPrices() {
-  const btn = document.getElementById('priceUpdateBtn');
-  const origHtml = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>업데이트 중...';
+  // 버튼이 여러 곳(맨 위, 주식 탭)에 있어 모두 같은 상태로 보이게 한다
+  const btns = [...document.querySelectorAll('.price-update-btn')];
+  if (btns.some(b => b.disabled)) return;            // 이미 진행 중이면 중복 실행하지 않는다
+  const origHtml = btns.map(b => b.innerHTML);
+  const setBtns = html => btns.forEach(b => { b.disabled = true; b.innerHTML = html; });
+  const spin = '<span class="spinner-border spinner-border-sm me-1"></span>';
+  setBtns(spin + '업데이트 중...');
 
   try {
     // 1. 환율 업데이트
@@ -3623,20 +3629,28 @@ async function updateAllPrices() {
     const startRes = await fetchJSON('/api/price-update', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
     if (!startRes) throw new Error('업데이트 시작 요청 실패');
 
-    // 3. 완료될 때까지 폴링 (최대 30초, 1초 간격)
-    let attempts = 0;
+    // 3. 완료될 때까지 폴링 (종목이 많으면 오래 걸리므로 최대 5분, 1.5초 간격, 진행 상황 표시)
+    const t0 = Date.now();
     let res = null;
-    while (attempts < 30) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    while (Date.now() - t0 < 5 * 60 * 1000) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
       const statusRes = await fetchJSON('/api/price-update/status');
+      if (statusRes && statusRes.is_updating && statusRes.progress && statusRes.progress.total) {
+        setBtns(`${spin}${statusRes.progress.done}/${statusRes.progress.total} 업데이트 중...`);
+      }
       if (statusRes && !statusRes.is_updating) {
         res = statusRes.last_result;
         break;
       }
-      attempts++;
     }
 
-    if (!res) throw new Error('업데이트 타임아웃 또는 데이터가 없습니다.');
+    if (!res) {
+      // 5분 안에 끝나지 않았다: 서버는 계속 갱신 중이므로, 지금까지 반영된 가격이라도 화면에 보여 준다
+      _combinedTotalLoaded = false;
+      await Promise.all([stockGrid.load(), etfGrid.load()]);
+      showToast('⏳ 가격 갱신이 아직 진행 중입니다. 잠시 뒤 [현재가 업데이트]를 다시 눌러 결과를 확인하세요.', 'warning');
+      return;
+    }
 
     // 화면 새로고침
     _combinedTotalLoaded = false;  // 가격 갱신 후 합산도 재계산
@@ -3666,8 +3680,7 @@ async function updateAllPrices() {
   } catch(e) {
     showToast('❌ 현재가 업데이트 실패: ' + e.message, 'danger');
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = origHtml;
+    btns.forEach((b, i) => { b.disabled = false; b.innerHTML = origHtml[i]; });
   }
 }
 
