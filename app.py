@@ -1706,6 +1706,12 @@ def api_stocks():
                     "realized_pnl_override, qty_override, avg_price_override, override_anchor_tx_id "
                     "FROM stocks ORDER BY name")
         stocks = [dict(r) for r in cur.fetchall()]
+        # 계좌별 보기에서도 '아직 어떤 계좌에서도 거래한 적 없는 종목'(방금 등록한 종목)은 보여준다.
+        # 그래야 등록 직후 보이고, 종목 줄의 [매수]로 바로 그 계좌에서 사는 것도 가능하다.
+        never_traded = set()
+        if by_acct:
+            cur.execute("SELECT s.id FROM stocks s WHERE NOT EXISTS (SELECT 1 FROM stock_tx t WHERE t.stock_id = s.id)")
+            never_traded = {r['id'] for r in cur.fetchall()}
         if by_acct:
             for s_ in stocks:
                 s_['realized_pnl_override'] = s_['qty_override'] = s_['avg_price_override'] = None
@@ -1739,8 +1745,8 @@ def api_stocks():
         try:
             for s in stocks:
                 info     = sql_qty.get(s['id'], {'qty': 0.0, 'buy_qty': 0.0, 'sell_qty': 0.0})
-                if by_acct and info['buy_qty'] == 0 and info['sell_qty'] == 0:
-                    continue   # 이 계좌에서 거래한 적 없는 종목
+                if by_acct and info['buy_qty'] == 0 and info['sell_qty'] == 0 and s['id'] not in never_traded:
+                    continue   # 이 계좌에서 거래한 적 없는 종목 (단, 어디서도 거래한 적 없는 새 종목은 보여준다)
                 qty_calc = info['qty']
                 _, avg_calc, _ = calc_position(tx_by_stock[s['id']])   # 강제값 없는 '원래' 평단가
                 avg_calc = avg_calc if (avg_calc is not None and avg_calc == avg_calc) else 0.0  # NaN guard
@@ -3088,9 +3094,12 @@ def api_etf():
         cur.execute("SELECT id, name, ticker, current_price, etf_type, category, memo, COALESCE(ath,0) as ath, "
                     "qty_override, avg_price_override, override_anchor_tx_id FROM etf ORDER BY name")
         etfs = [dict(r) for r in cur.fetchall()]
+        never_traded = set()      # 계좌별 보기에서도 '아직 어디서도 거래한 적 없는 종목'(방금 등록한 종목)은 보여준다
         if by_acct:
             for e_ in etfs:
                 e_['qty_override'] = e_['avg_price_override'] = e_['override_anchor_tx_id'] = None
+            cur.execute("SELECT e.id FROM etf e WHERE NOT EXISTS (SELECT 1 FROM etf_tx t WHERE t.etf_id = e.id)")
+            never_traded = {r['id'] for r in cur.fetchall()}
         # SQL 기반 qty (대시보드·테크트리와 동일 기준, 음수 0 처리)
         cur.execute("""
             SELECT e.id,
@@ -3118,8 +3127,8 @@ def api_etf():
         try:
             for e in etfs:
                 info     = sql_etf.get(e['id'], {'qty': 0.0, 'buy_qty': 0.0, 'sell_qty': 0.0})
-                if by_acct and info['buy_qty'] == 0 and info['sell_qty'] == 0:
-                    continue   # 이 계좌에서 거래한 적 없는 종목
+                if by_acct and info['buy_qty'] == 0 and info['sell_qty'] == 0 and e['id'] not in never_traded:
+                    continue   # 이 계좌에서 거래한 적 없는 종목 (단, 어디서도 거래한 적 없는 새 종목은 보여준다)
                 qty_calc = info['qty']
                 _, avg_calc, _ = calc_position(tx_by_etf[e['id']])     # 강제값 없는 '원래' 평단가
                 avg_calc = avg_calc if (avg_calc is not None and avg_calc == avg_calc) else 0.0  # NaN guard
@@ -4862,14 +4871,26 @@ def _fetch_crypto_prices(symbols: list[str]) -> dict[str, float]:
 
 import threading
 
-_price_update_status = {"is_updating": False, "last_result": None}
+_price_update_status = {"is_updating": False, "last_result": None, "progress": {"done": 0, "total": 0, "current": ""}}
 _price_update_lock = threading.Lock()
+
+
+def _set_price_progress(total=None, current=None, done_inc=0):
+    """가격 갱신 진행 상황(전체/완료/현재 종목)을 갱신한다. /api/price-update/status 가 그대로 돌려준다."""
+    with _price_update_lock:
+        p = _price_update_status.setdefault('progress', {'done': 0, 'total': 0, 'current': ''})
+        if total is not None:
+            p['total'] = total
+        if current is not None:
+            p['current'] = current
+        p['done'] += done_inc
 
 def _bg_price_update():
     global _price_update_status
     with _price_update_lock:
         _price_update_status["is_updating"] = True
-    
+        _price_update_status["progress"] = {"done": 0, "total": 0, "current": ""}
+
     try:
         results = _run_price_update_logic()
         with _price_update_lock:
@@ -4899,8 +4920,16 @@ def _run_price_update_logic():
         stock_rows = cur.fetchall()
         cur.close()
 
+        # 화면이 "12/30 업데이트 중"처럼 진행 상황을 보여줄 수 있게 전체 종목 수를 먼저 센다
+        cur = db.cursor()
+        cur.execute("SELECT COUNT(*) AS n FROM etf WHERE ticker IS NOT NULL AND ticker != ''")
+        etf_total = cur.fetchone()['n']
+        cur.close()
+        _set_price_progress(total=len(stock_rows) + etf_total)
+
         for row in stock_rows:
             sid, name, ticker, existing_ath = row['id'], row['name'], row['ticker'], row['ath']
+            _set_price_progress(current=f"{name}({ticker})")
             try:
                 price = _fetch_stock_price(ticker)
             except Exception as e:
@@ -4916,10 +4945,12 @@ def _run_price_update_logic():
                 cur.execute("UPDATE stocks SET current_price=%s, ath=%s WHERE id=%s", (price, new_ath, sid))
                 cur.close()
                 results['stocks'].append({'id': sid, 'name': name, 'ticker': ticker, 'price': price, 'ok': True})
+                _set_price_progress(done_inc=1)
             else:
                 if not any(f"주식 [{name}({ticker})]" in e for e in results['errors']):
                     results['errors'].append(f"주식 [{name}({ticker})]: 가격 조회 실패")
                 results['stocks'].append({'id': sid, 'name': name, 'ticker': ticker, 'price': None, 'ok': False})
+                _set_price_progress(done_inc=1)
 
         # ── ETF ──
         cur = db.cursor()
@@ -4929,6 +4960,7 @@ def _run_price_update_logic():
 
         for row in etf_rows:
             eid, name, ticker, existing_ath = row['id'], row['name'], row['ticker'], row['ath']
+            _set_price_progress(current=f"{name}({ticker})")
             try:
                 price = _fetch_stock_price(ticker)
             except Exception as e:
@@ -4944,10 +4976,12 @@ def _run_price_update_logic():
                 cur.execute("UPDATE etf SET current_price=%s, ath=%s WHERE id=%s", (price, new_ath, eid))
                 cur.close()
                 results['etf'].append({'id': eid, 'name': name, 'ticker': ticker, 'price': price, 'ok': True})
+                _set_price_progress(done_inc=1)
             else:
                 if not any(f"ETF [{name}({ticker})]" in e for e in results['errors']):
                     results['errors'].append(f"ETF [{name}({ticker})]: 가격 조회 실패")
                 results['etf'].append({'id': eid, 'name': name, 'ticker': ticker, 'price': None, 'ok': False})
+                _set_price_progress(done_inc=1)
 
         # ── 코인 ──
         cur = db.cursor()
