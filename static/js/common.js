@@ -62,7 +62,7 @@ async function fetchJSON(url, opts = {}) {
  *     placeholder:'문자열' 또는 fn(row) → 편집 입력칸의 안내 문구 }
  */
 class GridTable {
-  constructor({ tableId, columns, apiUrl, getQueryParams, onLoad, getExtraData, onSave, onDelete, onStartEdit, selectable, onSelectChange, onBeforeDelete, isLocked }) {
+  constructor({ tableId, columns, apiUrl, getQueryParams, onLoad, getExtraData, onSave, onDelete, onStartEdit, selectable, onSelectChange, onBeforeDelete, isLocked, sortable }) {
     this.tableEl  = document.getElementById(tableId);
     this.tbody    = this.tableEl.querySelector('tbody');
     this.columns  = columns;
@@ -111,7 +111,8 @@ class GridTable {
     this.sortKey = null;
     this.sortAsc = true;
     const thead = this.tableEl.querySelector('thead');
-    if (thead) {
+    // sortable:false 면 머리글 클릭 정렬을 끈다 (표의 순서 자체가 의미 있는 경우, 예: 계좌 순서)
+    if (thead && sortable !== false) {
       thead.style.cursor = 'pointer';
       thead.style.userSelect = 'none';
       thead.addEventListener('click', e => {

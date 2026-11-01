@@ -1274,7 +1274,7 @@
           <table class="table table-hover mb-0" id="accountTable">
             <thead class="table-light">
               <tr>
-                <th>계좌 이름</th><th>증권사</th><th>종류</th><th>상태</th><th>메모</th>
+                <th class="text-center" style="width:70px">순서</th><th>계좌 이름</th><th>증권사</th><th>종류</th><th>상태</th><th>메모</th>
                 <th class="text-end">거래수</th><th class="text-center">삭제</th>
               </tr>
             </thead>
@@ -1981,7 +1981,10 @@ const TX_OPENING_COLUMN = {
 
 const accountGrid = new GridTable({
   tableId: 'accountTable',
+  sortable: false,          // 표의 순서가 곧 계좌 순서라 머리글 정렬을 끈다
   columns: [
+    { key: '_order', type: 'computed', align: 'center', noEdit: true,
+      compute: r => accountOrderButtons(r.id) },
     { key: 'name',      type: 'text' },
     { key: 'broker',    type: 'text' },
     { key: 'acct_type', type: 'select',
@@ -1995,10 +1998,33 @@ const accountGrid = new GridTable({
     { key: '_tx_count', type: 'computed', align: 'end', compute: r => fmt(r.tx_count || 0) },
   ],
   apiUrl: '/api/invest-accounts',
-  onLoad: rows => { allAccounts = rows; },
+  onLoad: rows => { allAccounts = rows.slice(); },   // 복사본: 표가 rows 를 직접 건드려도 칩 순서가 바뀌지 않게
   onSave:   () => { accountGrid.load(); refreshAccountBar(); },
   onDelete: () => { accountGrid.load(); refreshAccountBar(); },
 });
+
+/** 계좌 순서 ▲▼ 버튼 (맨 위/맨 아래는 해당 방향 버튼을 비활성화). 행 클릭(수정)과 겹치지 않게 전파를 막는다 */
+function accountOrderButtons(id) {
+  const rows = accountGrid.rows || [];
+  const i = rows.findIndex(a => a.id === id);
+  const btn = (label, delta, off) =>
+    `<button type="button" class="btn btn-outline-secondary py-0 px-2" style="font-size:.75rem" ${off ? 'disabled' : ''}
+       onclick="event.stopPropagation(); moveAccount(${id}, ${delta})" title="${delta < 0 ? '위로' : '아래로'}">${label}</button>`;
+  return `<div class="d-flex gap-1 justify-content-center">${btn('▲', -1, i <= 0)}${btn('▼', 1, i < 0 || i >= rows.length - 1)}</div>`;
+}
+
+/** 계좌를 한 칸 위(-1)/아래(+1)로 옮긴다. 서버의 현재 순서를 기준으로 바꿔 저장한다 */
+async function moveAccount(id, delta) {
+  const list = (await fetchJSON('/api/invest-accounts')) || [];
+  const i = list.findIndex(a => a.id === id), j = i + delta;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  const res = await fetchJSON('/api/invest-accounts/reorder',
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: list.map(a => a.id) }) });
+  if (res === null) { alert(fetchJSON.lastError || '순서를 바꾸지 못했습니다.'); return; }
+  await accountGrid.load();
+  refreshAccountBar();          // 칩·계좌별 손익 표도 새 순서로
+}
 
 function openAccountModal() {
   accountGrid.load();

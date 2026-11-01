@@ -79,7 +79,7 @@
 
   function labelOf(val) {
     const o = [...$('trFrom').options].find(x => x.value === val);
-    return o ? o.textContent.replace(/\s*\(.*\)$/, '') : '';
+    return o ? o.textContent.replace(/\s*\([^()]*\)$/, '') : '';
   }
 
   function updatePreview() {
@@ -209,7 +209,7 @@
 
   function counterName() {
     const o = $('fmCounter').selectedOptions[0];
-    return o ? o.textContent.replace(/\s*\(.*\)$/, '') : '';
+    return o ? o.textContent.replace(/\s*\([^()]*\)$/, '') : '';
   }
 
   function updateText() {

@@ -1977,6 +1977,41 @@ def api_invest_accounts():
     return jsonify({'ok': True, 'id': new_id}), 201
 
 
+@app.route('/api/invest-accounts/reorder', methods=['POST'])
+def api_invest_accounts_reorder():
+    """계좌 순서 저장. {ids: [계좌 id, ...]} 의 앞에서부터 1, 2, 3… 으로 sort_order 를 매긴다.
+    목록에 없는 계좌(중복·없는 id 는 400)는 지금 순서를 유지한 채 뒤에 붙인다.
+    계좌 칩·계좌별 손익 표·이체 선택지·연도 기록 입력 창이 모두 이 순서(sort_order, id)를 따른다."""
+    body = request.get_json(silent=True) or {}
+    ids = body.get('ids')
+    if not isinstance(ids, list):
+        return jsonify({'error': 'ids 목록이 필요합니다.'}), 400
+    try:
+        ids = [int(x) for x in ids]
+    except (TypeError, ValueError):
+        return jsonify({'error': '계좌 id 가 올바르지 않습니다.'}), 400
+    if len(set(ids)) != len(ids):
+        return jsonify({'error': '같은 계좌가 두 번 들어 있습니다.'}), 400
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT id FROM invest_accounts ORDER BY sort_order, id")
+    current = [r['id'] for r in cur.fetchall()]
+    if any(i not in current for i in ids):
+        cur.close(); db.close()
+        return jsonify({'error': '존재하지 않는 계좌가 포함되어 있습니다.'}), 400
+    final = ids + [i for i in current if i not in ids]
+    try:
+        for pos, aid in enumerate(final, start=1):
+            cur.execute("UPDATE invest_accounts SET sort_order=%s WHERE id=%s", (pos, aid))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        cur.close(); db.close()
+        return jsonify({'error': str(e)}), 500
+    cur.close(); db.close()
+    return jsonify({'ok': True, 'order': final})
+
+
 @app.route('/api/invest-accounts/<int:aid>', methods=['PUT', 'DELETE'])
 def api_invest_accounts_detail(aid):
     db = get_db()
