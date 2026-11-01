@@ -1532,8 +1532,8 @@ function renderAccountBar() {
     const on = currentAccount === val;
     return `<button type="button" class="btn btn-sm ${on ? 'btn-primary' : 'btn-outline-secondary'}" onclick="selectAccount('${val}')">${label}</button>`;
   };
-  // 사용 중인 계좌 + 보유/거래가 있는 중지 계좌 (선택돼 있는 계좌는 항상 보이게)
-  const shown = allAccounts.filter(a => a.is_active || a.tx_count > 0 || String(a.id) === currentAccount);
+  // 등록한 계좌는 중지 계좌까지 모두 보여준다
+  const shown = allAccounts;
   let html = chip('', '전체') + shown.map(a => chip(String(a.id), a.name + (a.is_active ? '' : ' (중지)'))).join('');
   if (byId.has('null') || currentAccount === '0') html += chip('0', '계좌 미지정');
   document.getElementById('accountChips').innerHTML = html;
