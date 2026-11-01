@@ -1706,12 +1706,6 @@ def api_stocks():
                     "realized_pnl_override, qty_override, avg_price_override, override_anchor_tx_id "
                     "FROM stocks ORDER BY name")
         stocks = [dict(r) for r in cur.fetchall()]
-        # 계좌별 보기에서도 '아직 어떤 계좌에서도 거래한 적 없는 종목'(방금 등록한 종목)은 보여준다.
-        # 그래야 등록 직후 보이고, 종목 줄의 [매수]로 바로 그 계좌에서 사는 것도 가능하다.
-        never_traded = set()
-        if by_acct:
-            cur.execute("SELECT s.id FROM stocks s WHERE NOT EXISTS (SELECT 1 FROM stock_tx t WHERE t.stock_id = s.id)")
-            never_traded = {r['id'] for r in cur.fetchall()}
         if by_acct:
             for s_ in stocks:
                 s_['realized_pnl_override'] = s_['qty_override'] = s_['avg_price_override'] = None
@@ -1745,8 +1739,8 @@ def api_stocks():
         try:
             for s in stocks:
                 info     = sql_qty.get(s['id'], {'qty': 0.0, 'buy_qty': 0.0, 'sell_qty': 0.0})
-                if by_acct and info['buy_qty'] == 0 and info['sell_qty'] == 0 and s['id'] not in never_traded:
-                    continue   # 이 계좌에서 거래한 적 없는 종목 (단, 어디서도 거래한 적 없는 새 종목은 보여준다)
+                if by_acct and info['qty'] <= 0:
+                    continue   # 계좌별 보기: 그 계좌에서 지금 보유 중인 종목만 (전량 매도·미거래 종목은 뺀다)
                 qty_calc = info['qty']
                 _, avg_calc, _ = calc_position(tx_by_stock[s['id']])   # 강제값 없는 '원래' 평단가
                 avg_calc = avg_calc if (avg_calc is not None and avg_calc == avg_calc) else 0.0  # NaN guard
@@ -2202,10 +2196,8 @@ def _account_summary_data(year):
         a['unrealized_pnl'] = a['eval_amount'] - a['cost_amount']
         a['total_pnl'] = a['unrealized_pnl'] + a['realized_pnl']
         a['return_rate'] = round(a['unrealized_pnl'] / a['cost_amount'] * 100, 2) if a['cost_amount'] else 0
-        # 거래도 보유도 없는 중지 계좌 / 비어 있는 '미지정' 은 목록에서 뺀다
+        # 등록한 계좌는 (중지 계좌 포함) 모두 보여준다. 비어 있는 '계좌 미지정'만 뺀다
         if a['id'] is None and not (a['holdings'] or a['realized_pnl']):
-            continue
-        if not a['is_active'] and not (a['holdings'] or a['realized_pnl'] or a['cash_krw'] or a['cash_usd']):
             continue
         rows.append(a)
         for k in tot:
@@ -3094,12 +3086,9 @@ def api_etf():
         cur.execute("SELECT id, name, ticker, current_price, etf_type, category, memo, COALESCE(ath,0) as ath, "
                     "qty_override, avg_price_override, override_anchor_tx_id FROM etf ORDER BY name")
         etfs = [dict(r) for r in cur.fetchall()]
-        never_traded = set()      # 계좌별 보기에서도 '아직 어디서도 거래한 적 없는 종목'(방금 등록한 종목)은 보여준다
         if by_acct:
             for e_ in etfs:
                 e_['qty_override'] = e_['avg_price_override'] = e_['override_anchor_tx_id'] = None
-            cur.execute("SELECT e.id FROM etf e WHERE NOT EXISTS (SELECT 1 FROM etf_tx t WHERE t.etf_id = e.id)")
-            never_traded = {r['id'] for r in cur.fetchall()}
         # SQL 기반 qty (대시보드·테크트리와 동일 기준, 음수 0 처리)
         cur.execute("""
             SELECT e.id,
@@ -3127,8 +3116,8 @@ def api_etf():
         try:
             for e in etfs:
                 info     = sql_etf.get(e['id'], {'qty': 0.0, 'buy_qty': 0.0, 'sell_qty': 0.0})
-                if by_acct and info['buy_qty'] == 0 and info['sell_qty'] == 0 and e['id'] not in never_traded:
-                    continue   # 이 계좌에서 거래한 적 없는 종목 (단, 어디서도 거래한 적 없는 새 종목은 보여준다)
+                if by_acct and info['qty'] <= 0:
+                    continue   # 계좌별 보기: 그 계좌에서 지금 보유 중인 종목만
                 qty_calc = info['qty']
                 _, avg_calc, _ = calc_position(tx_by_etf[e['id']])     # 강제값 없는 '원래' 평단가
                 avg_calc = avg_calc if (avg_calc is not None and avg_calc == avg_calc) else 0.0  # NaN guard
