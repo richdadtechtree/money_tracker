@@ -97,8 +97,7 @@
 </div>
 
 <ul class="nav nav-tabs mb-3" id="investTabs">
-  <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-stocks">주식</a></li>
-  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-etf">ETF</a></li>
+  <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-stocks">주식·ETF</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-crypto">코인</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-ipo">공모주</a></li>
   <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-split-plan">종목별 투자계획</a></li>
@@ -109,14 +108,14 @@
 <div class="tab-content">
   <!-- 주식 탭 -->
   <div class="tab-pane fade show active" id="tab-stocks">
-    <!-- 포지션 헤더 -->
+    <!-- 포지션 헤더 (주식 + ETF 합산) -->
     <div class="d-flex justify-content-between align-items-center mb-3">
       <div class="text-muted small">
-        평가총액: <strong id="stocks-total" class="text-primary">-</strong> &nbsp;|&nbsp;
-        미실현손익: <strong id="stocks-profit">-</strong> &nbsp;|&nbsp;
-        실현손익: <strong id="stocks-realized">-</strong>
+        평가총액: <strong id="pos-total" class="text-primary">-</strong> &nbsp;|&nbsp;
+        미실현손익: <strong id="pos-profit">-</strong> &nbsp;|&nbsp;
+        실현손익: <strong id="pos-realized">-</strong>
         &nbsp;<span id="usdkrw-badge" class="badge bg-secondary-subtle text-secondary" style="font-size:0.7rem"></span>
-        <br><span class="text-secondary">주식+ETF 합산: <strong id="stocks-etf-combined" class="text-dark">-</strong></span>
+        <br><span class="text-secondary">주식 <strong id="pos-stock-total" class="text-dark">-</strong> &nbsp;·&nbsp; ETF <strong id="pos-etf-total" class="text-dark">-</strong></span>
       </div>
       <div class="d-flex gap-2 flex-wrap">
         <button class="btn btn-outline-info btn-sm" onclick="openCatPnlModal()">
@@ -125,7 +124,7 @@
         <button class="btn btn-outline-secondary btn-sm" onclick="openStockCatModal()">
           <i class="bi bi-tag me-1"></i>구분 관리
         </button>
-        <button class="btn btn-outline-primary btn-sm" onclick="stockGrid.addRow()">
+        <button class="btn btn-outline-primary btn-sm" onclick="posGrid.addRow()">
           <i class="bi bi-plus-lg me-1"></i>종목 등록
         </button>
         <button class="btn btn-success btn-sm price-update-btn" id="priceUpdateBtn" onclick="updateAllPrices()">
@@ -134,21 +133,21 @@
       </div>
     </div>
 
-    <!-- 포지션 현황 -->
+    <!-- 포지션 현황 (주식 + ETF 한 표) -->
     <div class="card border-0 shadow-sm mb-3">
       <div class="card-header bg-white border-0 pt-3 pb-2">
         <span class="fw-semibold"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>포지션 현황</span>
         <div class="text-muted" style="font-size:.75rem">
-          <i class="bi bi-info-circle me-1"></i>보유수량·평균단가는 행을 클릭해 <b>강제로 수정</b>할 수 있습니다.
-          입력칸을 비워두면 매매 거래내역 기준 자동 계산값이 사용됩니다.
+          <i class="bi bi-info-circle me-1"></i>주식과 ETF를 한 표에서 봅니다. 위의 계좌 칩을 누르면 <b>그 계좌에서 보유 중인 종목</b>만 나옵니다.
+          보유수량·평균단가는 행을 클릭해 <b>강제로 수정</b>할 수 있고, 비워두면 매매 거래내역 기준 자동 계산값이 사용됩니다.
         </div>
       </div>
       <div class="card-body p-0">
         <div class="table-responsive">
-          <table class="table table-hover mb-0" id="stockTable">
+          <table class="table table-hover mb-0" id="posTable">
             <thead class="table-light">
               <tr>
-                <th>종목명</th><th>티커</th><th>구분</th>
+                <th>종류</th><th>종목명</th><th>티커</th><th>ETF 유형</th><th>구분</th>
                 <th class="text-end">보유수량 <i class="bi bi-pencil-square text-warning" title="행을 클릭하면 강제로 수정할 수 있습니다"></i></th>
                 <th class="text-end">평균단가 <i class="bi bi-pencil-square text-warning" title="행을 클릭하면 강제로 수정할 수 있습니다"></i></th>
                 <th class="text-end">현재가</th>
@@ -171,7 +170,7 @@
     <!-- 거래내역 -->
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-white border-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
-        <span class="fw-semibold"><i class="bi bi-journal-text me-2 text-secondary"></i>매매 거래내역</span>
+        <span class="fw-semibold"><i class="bi bi-journal-text me-2 text-secondary"></i>주식 매매 거래내역</span>
         <div class="d-flex gap-2 align-items-center">
           <button class="btn btn-outline-secondary btn-sm" onclick="recalcAllRealizedPnl()">
             <i class="bi bi-arrow-repeat me-1"></i>실현손익 재계산
@@ -273,68 +272,11 @@
         </div>
       </div>
     </div>
-  </div>
-
-  <!-- ETF 탭 -->
-  <div class="tab-pane fade" id="tab-etf">
-    <!-- 포지션 헤더 -->
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <div class="text-muted small">
-        평가총액: <strong id="etf-total" class="text-primary">-</strong> &nbsp;|&nbsp;
-        미실현손익: <strong id="etf-profit">-</strong> &nbsp;|&nbsp;
-        실현손익: <strong id="etf-realized">-</strong>
-      </div>
-      <div class="d-flex gap-2 flex-wrap">
-        <button class="btn btn-outline-info btn-sm" onclick="openCatPnlModal()">
-          <i class="bi bi-graph-up me-1"></i>구분별 수익률
-        </button>
-        <button class="btn btn-outline-secondary btn-sm" onclick="openStockCatModal()">
-          <i class="bi bi-tag me-1"></i>구분 관리
-        </button>
-        <button class="btn btn-outline-primary btn-sm" onclick="etfGrid.addRow()">
-          <i class="bi bi-plus-lg me-1"></i>종목 등록
-        </button>
-      </div>
-    </div>
-
-    <!-- 포지션 현황 -->
-    <div class="card border-0 shadow-sm mb-3">
-      <div class="card-header bg-white border-0 pt-3 pb-2">
-        <span class="fw-semibold"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>포지션 현황</span>
-        <div class="text-muted" style="font-size:.75rem">
-          <i class="bi bi-info-circle me-1"></i>보유수량·평균단가는 행을 클릭해 <b>강제로 수정</b>할 수 있습니다.
-          입력칸을 비워두면 매매 거래내역 기준 자동 계산값이 사용됩니다.
-        </div>
-      </div>
-      <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-hover mb-0" id="etfTable">
-            <thead class="table-light">
-              <tr>
-                <th>ETF명</th><th>티커</th><th>유형</th><th>구분</th>
-                <th class="text-end">보유수량 <i class="bi bi-pencil-square text-warning" title="행을 클릭하면 강제로 수정할 수 있습니다"></i></th>
-                <th class="text-end">평균단가 <i class="bi bi-pencil-square text-warning" title="행을 클릭하면 강제로 수정할 수 있습니다"></i></th>
-                <th class="text-end">현재가</th>
-                <th class="text-end">평가액</th>
-                <th class="text-end">미실현손익</th>
-                <th class="text-end">수익률</th>
-                <th class="text-end">실현손익</th>
-                <th>메모</th>
-                <th class="text-center">매매</th>
-                <th class="text-center">매수계획</th>
-                <th class="text-center">삭제</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
 
     <!-- 거래내역 -->
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-white border-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
-        <span class="fw-semibold"><i class="bi bi-journal-text me-2 text-secondary"></i>매매 거래내역</span>
+        <span class="fw-semibold"><i class="bi bi-journal-text me-2 text-secondary"></i>ETF 매매 거래내역</span>
         <div class="d-flex gap-2 align-items-center">
           <select id="txEtfFilter" class="form-select form-select-sm" style="width:auto" onchange="etfTxGrid.load()">
             <option value="">전체 종목</option>
@@ -430,6 +372,122 @@
           </div>
         </div>
       </div>
+    </div>
+    <!-- 화면에는 보이지 않는 원본 주식/ETF 표: 데이터 로딩·거래내역 연동 용도 (보이는 표는 위의 posTable) -->
+    <div class="d-none" id="legacyPositionHolder">
+    <!-- 포지션 헤더 -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="text-muted small">
+        평가총액: <strong id="stocks-total" class="text-primary">-</strong> &nbsp;|&nbsp;
+        미실현손익: <strong id="stocks-profit">-</strong> &nbsp;|&nbsp;
+        실현손익: <strong id="stocks-realized">-</strong>
+        &nbsp;
+        <br><span class="text-secondary">주식+ETF 합산: <strong id="stocks-etf-combined" class="text-dark">-</strong></span>
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-info btn-sm" onclick="openCatPnlModal()">
+          <i class="bi bi-graph-up me-1"></i>구분별 수익률
+        </button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="openStockCatModal()">
+          <i class="bi bi-tag me-1"></i>구분 관리
+        </button>
+        <button class="btn btn-outline-primary btn-sm" onclick="stockGrid.addRow()">
+          <i class="bi bi-plus-lg me-1"></i>종목 등록
+        </button>
+        <button class="d-none">
+          <i class="bi bi-arrow-repeat me-1"></i>현재가 업데이트
+        </button>
+      </div>
+    </div>
+
+    <!-- 포지션 현황 -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 pt-3 pb-2">
+        <span class="fw-semibold"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>포지션 현황</span>
+        <div class="text-muted" style="font-size:.75rem">
+          <i class="bi bi-info-circle me-1"></i>보유수량·평균단가는 행을 클릭해 <b>강제로 수정</b>할 수 있습니다.
+          입력칸을 비워두면 매매 거래내역 기준 자동 계산값이 사용됩니다.
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="stockTable">
+            <thead class="table-light">
+              <tr>
+                <th>종목명</th><th>티커</th><th>구분</th>
+                <th class="text-end">보유수량 <i class="bi bi-pencil-square text-warning" title="행을 클릭하면 강제로 수정할 수 있습니다"></i></th>
+                <th class="text-end">평균단가 <i class="bi bi-pencil-square text-warning" title="행을 클릭하면 강제로 수정할 수 있습니다"></i></th>
+                <th class="text-end">현재가</th>
+                <th class="text-end">평가액</th>
+                <th class="text-end">미실현손익</th>
+                <th class="text-end">수익률</th>
+                <th class="text-end">실현손익</th>
+                <th>메모</th>
+                <th class="text-center">매매</th>
+                <th class="text-center">매수계획</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 포지션 헤더 -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="text-muted small">
+        평가총액: <strong id="etf-total" class="text-primary">-</strong> &nbsp;|&nbsp;
+        미실현손익: <strong id="etf-profit">-</strong> &nbsp;|&nbsp;
+        실현손익: <strong id="etf-realized">-</strong>
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-info btn-sm" onclick="openCatPnlModal()">
+          <i class="bi bi-graph-up me-1"></i>구분별 수익률
+        </button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="openStockCatModal()">
+          <i class="bi bi-tag me-1"></i>구분 관리
+        </button>
+        <button class="btn btn-outline-primary btn-sm" onclick="etfGrid.addRow()">
+          <i class="bi bi-plus-lg me-1"></i>종목 등록
+        </button>
+      </div>
+    </div>
+
+    <!-- 포지션 현황 -->
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header bg-white border-0 pt-3 pb-2">
+        <span class="fw-semibold"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>포지션 현황</span>
+        <div class="text-muted" style="font-size:.75rem">
+          <i class="bi bi-info-circle me-1"></i>보유수량·평균단가는 행을 클릭해 <b>강제로 수정</b>할 수 있습니다.
+          입력칸을 비워두면 매매 거래내역 기준 자동 계산값이 사용됩니다.
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0" id="etfTable">
+            <thead class="table-light">
+              <tr>
+                <th>ETF명</th><th>티커</th><th>유형</th><th>구분</th>
+                <th class="text-end">보유수량 <i class="bi bi-pencil-square text-warning" title="행을 클릭하면 강제로 수정할 수 있습니다"></i></th>
+                <th class="text-end">평균단가 <i class="bi bi-pencil-square text-warning" title="행을 클릭하면 강제로 수정할 수 있습니다"></i></th>
+                <th class="text-end">현재가</th>
+                <th class="text-end">평가액</th>
+                <th class="text-end">미실현손익</th>
+                <th class="text-end">수익률</th>
+                <th class="text-end">실현손익</th>
+                <th>메모</th>
+                <th class="text-center">매매</th>
+                <th class="text-center">매수계획</th>
+                <th class="text-center">삭제</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     </div>
   </div>
 
@@ -1486,6 +1544,7 @@ const stockGrid = new GridTable({
       tr += (r.realized_pnl || 0) * (r.realized_pnl_fixed ? 1 : mul);
     });
     _stocksEvalKrw = tv;
+    refreshPosGrid();
     document.getElementById('stocks-total').textContent = fmt(Math.round(tv)) + '원';
     document.getElementById('stocks-profit').innerHTML   = pnlHtml(tp);
     document.getElementById('stocks-realized').innerHTML = pnlHtml(tr);
@@ -2137,6 +2196,7 @@ const etfGrid = new GridTable({
       tr += (r.realized_pnl || 0) * mul;
     });
     _etfEvalKrw = tv;
+    refreshPosGrid();
     document.getElementById('etf-total').textContent   = fmt(Math.round(tv)) + '원';
     document.getElementById('etf-profit').innerHTML    = pnlHtml(tp);
     document.getElementById('etf-realized').innerHTML  = pnlHtml(tr);
@@ -2144,6 +2204,90 @@ const etfGrid = new GridTable({
     etfTxGrid.load();
   },
 });
+
+
+// ── 주식 + ETF 합친 포지션 표 ─────────────────────────────────
+// 원본 stockGrid / etfGrid 는 화면에서 숨긴 채 데이터 로딩(계좌 필터, 거래내역 연동 등)만 맡고,
+// 사용자가 보는 표(posGrid)는 두 표의 행을 합쳐서 그린다. 행 id 는 's12'(주식) / 'e5'(ETF) 로 구분한다.
+function posRowUrl(id, data) {
+  if (id === 'new') return data._kind === 'etf' ? '/api/etf' : '/api/stocks';
+  return (id[0] === 'e' ? '/api/etf/' : '/api/stocks/') + id.slice(1);
+}
+const posGrid = new GridTable({
+  tableId: 'posTable',
+  apiUrl: '/api/stocks',
+  rowUrl: posRowUrl,
+  columns: [
+    { key: '_kind', type: 'select',
+      options: [{ value: 'stock', label: '주식' }, { value: 'etf', label: 'ETF' }],
+      render: v => v === 'etf'
+        ? '<span class="badge bg-primary-subtle text-primary">ETF</span>'
+        : '<span class="badge bg-success-subtle text-success">주식</span>' },
+    { key: 'name',    type: 'text' },
+    { key: 'ticker',  type: 'text' },
+    { key: 'etf_type', type: 'select',
+      options: ['국내주식형','해외주식형','채권형','리츠형','원자재형','혼합형'],
+      render: (v, r) => (r._kind === 'etf' && v) ? `<span class="badge bg-primary-subtle text-primary">${v}</span>` : '-' },
+    { key: 'category', type: 'select',
+      options: () => allStockCategories.map(c => c.name),
+      render: v => v ? `<span class="badge bg-secondary-subtle text-secondary-emphasis">${v}</span>` : '-' },
+    ...POSITION_OVERRIDE_COLUMNS,
+    { key: 'current_price', type: 'number', align: 'end',
+      render: (v, r) => isForeign(r?.ticker) ? fmtUsd(v) : fmt(v) },
+    { key: '_eval',   type: 'computed', align: 'end',
+      compute: r => r.eval_amount == null ? '-'
+        : `<span class="fw-semibold">${fmt(Math.round(toKrw(r.eval_amount, r.ticker)))}원</span>` },
+    { key: '_pnl',    type: 'computed', align: 'end',
+      compute: r => r.unrealized_pnl == null ? '-' : pnlHtml(toKrw(r.unrealized_pnl, r.ticker)) },
+    { key: '_rate',   type: 'computed', align: 'end',
+      compute: r => r.return_rate != null ? rateHtml(r.return_rate) : '-' },
+    { key: '_real',   type: 'computed', align: 'end',
+      compute: r => (r.sell_qty != null && r.sell_qty > 0) ? pnlHtml(toKrw(r.realized_pnl, r.ticker)) : '-' },
+    { key: 'memo',    type: 'text' },
+    { key: '_trade', type: 'computed', align: 'center', noEdit: true,
+      compute: r => quickTradeButtons(r._kind, r._rid) },
+    { key: '_plan', type: 'computed', align: 'center', noEdit: true,
+      compute: r => `<button class="btn btn-xs btn-outline-primary py-0 px-1"
+        onclick="event.stopPropagation();openSplitPlanForStock('${r._kind}',${r._rid},${JSON.stringify(r.name)},${r.current_price||0},${JSON.stringify(r.ticker||'')})">
+        매수계획</button>` },
+  ],
+  onStartEdit: (tr, r) => {
+    const kindSel = tr.querySelector('[data-key="_kind"]');
+    const typeSel = tr.querySelector('[data-key="etf_type"]');
+    if (!kindSel) return;
+    if (tr.dataset.id === 'new') { if (!kindSel.value) kindSel.value = 'stock'; }
+    else kindSel.disabled = true;               // 이미 등록된 종목의 종류(주식/ETF)는 바꿀 수 없다
+    const apply = () => { if (typeSel) typeSel.disabled = kindSel.value !== 'etf'; };
+    apply();
+    kindSel.addEventListener('change', apply);
+  },
+});
+// 저장/삭제/가격갱신 뒤 어디서든 stockGrid.load(), etfGrid.load() 가 불리므로, 합친 표는 두 원본의 현재 행을 다시 합치기만 한다
+function refreshPosGrid() {
+  const tag = (rows, kind) => (rows || []).map(r => ({ ...r, _kind: kind, _rid: r.id, id: kind[0] + r.id }));
+  posGrid.rows = [...tag(stockGrid.rows, 'stock'), ...tag(etfGrid.rows, 'etf')];
+  if (posGrid.sortKey) {
+    const col = posGrid.columns.find(c => c.key === posGrid.sortKey);
+    if (col) posGrid._performSort(col);
+  }
+  posGrid._renderAll();
+  // 상단 합계 (원화 환산)
+  let tv = 0, tp = 0, tr = 0;
+  posGrid.rows.forEach(r => {
+    const mul = isForeign(r.ticker) ? usdKrw : 1;
+    tv += (r.eval_amount || 0) * mul;
+    tp += (r.unrealized_pnl || 0) * mul;
+    tr += (r.realized_pnl || 0) * (r.realized_pnl_fixed ? 1 : mul);
+  });
+  const set = (id, html, isHtml) => { const el = document.getElementById(id); if (el) el[isHtml ? 'innerHTML' : 'textContent'] = html; };
+  set('pos-total', fmt(Math.round(tv)) + '원');
+  set('pos-profit', pnlHtml(tp), true);
+  set('pos-realized', pnlHtml(tr), true);
+  set('pos-stock-total', fmt(Math.round(_stocksEvalKrw)) + '원');
+  set('pos-etf-total', fmt(Math.round(_etfEvalKrw)) + '원');
+}
+// posGrid.load(): 두 원본을 함께 다시 불러온다 (저장/삭제 뒤 GridTable 이 이 함수를 부른다)
+posGrid.load = async function () { await Promise.all([stockGrid.load(), etfGrid.load()]); };
 
 // ── ETF 거래내역 ──
 const etfTxGrid = new GridTable({
@@ -3077,7 +3221,6 @@ async function initPage() {
 
 initPage();
 
-document.querySelector('[href="#tab-etf"]').addEventListener('shown.bs.tab', () => etfGrid.load());
 document.querySelector('[href="#tab-ipo"]').addEventListener('shown.bs.tab', () => ipoGrid.load());
 // ── 종목별 분할매수 계획 ──────────────────────────────────────
 let _planCurrentStock = null;  // { type: 'stock'|'etf', id, name, current_price }
