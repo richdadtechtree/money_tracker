@@ -166,23 +166,60 @@ const grid = new GridTable({
 
 // ── 계좌 연동 행 아래에 보유 종목 세부내역을 끼워 넣는다 (읽기 전용, 합계에는 포함하지 않음) ──
 function pnFmtMoney(v) { return fmt(Math.round(v)) + '원'; }
-function holdingsHtml(items) {
-  if (!items || !items.length) {
-    return '<div class="text-muted small py-1">이 계좌에 보유 종목이 없습니다. 투자관리에서 이 계좌에 거래를 입력하면 여기에 나옵니다.</div>';
+// 보유 비중 막대의 칸 색 (올웨더처럼 5개 안팎의 자산을 구분하기 쉽게)
+const PN_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899'];
+const PN_CASH_COLOR = '#94a3b8';
+
+/** 계좌 보유 종목 + 예수금(현금) 세부내역과 보유 비중. 비중 = 항목 금액 ÷ (종목 평가액 합계 + 예수금).
+ *  예수금은 연금 누적액에 더하지 않고(현금 자산에 이미 포함) 비중을 보기 위해서만 가져온다. */
+function holdingsHtml(r) {
+  const items = r.holdings || [];
+  const cash = Number(r.cash_total || 0);
+  const cashPos = Math.max(cash, 0);                       // 마이너스 예수금은 비중 계산에서 제외하고 따로 알린다
+  const evalSum = items.reduce((a, h) => a + h.eval_amount, 0);
+  const base = evalSum + cashPos;
+  if (!items.length && !cash) {
+    return '<div class="text-muted small py-1">이 계좌에 보유 종목과 예수금이 없습니다. 투자관리에서 이 계좌에 거래·예수금을 입력하면 여기에 나옵니다.</div>';
   }
-  const isUsd = h => h.foreign;
-  const price = (v, h) => isUsd(h) ? '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 4 }) : fmt(Math.round(v)) + '원';
-  return `<table class="table table-sm mb-0 align-middle" style="background:transparent">
-    <thead><tr class="text-muted small"><th>종목</th><th>티커</th><th class="text-end">수량</th><th class="text-end">평균단가</th>
-      <th class="text-end">현재가</th><th class="text-end">평가액</th><th class="text-end">수익률</th></tr></thead>
-    <tbody>` + items.map(h => `<tr>
-      <td><span class="badge ${h.kind === 'etf' ? 'bg-primary-subtle text-primary' : 'bg-success-subtle text-success'} me-1">${h.kind === 'etf' ? 'ETF' : '주식'}</span>${h.name || ''}</td>
+  const pct = v => base > 0 ? (v / base * 100) : 0;
+  const price = (v, h) => h.foreign ? '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 4 }) : fmt(Math.round(v)) + '원';
+
+  // 항목별 비중 막대 (종목들 + 현금)
+  const segs = items.map((h, i) => ({ name: h.name, v: h.eval_amount, color: PN_COLORS[i % PN_COLORS.length] }));
+  if (cashPos > 0) segs.push({ name: '현금(예수금)', v: cashPos, color: PN_CASH_COLOR });
+  const bar = base > 0 ? `<div class="progress mb-2" style="height:22px">` + segs.map(s => {
+      const w = pct(s.v);
+      return `<div class="progress-bar" style="width:${w}%; background:${s.color}; font-size:.7rem" title="${s.name} ${w.toFixed(1)}%">${w >= 7 ? w.toFixed(1) + '%' : ''}</div>`;
+    }).join('') + `</div>` : '';
+
+  const rowsHtml = items.map((h, i) => `<tr>
+      <td><span class="d-inline-block rounded-circle me-1" style="width:9px;height:9px;background:${PN_COLORS[i % PN_COLORS.length]}"></span>
+          <span class="badge ${h.kind === 'etf' ? 'bg-primary-subtle text-primary' : 'bg-success-subtle text-success'} me-1">${h.kind === 'etf' ? 'ETF' : '주식'}</span>${h.name || ''}</td>
       <td>${h.ticker || '-'}</td>
       <td class="text-end">${Number(h.quantity) % 1 === 0 ? h.quantity : Number(h.quantity).toFixed(4)}</td>
       <td class="text-end">${price(h.avg_price, h)}</td>
       <td class="text-end">${price(h.current_price, h)}</td>
       <td class="text-end fw-semibold text-primary">${pnFmtMoney(h.eval_amount)}</td>
-      <td class="text-end ${h.return_rate >= 0 ? 'text-danger' : 'text-primary'}">${h.return_rate >= 0 ? '+' : ''}${h.return_rate}%</td></tr>`).join('') + '</tbody></table>';
+      <td class="text-end fw-bold">${pct(h.eval_amount).toFixed(1)}%</td>
+      <td class="text-end ${h.return_rate >= 0 ? 'text-danger' : 'text-primary'}">${h.return_rate >= 0 ? '+' : ''}${h.return_rate}%</td></tr>`).join('');
+
+  const usdTxt = Number(r.cash_usd) ? ` + $${Number(r.cash_usd).toLocaleString('en-US', { maximumFractionDigits: 4 })}` : '';
+  const cashRow = `<tr class="table-light">
+      <td><span class="d-inline-block rounded-circle me-1" style="width:9px;height:9px;background:${PN_CASH_COLOR}"></span>
+          <span class="badge bg-secondary-subtle text-secondary me-1">현금</span>예수금
+          <span class="text-muted small">(${fmt(r.cash_krw || 0)}원${usdTxt})</span></td>
+      <td>-</td><td class="text-end">-</td><td class="text-end">-</td><td class="text-end">-</td>
+      <td class="text-end fw-semibold ${cash < 0 ? 'text-danger' : 'text-primary'}">${cash < 0 ? '-' : ''}${pnFmtMoney(Math.abs(cash))}</td>
+      <td class="text-end fw-bold">${cash < 0 ? '-' : pct(cashPos).toFixed(1) + '%'}</td>
+      <td class="text-end text-muted">-</td></tr>`;
+  const foot = `<tr class="fw-semibold"><td colspan="5" class="text-end">종목 ${items.length}개 + 예수금 합계</td>
+      <td class="text-end">${pnFmtMoney(base)}</td><td class="text-end">100%</td><td></td></tr>`;
+  const note = cash < 0 ? '<div class="small text-danger mt-1">예수금이 마이너스입니다. 투자관리에서 이 계좌의 예수금(잔액설정)을 확인하세요. 비중 계산에서는 제외했습니다.</div>' : '';
+
+  return bar + `<table class="table table-sm mb-0 align-middle" style="background:transparent">
+    <thead><tr class="text-muted small"><th>종목</th><th>티커</th><th class="text-end">수량</th><th class="text-end">평균단가</th>
+      <th class="text-end">현재가</th><th class="text-end">평가액</th><th class="text-end">보유 비중</th><th class="text-end">수익률</th></tr></thead>
+    <tbody>${rowsHtml}${cashRow}${foot}</tbody></table>${note}`;
 }
 function insertHoldingRows() {
   grid.tbody.querySelectorAll('tr.pn-holdings').forEach(tr => tr.remove());
@@ -191,8 +228,8 @@ function insertHoldingRows() {
     if (!tr) return;
     tr.insertAdjacentHTML('afterend',
       `<tr class="pn-holdings"><td colspan="${grid._ncols}" class="py-2 ps-4" style="border-left:3px solid var(--bs-info)">
-        <div class="small text-muted mb-1"><i class="bi bi-diagram-3 me-1"></i>투자관리 <b>${r.name || ''}</b> 계좌의 보유 종목 (세부내역 · 위 누적액에 이미 포함)</div>
-        ${holdingsHtml(r.holdings)}</td></tr>`);
+        <div class="small text-muted mb-1"><i class="bi bi-diagram-3 me-1"></i>투자관리 <b>${r.name || ''}</b> 계좌의 보유 종목·예수금과 보유 비중 (종목 평가액은 위 누적액에 포함, 예수금은 현금 자산에 포함)</div>
+        ${holdingsHtml(r)}</td></tr>`);
   });
 }
 // 불러오기/정렬 등으로 표가 다시 그려질 때마다 세부내역 줄도 다시 넣는다
