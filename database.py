@@ -803,6 +803,8 @@ def init_db():
         "ALTER TABLE budget ADD COLUMN IF NOT EXISTS is_auto_generated BOOLEAN DEFAULT FALSE",
         # 금액이 매달 달라지는 고정비: 금액을 입력하지 않고 '유동'으로 둔다 (자동 생성되는 내역은 0원으로 만들어 두고 그달 실제 금액을 직접 입력)
         "ALTER TABLE recurring_budget ADD COLUMN IF NOT EXISTS is_variable BOOLEAN NOT NULL DEFAULT FALSE",
+        # 고정비를 빠져나가는 통장(현금관리의 통장) 기준으로도 볼 수 있게 하는 '출금 통장' (카드는 기존 card_id)
+        "ALTER TABLE recurring_budget ADD COLUMN IF NOT EXISTS cash_deposit_id INTEGER REFERENCES cash_deposits(id) ON DELETE SET NULL",
         "ALTER TABLE budget DROP CONSTRAINT IF EXISTS budget_recurring_id_fkey",
         "ALTER TABLE budget ADD CONSTRAINT fk_budget_recurring_budget FOREIGN KEY (recurring_id) REFERENCES recurring_budget(id) ON DELETE SET NULL",
         """CREATE TABLE IF NOT EXISTS invest_plans (
