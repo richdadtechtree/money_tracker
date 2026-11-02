@@ -2206,7 +2206,7 @@ def _compute_account_positions(db, ex_rate):
     out = {}
     cur = db.cursor()
     for master, tx_table, col in (('stocks', 'stock_tx', 'stock_id'), ('etf', 'etf_tx', 'etf_id')):
-        cur.execute(f"SELECT id, ticker, current_price, qty_override, avg_price_override, override_anchor_tx_id FROM {master}")
+        cur.execute(f"SELECT id, name, ticker, current_price, qty_override, avg_price_override, override_anchor_tx_id FROM {master}")
         masters = {r['id']: dict(r) for r in cur.fetchall()}
         cur.execute(f"SELECT id, {col} AS item_id, account_id, tx_type, price, quantity FROM {tx_table} "
                     f"ORDER BY {col}, tx_date, id")
@@ -2225,10 +2225,20 @@ def _compute_account_positions(db, ex_rate):
             if qty <= 0:
                 continue
             mul = ex_rate if is_foreign_ticker(m['ticker']) else 1.0
-            pos = out.setdefault(acct_id, {'eval': 0.0, 'cost': 0.0, 'holdings': 0})
-            pos['eval'] += round(qty * _sf(m['current_price'])) * mul
-            pos['cost'] += round(qty * avg) * mul
+            pos = out.setdefault(acct_id, {'eval': 0.0, 'cost': 0.0, 'holdings': 0, 'items': []})
+            item_eval = round(qty * _sf(m['current_price'])) * mul
+            item_cost = round(qty * avg) * mul
+            pos['eval'] += item_eval
+            pos['cost'] += item_cost
             pos['holdings'] += 1
+            # 종목별 세부내역 (연금 화면의 '계좌 연동' 행 아래에 보여준다). 평가·매입은 원화 환산, 단가는 종목 통화 그대로
+            pos['items'].append({
+                'kind': 'stock' if master == 'stocks' else 'etf', 'name': m['name'], 'ticker': m['ticker'],
+                'quantity': qty, 'avg_price': avg, 'current_price': _sf(m['current_price']),
+                'eval_amount': item_eval, 'cost_amount': item_cost,
+                'return_rate': round((item_eval - item_cost) / item_cost * 100, 2) if item_cost else 0,
+                'foreign': bool(mul != 1.0),
+            })
     cur.close()
     return out
 
@@ -6533,10 +6543,17 @@ def api_pension():
         _sync_pension_accounts(db)          # 투자관리 연금저축 계좌 값을 먼저 반영
         cur = db.cursor()
         cur.execute("SELECT * FROM pension ORDER BY pension_type, name")
-        rows = cur.fetchall()
+        rows = rows_to_list(cur.fetchall())
         cur.close()
+        # 연동 행에는 그 계좌에서 보유 중인 종목 세부내역을 함께 내려준다 (연금 화면이 보여주는 용도, 합계에는 포함하지 않음)
+        if any(r.get('account_id') for r in rows):
+            pos = _compute_account_positions(db, get_current_exchange_rate())
+            for r in rows:
+                if r.get('account_id'):
+                    items = (pos.get(r['account_id']) or {}).get('items', [])
+                    r['holdings'] = sorted(items, key=lambda x: -x['eval_amount'])
         db.close()
-        return jsonify(rows_to_list(rows))
+        return jsonify(rows)
 
     data = request.json
     if data.get('pension_type') == '연금저축펀드':
@@ -6555,6 +6572,25 @@ def api_pension():
     db.commit()
     db.close()
     return jsonify({'ok': True}), 201
+
+
+@app.route('/api/pension/cleanup-duplicates', methods=['POST'])
+def api_pension_cleanup_duplicates():
+    """예전에 연금 화면에 직접 입력해 둔 '연금저축펀드' 종목 행을 정리한다.
+    연금저축 계좌의 종목은 이제 투자관리 계좌에서 자동으로 가져오므로(계좌 연동 행) 같은 종목이 두 번 합산되는 중복이 된다.
+    현금(entry_type='cash') 행은 계좌 예수금과 같은 돈인지 알 수 없어 건드리지 않는다."""
+    if (request.json or {}).get('confirm') != '정리':
+        return jsonify({'error': "확인 문구 '정리'를 보내야 실행됩니다."}), 400
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("""SELECT id, name, accumulated FROM pension
+                   WHERE pension_type='연금저축펀드' AND account_id IS NULL AND entry_type='stock'""")
+    rows = [{'id': r['id'], 'name': r['name'], 'accumulated': int(r['accumulated'] or 0)} for r in cur.fetchall()]
+    if rows:
+        cur.execute("DELETE FROM pension WHERE id = ANY(%s)", ([r['id'] for r in rows],))
+    cur.close()
+    db.commit(); db.close()
+    return jsonify({'ok': True, 'deleted': rows})
 
 
 @app.route('/api/pension/<int:rid>', methods=['PUT', 'DELETE'])

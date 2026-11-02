@@ -39,11 +39,13 @@
 <div class="alert alert-info py-2 small" role="alert">
   <i class="bi bi-link-45deg me-1"></i>
   <strong>연금저축펀드</strong>는 <strong>투자관리 &gt; 계좌 관리</strong>에서 계좌 유형을 '연금저축'으로 만들고 그 계좌에 종목을 입력하면
-  이 표에 <span class="badge bg-info-subtle text-info-emphasis">계좌 연동</span> 행으로 자동 반영됩니다. 이 화면에서는 수정할 수 없습니다.
+  이 표에 <span class="badge bg-info-subtle text-info-emphasis">계좌 연동</span> 행으로 자동 반영되고, 그 아래에 <b>보유 종목 세부내역</b>이 함께 나옵니다. 이 화면에서는 수정할 수 없습니다.
 </div>
 <div class="alert alert-warning py-2 small d-none" id="legacyWarn" role="alert">
   <i class="bi bi-exclamation-triangle me-1"></i>
-  직접 입력해 둔 <strong>연금저축펀드</strong> 행이 있습니다. 투자관리 계좌와 <strong>이중 계상</strong>되니 내용을 투자관리로 옮긴 뒤 이 행은 삭제해 주세요.
+  직접 입력해 둔 <strong>연금저축펀드 종목</strong> 행이 있습니다. 같은 종목이 투자관리 계좌에서 이미 <strong>세부내역으로 연동</strong>되어 이중으로 합산되고 있습니다.
+  <button class="btn btn-sm btn-warning ms-2 py-0" onclick="cleanupPensionDuplicates()">중복 종목 행 정리</button>
+  <span class="text-muted ms-1">(현금 행은 그대로 둡니다)</span>
 </div>
 <p class="text-muted small mb-2">
   <i class="bi bi-info-circle me-1"></i>
@@ -154,13 +156,59 @@ const grid = new GridTable({
   onLoad: rows => {
     let sumA = 0, sumM = 0, sumR = 0;
     // 직접 입력한 연금저축펀드 행이 남아 있으면 이중 계상 경고
-    document.getElementById('legacyWarn').classList.toggle('d-none', !rows.some(r => r.pension_type === '연금저축펀드' && !r.account_id));
+    document.getElementById('legacyWarn').classList.toggle('d-none', !rows.some(r => r.pension_type === '연금저축펀드' && !r.account_id && r.entry_type === 'stock'));
     rows.forEach(r => { sumA += r.accumulated; sumM += r.monthly_payment; sumR += r.return_rate; });
     document.getElementById('sum-acc').textContent    = fmt(sumA) + '원';
     document.getElementById('sum-monthly').textContent = fmt(sumM) + '원';
     document.getElementById('avg-return').textContent  = (rows.length ? (sumR / rows.length).toFixed(2) : 0) + '%';
   },
 });
+
+// ── 계좌 연동 행 아래에 보유 종목 세부내역을 끼워 넣는다 (읽기 전용, 합계에는 포함하지 않음) ──
+function pnFmtMoney(v) { return fmt(Math.round(v)) + '원'; }
+function holdingsHtml(items) {
+  if (!items || !items.length) {
+    return '<div class="text-muted small py-1">이 계좌에 보유 종목이 없습니다. 투자관리에서 이 계좌에 거래를 입력하면 여기에 나옵니다.</div>';
+  }
+  const isUsd = h => h.foreign;
+  const price = (v, h) => isUsd(h) ? '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 4 }) : fmt(Math.round(v)) + '원';
+  return `<table class="table table-sm mb-0 align-middle" style="background:transparent">
+    <thead><tr class="text-muted small"><th>종목</th><th>티커</th><th class="text-end">수량</th><th class="text-end">평균단가</th>
+      <th class="text-end">현재가</th><th class="text-end">평가액</th><th class="text-end">수익률</th></tr></thead>
+    <tbody>` + items.map(h => `<tr>
+      <td><span class="badge ${h.kind === 'etf' ? 'bg-primary-subtle text-primary' : 'bg-success-subtle text-success'} me-1">${h.kind === 'etf' ? 'ETF' : '주식'}</span>${h.name || ''}</td>
+      <td>${h.ticker || '-'}</td>
+      <td class="text-end">${Number(h.quantity) % 1 === 0 ? h.quantity : Number(h.quantity).toFixed(4)}</td>
+      <td class="text-end">${price(h.avg_price, h)}</td>
+      <td class="text-end">${price(h.current_price, h)}</td>
+      <td class="text-end fw-semibold text-primary">${pnFmtMoney(h.eval_amount)}</td>
+      <td class="text-end ${h.return_rate >= 0 ? 'text-danger' : 'text-primary'}">${h.return_rate >= 0 ? '+' : ''}${h.return_rate}%</td></tr>`).join('') + '</tbody></table>';
+}
+function insertHoldingRows() {
+  grid.tbody.querySelectorAll('tr.pn-holdings').forEach(tr => tr.remove());
+  grid.rows.filter(r => r.account_id).forEach(r => {
+    const tr = grid.tbody.querySelector(`tr[data-id="${r.id}"]`);
+    if (!tr) return;
+    tr.insertAdjacentHTML('afterend',
+      `<tr class="pn-holdings"><td colspan="${grid._ncols}" class="py-2 ps-4" style="border-left:3px solid var(--bs-info)">
+        <div class="small text-muted mb-1"><i class="bi bi-diagram-3 me-1"></i>투자관리 <b>${r.name || ''}</b> 계좌의 보유 종목 (세부내역 · 위 누적액에 이미 포함)</div>
+        ${holdingsHtml(r.holdings)}</td></tr>`);
+  });
+}
+// 불러오기/정렬 등으로 표가 다시 그려질 때마다 세부내역 줄도 다시 넣는다
+const _pnOrigRender = grid._renderAll.bind(grid);
+grid._renderAll = function () { _pnOrigRender(); insertHoldingRows(); };
+
+async function cleanupPensionDuplicates() {
+  const dup = grid.rows.filter(r => r.pension_type === '연금저축펀드' && !r.account_id && r.entry_type === 'stock');
+  if (!dup.length) return;
+  const list = dup.map(r => `· ${r.name} ${fmt(r.accumulated)}원`).join('\n');
+  if (!confirm('직접 입력해 둔 연금저축펀드 종목 행 ' + dup.length + '건을 삭제합니다.\n같은 종목은 투자관리 계좌에서 이미 연동되어 나옵니다.\n\n' + list + '\n\n진행할까요?')) return;
+  const res = await fetchJSON('/api/pension/cleanup-duplicates', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ confirm: '정리' }) });
+  if (!res || !res.ok) { alert(fetchJSON.lastError || '정리하지 못했습니다.'); return; }
+  await grid.load();
+  alert(res.deleted.length + '건을 정리했습니다.');
+}
 
 grid.load();
 
