@@ -805,6 +805,11 @@ def init_db():
         "ALTER TABLE recurring_budget ADD COLUMN IF NOT EXISTS is_variable BOOLEAN NOT NULL DEFAULT FALSE",
         # 고정비를 빠져나가는 통장(현금관리의 통장) 기준으로도 볼 수 있게 하는 '출금 통장' (카드는 기존 card_id)
         "ALTER TABLE recurring_budget ADD COLUMN IF NOT EXISTS cash_deposit_id INTEGER REFERENCES cash_deposits(id) ON DELETE SET NULL",
+        # 고정비 ↔ 통장 잔액 연동: 템플릿에 통장을 연결한 날(이후 날짜의 내역부터 통장에서 차감),
+        # 가계부 내역에는 차감한 통장과 차감액을 기록해 두어 금액 수정/삭제 때 정확히 되돌린다
+        "ALTER TABLE recurring_budget ADD COLUMN IF NOT EXISTS deposit_linked_at DATE",
+        "ALTER TABLE budget ADD COLUMN IF NOT EXISTS deposit_id INTEGER REFERENCES cash_deposits(id) ON DELETE SET NULL",
+        "ALTER TABLE budget ADD COLUMN IF NOT EXISTS deposit_applied BIGINT NOT NULL DEFAULT 0",
         "ALTER TABLE budget DROP CONSTRAINT IF EXISTS budget_recurring_id_fkey",
         "ALTER TABLE budget ADD CONSTRAINT fk_budget_recurring_budget FOREIGN KEY (recurring_id) REFERENCES recurring_budget(id) ON DELETE SET NULL",
         """CREATE TABLE IF NOT EXISTS invest_plans (

@@ -138,6 +138,20 @@ with app.app_context():
     except Exception as _fix_err:
         print(f"[fix_recurring] {_fix_err}")
 
+def _scheduled_recurring_generate():
+    """매일 00:10 KST — 이번 달 고정비 내역을 미리 만들어 둔다.
+    출금 통장이 연결된 고정비는 결제일이 되면 가계부를 열지 않아도 통장 잔액에서 차감된다."""
+    try:
+        with app.app_context():
+            db = get_db()
+            today = date.today()
+            _generate_recurring_budget(db, today.year, today.month)
+            db.commit()
+            db.close()
+            print("[scheduler] 고정비 내역 생성 완료")
+    except Exception as e:
+        print(f"[scheduler] 고정비 내역 생성 실패: {e}")
+
 def _scheduled_snapshot():
     """매일 23:59:30 — 오늘 순자산을 daily_snapshots에 저장"""
     try:
@@ -183,6 +197,7 @@ if HAS_SCHEDULER:
     _scheduler = BackgroundScheduler(timezone='Asia/Seoul')
     _scheduler.add_job(_scheduled_snapshot, CronTrigger(hour=23, minute=59, second=30))
     _scheduler.add_job(_scheduled_year_end_snapshot, CronTrigger(month=12, day=31, hour=23, minute=58, second=0))
+    _scheduler.add_job(_scheduled_recurring_generate, CronTrigger(hour=0, minute=10, second=0))
     _scheduler.add_job(_scheduled_price_update, CronTrigger(hour=9, minute=0, second=0))
     _scheduler.add_job(_scheduled_price_update, CronTrigger(hour=16, minute=0, second=0))
     _scheduler.add_job(_keep_alive, IntervalTrigger(minutes=10))
@@ -571,6 +586,14 @@ def _generate_recurring_budget(db, year: int, month: int):
     # 이미 생성된 항목 중 날짜가 오늘 이후인 것은 삭제 (잘못 선생성된 경우 정리)
     cur = db.cursor()
     cur.execute("""
+        SELECT id FROM budget
+        WHERE is_auto_generated = TRUE
+          AND to_char(date::date, 'YYYY-MM') = %s
+          AND date::date > %s
+    """, (ym_str, today))
+    for _r in cur.fetchall():
+        _budget_deposit_release(db.cursor(), _r['id'])      # 통장에서 이미 뺀 돈이 있으면 먼저 돌려준다
+    cur.execute("""
         DELETE FROM budget
         WHERE is_auto_generated = TRUE
           AND to_char(date::date, 'YYYY-MM') = %s
@@ -638,6 +661,13 @@ def _generate_recurring_budget(db, year: int, month: int):
               t['card_id'], t['id']))
         budget_id = cur.fetchone()[0]
         cur.close()
+
+        # 통장 연동: 템플릿에 출금 통장이 있고, 연결한 날 이후의 내역이면 통장 잔액에서 차감
+        # (연결 이전 날짜의 내역은 이미 통장 잔액에 반영돼 있으므로 건드리지 않는다)
+        if t['cash_deposit_id'] and t['deposit_linked_at'] and tx_date >= t['deposit_linked_at']:
+            _cur_dep = db.cursor()
+            _budget_deposit_apply(_cur_dep, budget_id, t['cash_deposit_id'])
+            _cur_dep.close()
 
         # 카드 연동 처리 (기존 _sync_card_tx 활용)
         if t['card_id']:
@@ -937,6 +967,13 @@ def api_budget_detail(rid):
             except Exception:
                 db.rollback()
 
+        # 통장과 연결된 고정비 내역이면 금액 변경분을 통장 잔액에 반영 (같은 반복 항목의 이후 달도 함께)
+        _cur_dep = db.cursor()
+        _cur_dep.execute("SELECT id FROM budget WHERE id=%s OR (recurring_id IS NOT NULL AND recurring_id=%s)", (rid, recurring_id))
+        for _r in _cur_dep.fetchall():
+            _budget_deposit_resync(db.cursor(), _r['id'])
+        _cur_dep.close()
+
         _sync_card_tx(db, rid, data)
 
         # 카테고리가 설정된 경우 항목명을 키워드로 학습
@@ -973,6 +1010,11 @@ def api_budget_detail(rid):
     if mode == 'forward' and recurring_id:
         # 이 날짜 이후 + 이 행 포함 모두 삭제, 반복 비활성화
         cur = db.cursor()
+        cur.execute("SELECT id FROM budget WHERE recurring_id=%s AND date >= %s", (recurring_id, row_date))
+        for _r in cur.fetchall():
+            _budget_deposit_release(db.cursor(), _r['id'])      # 통장에서 뺀 돈 되돌림
+        cur.close()
+        cur = db.cursor()
         cur.execute(
             "DELETE FROM card_tx WHERE budget_id IN "
             "(SELECT id FROM budget WHERE recurring_id=%s AND date >= %s)",
@@ -986,6 +1028,7 @@ def api_budget_detail(rid):
         cur.execute("UPDATE recurring_budget SET is_active=FALSE WHERE id=%s", (recurring_id,))
         cur.close()
     else:
+        _budget_deposit_release(db.cursor(), rid)               # 통장에서 뺀 돈 되돌림
         cur = db.cursor()
         cur.execute("DELETE FROM card_tx WHERE budget_id=%s", (rid,))
         cur.close()
@@ -1016,21 +1059,22 @@ def api_recurring_budget():
         return jsonify(rows_to_list(rows))
 
     d = request.json or {}
-    err = _validate_recurring_payload(d)
+    err = _validate_recurring_payload(d) or _check_recurring_deposit(db, d)
     if err:
         db.close()
         return jsonify({'error': err}), 400
+    _dep = None if d.get('card_id') else (d.get('cash_deposit_id') or None)
     cur = db.cursor()
     cur.execute("""
         INSERT INTO recurring_budget
             (name, category, payment_method, amount, card_id,
-             day_of_month, start_month, end_month, memo, is_variable, cash_deposit_id)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             day_of_month, start_month, end_month, memo, is_variable, cash_deposit_id, deposit_linked_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     """, (d.get('name'), d.get('category'), d.get('payment_method'),
           0 if d.get('is_variable') else d.get('amount', 0), d.get('card_id') or None,
           d.get('day_of_month', 1), d.get('start_month'),
           d.get('end_month') or None, d.get('memo'), bool(d.get('is_variable')),
-          None if d.get('card_id') else (d.get('cash_deposit_id') or None)))
+          _dep, date.today().isoformat() if _dep else None))
     cur.close(); db.commit(); db.close()
     return jsonify({'ok': True}), 201
 
@@ -1062,6 +1106,22 @@ def _validate_recurring_payload(d):
     return None
 
 
+def _check_recurring_deposit(db, d):
+    """출금 통장이 지정됐다면 실제 있는 일반 통장인지 확인한다(예수금 합계 행은 불가). 문제 있으면 안내 문구."""
+    dep = d.get('cash_deposit_id')
+    if not dep or d.get('card_id'):
+        return None
+    cur = db.cursor()
+    cur.execute("SELECT is_system FROM cash_deposits WHERE id=%s", (dep,))
+    r = cur.fetchone()
+    cur.close()
+    if not r:
+        return '선택한 통장을 찾을 수 없습니다.'
+    if r['is_system']:
+        return '예수금은 출금 통장으로 지정할 수 없습니다. 현금관리의 일반 통장을 선택하세요.'
+    return None
+
+
 @app.route('/api/recurring-budget/<int:rid>', methods=['PUT', 'DELETE'])
 def api_recurring_budget_detail(rid):
     db = get_db()
@@ -1078,6 +1138,9 @@ def api_recurring_budget_detail(rid):
             return jsonify({'error': '이미 삭제되었거나 없는 템플릿입니다.'}), 404
         removed = 0
         if mode == 'with_entries':
+            cur.execute("SELECT id FROM budget WHERE recurring_id=%s AND date::date >= %s", (rid, this_month_start))
+            for _r in cur.fetchall():
+                _budget_deposit_release(db.cursor(), _r['id'])      # 통장에서 뺀 돈 되돌림
             cur.execute("DELETE FROM card_tx WHERE budget_id IN "
                         "(SELECT id FROM budget WHERE recurring_id=%s AND date::date >= %s)", (rid, this_month_start))
             cur.execute("DELETE FROM budget WHERE recurring_id=%s AND date::date >= %s", (rid, this_month_start))
@@ -1088,23 +1151,31 @@ def api_recurring_budget_detail(rid):
         return jsonify({'ok': True, 'removed_entries': removed})
 
     d = request.json or {}
-    err = _validate_recurring_payload(d)
+    err = _validate_recurring_payload(d) or _check_recurring_deposit(db, d)
     if err:
         db.close()
         return jsonify({'error': err}), 400
+    new_dep = None if d.get('card_id') else (d.get('cash_deposit_id') or None)
     cur = db.cursor()
+    cur.execute("SELECT cash_deposit_id, deposit_linked_at FROM recurring_budget WHERE id=%s", (rid,))
+    _old = cur.fetchone()
+    # 출금 통장을 새로 지정하거나 바꾼 날부터의 내역이 통장에서 차감된다 (이미 차감 중이던 통장 그대로면 시작일 유지)
+    if _old and new_dep and _old['cash_deposit_id'] == new_dep and _old['deposit_linked_at']:
+        linked_at = _old['deposit_linked_at'].isoformat()
+    else:
+        linked_at = date.today().isoformat() if new_dep else None
     cur.execute("""
         UPDATE recurring_budget
         SET name=%s, category=%s, payment_method=%s, amount=%s, card_id=%s,
             day_of_month=%s, start_month=%s, end_month=%s, memo=%s, is_active=%s, is_variable=%s,
-            cash_deposit_id=%s
+            cash_deposit_id=%s, deposit_linked_at=%s
         WHERE id=%s
     """, (d.get('name'), d.get('category'), d.get('payment_method'),
           0 if d.get('is_variable') else d.get('amount', 0), d.get('card_id') or None,
           int(d.get('day_of_month', 1)), d.get('start_month'),
           d.get('end_month') or None, d.get('memo'),
           d.get('is_active', True), bool(d.get('is_variable')),
-          None if d.get('card_id') else (d.get('cash_deposit_id') or None), rid))
+          new_dep, linked_at, rid))
     if cur.rowcount == 0:
         cur.close(); db.close()
         return jsonify({'error': '없는 템플릿입니다.'}), 404
@@ -1125,6 +1196,7 @@ def api_recurring_budget_detail(rid):
     for r in cur.fetchall():
         _sync_card_tx(db, r['id'], {'card_id': d.get('card_id') or None, 'date': r['d'], 'name': d.get('name'),
                                     'category': d.get('category'), 'amount': r['amount'], 'memo': r['memo']})
+        _budget_deposit_resync(db.cursor(), r['id'])      # 금액이 바뀐 내역은 연결된 통장 잔액도 차이만큼 맞춘다
     cur.close(); db.commit(); db.close()
     return jsonify({'ok': True})
 
@@ -2787,6 +2859,40 @@ def _bank_adjust(cur, bank_id, currency, delta, allow_negative=False):
     cur.execute("UPDATE cash_deposits SET krw_amount=%s, usd_amount=%s, amount=%s, updated_date=%s WHERE id=%s",
                 (krw, usd, amount, date.today().isoformat(), bank_id))
     return row['name']
+
+
+def _budget_deposit_release(cur, budget_id):
+    """가계부 내역이 통장에서 차감했던 금액을 통장에 되돌린다 (차감 기록은 0으로)."""
+    cur.execute("SELECT deposit_id, deposit_applied FROM budget WHERE id=%s", (budget_id,))
+    r = cur.fetchone()
+    if r and r['deposit_id'] and r['deposit_applied']:
+        _bank_adjust(cur, r['deposit_id'], 'KRW', float(r['deposit_applied']), allow_negative=True)
+    cur.execute("UPDATE budget SET deposit_applied=0 WHERE id=%s", (budget_id,))
+
+
+def _budget_deposit_apply(cur, budget_id, deposit_id):
+    """가계부 내역을 통장과 연결하고 내역 금액만큼 통장 잔액에서 뺀다.
+    이미 차감한 금액이 있으면 먼저 되돌린다. 잔액이 모자라도 막지 않는다(실제로 나간 돈이므로 마이너스로 표시)."""
+    _budget_deposit_release(cur, budget_id)
+    cur.execute("SELECT amount FROM budget WHERE id=%s", (budget_id,))
+    r = cur.fetchone()
+    amt = int(r['amount'] or 0) if r else 0
+    if amt:
+        _bank_adjust(cur, deposit_id, 'KRW', -amt, allow_negative=True)
+    cur.execute("UPDATE budget SET deposit_id=%s, deposit_applied=%s WHERE id=%s", (deposit_id, amt, budget_id))
+
+
+def _budget_deposit_resync(cur, budget_id):
+    """통장과 연결된 가계부 내역의 금액이 바뀌었으면 차이만큼만 통장 잔액을 다시 맞춘다."""
+    cur.execute("SELECT amount, deposit_id, deposit_applied FROM budget WHERE id=%s", (budget_id,))
+    r = cur.fetchone()
+    if not r or not r['deposit_id']:
+        return
+    amt = int(r['amount'] or 0)
+    delta = amt - int(r['deposit_applied'] or 0)
+    if delta:
+        _bank_adjust(cur, r['deposit_id'], 'KRW', -delta, allow_negative=True)
+        cur.execute("UPDATE budget SET deposit_applied=%s WHERE id=%s", (amt, budget_id))
 
 
 def _transfer_side_name(cur, side_type, side_id):
@@ -6618,6 +6724,13 @@ def _resolve_cash_amount(data):
 def api_cash_deposits():
     db = get_db()
     if request.method == 'GET':
+        try:
+            _t = date.today()
+            _generate_recurring_budget(db, _t.year, _t.month)   # 통장 연결 고정비가 결제일을 지났으면 잔액에 반영
+            db.commit()
+        except Exception as _e:
+            db.rollback()
+            print(f"[cash] 고정비 반영 실패: {_e}")
         _ensure_and_sync_deposit_row(db)     # 예수금 행을 원장 합계로 최신화 (복구/초기화 후 어긋남 방지)
         _refresh_usd_cash_amounts(db)
         cur = db.cursor()
