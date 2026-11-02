@@ -202,7 +202,7 @@
             </div>
             <div class="row g-2 mt-1">
               <div class="col-md-3">
-                <select class="form-select form-select-sm" id="rc-card" title="이 고정비가 빠져나가는 통장 또는 카드">
+                <select class="form-select form-select-sm" id="rc-card" onchange="onRcPayChange()" title="이 고정비가 빠져나가는 통장 또는 카드">
                   <option value="">결제 계좌/카드 (선택)</option>
                 </select>
               </div>
@@ -222,6 +222,10 @@
           </div>
         </div>
 
+        <div class="small text-info-emphasis mb-2 d-none" id="rc-pay-hint">
+          <i class="bi bi-bank me-1"></i>통장을 고르면 결제일에 <b>그 통장 잔액에서 자동으로 차감</b>됩니다 (통장을 지정한 날 이후 내역부터).
+          가계부에서 금액을 고치거나 내역을 지우면 통장 잔액도 함께 바뀝니다. 유동 항목은 금액을 입력하는 시점에 차감됩니다.
+        </div>
         <div class="alert alert-warning py-1 px-2 small d-none" id="rc-edit-banner">
           <i class="bi bi-pencil-square me-1"></i><strong id="rc-edit-name"></strong> 템플릿을 수정하는 중입니다.
           저장하면 <b>이번 달 이후</b>에 이미 만들어진 내역에도 이름·금액·카테고리가 반영되고, 일자는 가계부를 열 때 이번 달 내역에 맞춰집니다. 지난 달 내역은 바뀌지 않습니다.
@@ -895,6 +899,11 @@ async function confirmRecurringSetup() {
   grid.load();
 }
 
+/** 통장을 고르면 잔액 자동 차감 안내를 보여준다 */
+function onRcPayChange() {
+  document.getElementById('rc-pay-hint').classList.toggle('d-none', !document.getElementById('rc-card').value.startsWith('d:'));
+}
+
 /** '유동'을 체크하면 금액 입력칸을 막는다 */
 function onRcVariableChange() {
   const v = document.getElementById('rc-variable').checked;
@@ -975,6 +984,7 @@ function _clearRecurringForm() {
     .forEach(id => { document.getElementById(id).value = ''; });
   document.getElementById('rc-variable').checked = false;
   document.getElementById('rc-amount').disabled = false;
+  onRcPayChange();
 }
 
 /** 목록의 [수정]: 위쪽 입력 폼에 값을 채우고 수정 모드로 전환 */
@@ -996,6 +1006,7 @@ function editRecurring(rid) {
   document.getElementById('rc-start-month').value = tpl.start_month || '';
   document.getElementById('rc-end-month').value   = tpl.end_month || '';
   document.getElementById('rc-card').value        = _rcAcctKey(tpl);
+  onRcPayChange();
   document.getElementById('rc-memo').value        = tpl.memo || '';
   _setRecurringEditUi(tpl);
   document.getElementById('rc-name').focus();
