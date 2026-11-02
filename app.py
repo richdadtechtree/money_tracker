@@ -615,10 +615,16 @@ def _generate_recurring_budget(db, year: int, month: int):
                 cur = db.cursor()
                 cur.execute("UPDATE budget SET date=%s WHERE id=%s",
                             (tx_date.isoformat(), existing['id']))
+                cur.execute("UPDATE card_tx SET date=%s WHERE budget_id=%s",
+                            (tx_date.isoformat(), existing['id']))
                 cur.close()
                 inserted += 1  # 수정도 카운트
             continue  # 이미 생성됨 → 신규 INSERT 스킵
 
+        # 유동 고정비는 금액을 모르므로 0원으로 만들어 두고, 메모가 비어 있으면 입력 안내를 적는다
+        is_var = bool(t['is_variable'])
+        t_amount = 0 if is_var else t['amount']
+        t_memo = t['memo'] or ('유동 고정비 - 이번 달 실제 금액을 입력하세요' if is_var else t['memo'])
         # 새 budget 행 INSERT
         cur = db.cursor()
         cur.execute("""
@@ -628,7 +634,7 @@ def _generate_recurring_budget(db, year: int, month: int):
             VALUES (%s, %s, %s, '지출', %s, %s, %s, %s, %s, TRUE)
             RETURNING id
         """, (tx_date.isoformat(), t['category'], t['name'],
-              t['payment_method'], t['amount'], t['memo'],
+              t['payment_method'], t_amount, t_memo,
               t['card_id'], t['id']))
         budget_id = cur.fetchone()[0]
         cur.close()
@@ -640,8 +646,8 @@ def _generate_recurring_budget(db, year: int, month: int):
                 'date':     tx_date.isoformat(),
                 'name':     t['name'],
                 'category': t['category'],
-                'amount':   t['amount'],
-                'memo':     t['memo'],
+                'amount':   t_amount,
+                'memo':     t_memo,
             })
 
         inserted += 1
@@ -1009,40 +1015,112 @@ def api_recurring_budget():
         return jsonify(rows_to_list(rows))
 
     d = request.json or {}
+    err = _validate_recurring_payload(d)
+    if err:
+        db.close()
+        return jsonify({'error': err}), 400
     cur = db.cursor()
     cur.execute("""
         INSERT INTO recurring_budget
             (name, category, payment_method, amount, card_id,
-             day_of_month, start_month, end_month, memo)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             day_of_month, start_month, end_month, memo, is_variable)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     """, (d.get('name'), d.get('category'), d.get('payment_method'),
-          d.get('amount', 0), d.get('card_id') or None,
+          0 if d.get('is_variable') else d.get('amount', 0), d.get('card_id') or None,
           d.get('day_of_month', 1), d.get('start_month'),
-          d.get('end_month') or None, d.get('memo')))
+          d.get('end_month') or None, d.get('memo'), bool(d.get('is_variable'))))
     cur.close(); db.commit(); db.close()
     return jsonify({'ok': True}), 201
+
+
+def _validate_recurring_payload(d):
+    """고정지출 템플릿 입력값 검사. 문제가 있으면 안내 문구를, 정상이면 None 을 돌려준다."""
+    import re as _re
+    if not (d.get('name') or '').strip():
+        return '지출명을 입력해 주세요.'
+    try:
+        day = int(d.get('day_of_month', 1))
+    except (TypeError, ValueError):
+        return '매월 일자는 1~31 사이 숫자로 입력해 주세요.'
+    if not 1 <= day <= 31:
+        return '매월 일자는 1~31 사이 숫자로 입력해 주세요.'
+    if not _re.fullmatch(r'\d{4}-(0[1-9]|1[0-2])', str(d.get('start_month') or '')):
+        return '시작 월을 YYYY-MM 형식으로 입력해 주세요.'
+    end = d.get('end_month')
+    if end and not _re.fullmatch(r'\d{4}-(0[1-9]|1[0-2])', str(end)):
+        return '종료 월을 YYYY-MM 형식으로 입력해 주세요.'
+    if end and str(end) < str(d.get('start_month')):
+        return '종료 월은 시작 월보다 빠를 수 없습니다.'
+    if not d.get('is_variable'):
+        try:
+            if float(d.get('amount') or 0) <= 0:
+                return '금액을 입력하거나, 매달 달라지는 항목이면 \'유동\'으로 체크해 주세요.'
+        except (TypeError, ValueError):
+            return '금액은 숫자로 입력해 주세요.'
+    return None
 
 
 @app.route('/api/recurring-budget/<int:rid>', methods=['PUT', 'DELETE'])
 def api_recurring_budget_detail(rid):
     db = get_db()
+    this_month_start = date.today().replace(day=1).isoformat()
     if request.method == 'DELETE':
+        # 템플릿을 완전히 삭제한다 (이전의 '비활성화'가 아니라 목록에서도 사라진다).
+        # ?mode=with_entries : 이번 달 이후 이 템플릿으로 만들어진 가계부 내역(과 카드 내역)도 함께 삭제
+        # 그 외(기본)        : 이미 만들어진 내역은 그대로 두고 템플릿과의 연결만 끊는다
+        mode = request.args.get('mode', 'template_only')
         cur = db.cursor()
-        cur.execute("UPDATE recurring_budget SET is_active=FALSE WHERE id=%s", (rid,))
+        cur.execute("SELECT id FROM recurring_budget WHERE id=%s", (rid,))
+        if not cur.fetchone():
+            cur.close(); db.close()
+            return jsonify({'error': '이미 삭제되었거나 없는 템플릿입니다.'}), 404
+        removed = 0
+        if mode == 'with_entries':
+            cur.execute("DELETE FROM card_tx WHERE budget_id IN "
+                        "(SELECT id FROM budget WHERE recurring_id=%s AND date::date >= %s)", (rid, this_month_start))
+            cur.execute("DELETE FROM budget WHERE recurring_id=%s AND date::date >= %s", (rid, this_month_start))
+            removed = cur.rowcount
+        cur.execute("UPDATE budget SET recurring_id=NULL WHERE recurring_id=%s", (rid,))   # 남은 내역은 연결만 해제
+        cur.execute("DELETE FROM recurring_budget WHERE id=%s", (rid,))
         cur.close(); db.commit(); db.close()
-        return jsonify({'ok': True})
+        return jsonify({'ok': True, 'removed_entries': removed})
+
     d = request.json or {}
+    err = _validate_recurring_payload(d)
+    if err:
+        db.close()
+        return jsonify({'error': err}), 400
     cur = db.cursor()
     cur.execute("""
         UPDATE recurring_budget
         SET name=%s, category=%s, payment_method=%s, amount=%s, card_id=%s,
-            day_of_month=%s, start_month=%s, end_month=%s, memo=%s, is_active=%s
+            day_of_month=%s, start_month=%s, end_month=%s, memo=%s, is_active=%s, is_variable=%s
         WHERE id=%s
     """, (d.get('name'), d.get('category'), d.get('payment_method'),
-          d.get('amount', 0), d.get('card_id') or None,
-          d.get('day_of_month', 1), d.get('start_month'),
+          0 if d.get('is_variable') else d.get('amount', 0), d.get('card_id') or None,
+          int(d.get('day_of_month', 1)), d.get('start_month'),
           d.get('end_month') or None, d.get('memo'),
-          d.get('is_active', True), rid))
+          d.get('is_active', True), bool(d.get('is_variable')), rid))
+    if cur.rowcount == 0:
+        cur.close(); db.close()
+        return jsonify({'error': '없는 템플릿입니다.'}), 404
+    # 이번 달 이후에 이미 만들어진 내역에도 이름/금액/카테고리/카드/메모를 반영한다 (지난 달 내역은 그대로).
+    # 일자 변경은 가계부 화면을 열 때 _generate_recurring_budget 이 이번 달 내역의 날짜를 바로잡는다.
+    is_var = bool(d.get('is_variable'))
+    # 유동 고정비는 그달 실제로 입력한 금액을 지키기 위해 금액은 덮어쓰지 않는다 (메모도 사용자가 고친 것을 지키려고 건드리지 않음)
+    if is_var:
+        cur.execute("""UPDATE budget SET name=%s, category=%s, payment_method=%s, card_id=%s
+                       WHERE recurring_id=%s AND date::date >= %s RETURNING id, date::date::text AS d, amount, memo""",
+                    (d.get('name'), d.get('category'), d.get('payment_method'),
+                     d.get('card_id') or None, rid, this_month_start))
+    else:
+        cur.execute("""UPDATE budget SET name=%s, category=%s, payment_method=%s, amount=%s, memo=%s, card_id=%s
+                       WHERE recurring_id=%s AND date::date >= %s RETURNING id, date::date::text AS d, amount, memo""",
+                    (d.get('name'), d.get('category'), d.get('payment_method'), d.get('amount', 0),
+                     d.get('memo'), d.get('card_id') or None, rid, this_month_start))
+    for r in cur.fetchall():
+        _sync_card_tx(db, r['id'], {'card_id': d.get('card_id') or None, 'date': r['d'], 'name': d.get('name'),
+                                    'category': d.get('category'), 'amount': r['amount'], 'memo': r['memo']})
     cur.close(); db.commit(); db.close()
     return jsonify({'ok': True})
 
