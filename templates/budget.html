@@ -182,6 +182,10 @@
               <div class="col-md-2">
                 <input type="number" class="form-control form-control-sm"
                        id="rc-amount" placeholder="금액">
+                <div class="form-check mt-1" title="전기·가스처럼 매달 금액이 달라지는 항목은 금액 없이 '유동'으로 둘 수 있습니다">
+                  <input class="form-check-input" type="checkbox" id="rc-variable" onchange="onRcVariableChange()">
+                  <label class="form-check-label small" for="rc-variable">유동 (금액 미정)</label>
+                </div>
               </div>
               <div class="col-md-1">
                 <input type="number" class="form-control form-control-sm"
@@ -221,6 +225,33 @@
         <div class="alert alert-warning py-1 px-2 small d-none" id="rc-edit-banner">
           <i class="bi bi-pencil-square me-1"></i><strong id="rc-edit-name"></strong> 템플릿을 수정하는 중입니다.
           저장하면 <b>이번 달 이후</b>에 이미 만들어진 내역에도 이름·금액·카테고리가 반영되고, 일자는 가계부를 열 때 이번 달 내역에 맞춰집니다. 지난 달 내역은 바뀌지 않습니다.
+        </div>
+
+        <!-- 전체 고정비 요약 -->
+        <div class="card border-0 shadow-sm mb-3" id="rc-summary-card">
+          <div class="card-body py-2">
+            <div class="row g-2 text-center">
+              <div class="col-6 col-md-3">
+                <div class="text-muted small">월 고정비 합계</div>
+                <div class="fs-5 fw-bold text-danger" id="rc-sum-month">-</div>
+                <div class="text-muted" style="font-size:.7rem" id="rc-sum-note"></div>
+              </div>
+              <div class="col-6 col-md-3">
+                <div class="text-muted small">연 환산</div>
+                <div class="fs-5 fw-bold" id="rc-sum-year">-</div>
+              </div>
+              <div class="col-6 col-md-3">
+                <div class="text-muted small">적용 중 항목</div>
+                <div class="fs-5 fw-bold" id="rc-sum-count">-</div>
+                <div class="text-muted" style="font-size:.7rem" id="rc-sum-var"></div>
+              </div>
+              <div class="col-6 col-md-3">
+                <div class="text-muted small">제외(중단·종료·예정)</div>
+                <div class="fs-5 fw-bold text-muted" id="rc-sum-off">-</div>
+              </div>
+            </div>
+            <div class="mt-2 d-flex flex-wrap gap-1 justify-content-center" id="rc-sum-cats"></div>
+          </div>
         </div>
 
         <!-- 등록된 고정지출 목록 -->
@@ -737,6 +768,8 @@ async function openRecurringModal() {
 
   document.getElementById('rc-name').value = '';
   document.getElementById('rc-amount').value = '';
+  document.getElementById('rc-amount').disabled = false;
+  document.getElementById('rc-variable').checked = false;
   document.getElementById('rc-day').value = '1';
   document.getElementById('rc-end-month').value = '';
   document.getElementById('rc-memo').value = '';
@@ -755,13 +788,14 @@ async function loadRecurringList() {
   const res  = await fetch('/api/recurring-budget');
   const data = await res.json();
   _rcCache = data;
+  renderRecurringSummary(data);
   const tbody = document.getElementById('recurring-list-tbody');
   tbody.innerHTML = '';
   data.forEach(r => {
     tbody.insertAdjacentHTML('beforeend', `
       <tr class="${r.is_active ? '' : 'text-muted'}">
         <td><strong>${r.name}</strong> <span class="badge bg-danger-subtle text-danger ms-1" style="font-size:0.75rem">${r.category || ''}</span></td>
-        <td class="text-end fw-semibold text-danger">${fmt(r.amount)}원</td>
+        <td class="text-end fw-semibold text-danger">${r.is_variable ? '<span class="badge bg-warning-subtle text-warning-emphasis">유동</span>' : fmt(r.amount) + '원'}</td>
         <td>매월 ${r.day_of_month}일</td>
         <td>${r.start_month}</td>
         <td>${r.end_month || '무기한'}</td>
@@ -840,6 +874,35 @@ async function confirmRecurringSetup() {
   grid.load();
 }
 
+/** '유동'을 체크하면 금액 입력칸을 막는다 */
+function onRcVariableChange() {
+  const v = document.getElementById('rc-variable').checked;
+  const amt = document.getElementById('rc-amount');
+  amt.disabled = v;
+  if (v) amt.value = '';
+}
+
+/** 전체 고정비 요약: 지금 적용 중인 템플릿의 월 합계(금액이 정해진 것만) / 연 환산 / 유동 건수 / 카테고리별 */
+function renderRecurringSummary(list) {
+  const ym = new Date().toISOString().slice(0, 7);
+  const active = list.filter(r => r.is_active && r.start_month <= ym && (!r.end_month || r.end_month >= ym));
+  const off = list.length - active.length;
+  const fixed = active.filter(r => !r.is_variable);
+  const variable = active.filter(r => r.is_variable);
+  const total = fixed.reduce((a, r) => a + Number(r.amount || 0), 0);
+  document.getElementById('rc-sum-month').textContent = fmt(total) + '원';
+  document.getElementById('rc-sum-note').textContent = variable.length ? `유동 ${variable.length}건 제외한 금액` : '';
+  document.getElementById('rc-sum-year').textContent = fmt(total * 12) + '원';
+  document.getElementById('rc-sum-count').textContent = active.length + '건';
+  document.getElementById('rc-sum-var').textContent = variable.length ? `금액 확정 ${fixed.length} · 유동 ${variable.length}` : '';
+  document.getElementById('rc-sum-off').textContent = off + '건';
+  const byCat = {};
+  fixed.forEach(r => { const c = r.category || '미분류'; byCat[c] = (byCat[c] || 0) + Number(r.amount || 0); });
+  document.getElementById('rc-sum-cats').innerHTML = Object.entries(byCat).sort((a, b) => b[1] - a[1])
+    .map(([c, v]) => `<span class="badge bg-danger-subtle text-danger">${c} ${fmt(v)}원</span>`).join('')
+    + variable.map(r => `<span class="badge bg-warning-subtle text-warning-emphasis">${r.name} 유동</span>`).join('');
+}
+
 /** 수정 모드 ↔ 등록 모드에 따라 버튼 글자와 안내 문구를 바꾼다 */
 function _setRecurringEditUi(tpl) {
   document.getElementById('rc-save-btn').textContent = tpl ? '수정 저장' : '등록';
@@ -851,6 +914,8 @@ function _setRecurringEditUi(tpl) {
 function _clearRecurringForm() {
   ['rc-name', 'rc-category', 'rc-amount', 'rc-day', 'rc-start-month', 'rc-end-month', 'rc-card', 'rc-memo']
     .forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('rc-variable').checked = false;
+  document.getElementById('rc-amount').disabled = false;
 }
 
 /** 목록의 [수정]: 위쪽 입력 폼에 값을 채우고 수정 모드로 전환 */
@@ -865,7 +930,9 @@ function editRecurring(rid) {
   }
   document.getElementById('rc-name').value        = tpl.name || '';
   catSel.value                                    = tpl.category || '';
-  document.getElementById('rc-amount').value      = tpl.amount || '';
+  document.getElementById('rc-variable').checked  = !!tpl.is_variable;
+  document.getElementById('rc-amount').value      = tpl.is_variable ? '' : (tpl.amount || '');
+  document.getElementById('rc-amount').disabled   = !!tpl.is_variable;
   document.getElementById('rc-day').value         = tpl.day_of_month || 1;
   document.getElementById('rc-start-month').value = tpl.start_month || '';
   document.getElementById('rc-end-month').value   = tpl.end_month || '';
@@ -891,7 +958,8 @@ async function addRecurring() {
   const payload = {
     name:           document.getElementById('rc-name').value.trim(),
     category:       document.getElementById('rc-category').value,
-    amount:         parseInt(document.getElementById('rc-amount').value || 0),
+    is_variable:    document.getElementById('rc-variable').checked,
+    amount:         document.getElementById('rc-variable').checked ? 0 : parseInt(document.getElementById('rc-amount').value || 0),
     day_of_month:   parseInt(document.getElementById('rc-day').value || 1),
     start_month:    document.getElementById('rc-start-month').value,
     end_month:      document.getElementById('rc-end-month').value || null,
@@ -900,8 +968,8 @@ async function addRecurring() {
     // 카드를 연결하면 '카드', 카드를 뺐으면 (기존이 카드였던 경우만) '기타', 그 외에는 기존 결제수단 유지
     payment_method: cardId ? '카드' : (editing && editing.payment_method && editing.payment_method !== '카드' ? editing.payment_method : '기타'),
   };
-  if (!payload.name || !payload.amount || !payload.start_month) {
-    alert('지출명, 금액, 시작 월은 필수입니다.'); return;
+  if (!payload.name || (!payload.amount && !payload.is_variable) || !payload.start_month) {
+    alert('지출명, 시작 월은 필수이고, 금액은 입력하거나 \'유동\'으로 체크해 주세요.'); return;
   }
   if (!(payload.day_of_month >= 1 && payload.day_of_month <= 31)) {
     alert('매월 일자는 1~31 사이로 입력해 주세요.'); return;
