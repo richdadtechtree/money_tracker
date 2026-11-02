@@ -1005,9 +1005,10 @@ def api_recurring_budget():
     if request.method == 'GET':
         cur = db.cursor()
         cur.execute("""
-            SELECT r.*, c.card_name
+            SELECT r.*, c.card_name, d.name AS deposit_name
             FROM recurring_budget r
             LEFT JOIN card_info c ON r.card_id = c.id
+            LEFT JOIN cash_deposits d ON r.cash_deposit_id = d.id
             ORDER BY r.day_of_month, r.name
         """)
         rows = cur.fetchall()
@@ -1023,12 +1024,13 @@ def api_recurring_budget():
     cur.execute("""
         INSERT INTO recurring_budget
             (name, category, payment_method, amount, card_id,
-             day_of_month, start_month, end_month, memo, is_variable)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             day_of_month, start_month, end_month, memo, is_variable, cash_deposit_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
     """, (d.get('name'), d.get('category'), d.get('payment_method'),
           0 if d.get('is_variable') else d.get('amount', 0), d.get('card_id') or None,
           d.get('day_of_month', 1), d.get('start_month'),
-          d.get('end_month') or None, d.get('memo'), bool(d.get('is_variable'))))
+          d.get('end_month') or None, d.get('memo'), bool(d.get('is_variable')),
+          None if d.get('card_id') else (d.get('cash_deposit_id') or None)))
     cur.close(); db.commit(); db.close()
     return jsonify({'ok': True}), 201
 
@@ -1094,13 +1096,15 @@ def api_recurring_budget_detail(rid):
     cur.execute("""
         UPDATE recurring_budget
         SET name=%s, category=%s, payment_method=%s, amount=%s, card_id=%s,
-            day_of_month=%s, start_month=%s, end_month=%s, memo=%s, is_active=%s, is_variable=%s
+            day_of_month=%s, start_month=%s, end_month=%s, memo=%s, is_active=%s, is_variable=%s,
+            cash_deposit_id=%s
         WHERE id=%s
     """, (d.get('name'), d.get('category'), d.get('payment_method'),
           0 if d.get('is_variable') else d.get('amount', 0), d.get('card_id') or None,
           int(d.get('day_of_month', 1)), d.get('start_month'),
           d.get('end_month') or None, d.get('memo'),
-          d.get('is_active', True), bool(d.get('is_variable')), rid))
+          d.get('is_active', True), bool(d.get('is_variable')),
+          None if d.get('card_id') else (d.get('cash_deposit_id') or None), rid))
     if cur.rowcount == 0:
         cur.close(); db.close()
         return jsonify({'error': '없는 템플릿입니다.'}), 404
