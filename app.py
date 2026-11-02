@@ -6727,12 +6727,27 @@ def _remove_cash_adj(cur, source_type, source_id):
     cur.execute("DELETE FROM cash_auto_adjustments WHERE source_type=%s AND source_id=%s", (source_type, source_id))
 
 
+def _today_kst():
+    """한국 날짜 기준 오늘 (서버가 UTC 여도 자정~오전 9시에 하루 어긋나지 않게)"""
+    from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo('Asia/Seoul')).date()
+    except Exception:
+        return date.today()
+
+
 def _apply_re_payment_cash(cur, pid, direction, ptype, actual_date, amount, deposit_id, rname):
     """부동산 납입 한 줄이 통장 잔액에 미치는 영향을 맞춘다.
     매수(buy)  : 실제 지급일이 있으면 금액만큼 출금 (통장을 고르지 않으면 잔액이 가장 큰 통장)
     매도(sell) : 실제 수령일이 있고 입금 통장을 골랐으면 금액만큼 입금 (고르지 않으면 통장은 건드리지 않음)
-    그 외      : 이전에 반영한 것이 있으면 되돌림"""
+    그 외      : 이전에 반영한 것이 있으면 되돌림
+    단, 지급/수령일이 오늘보다 이전이면 이미 통장 잔액에 반영돼 있다고 보고 건드리지 않는다
+    (지난 날짜의 일정을 입력·재저장할 때마다 같은 금액이 또 빠지는 일을 막는다)."""
     amt = int(amount or 0)
+    if actual_date and str(actual_date)[:10] < _today_kst().isoformat():
+        _remove_cash_adj(cur, 're_payment', pid)       # 이전에 반영해 둔 것이 있으면 되돌린다
+        return
     if direction == 'buy' and actual_date:
         _upsert_cash_adj(cur, 're_payment', pid, -amt, f"{rname} {ptype}", actual_date, deposit_id)
     elif direction == 'sell' and actual_date and deposit_id:
