@@ -808,6 +808,9 @@ def init_db():
         # 고정비 ↔ 통장 잔액 연동: 템플릿에 통장을 연결한 날(이후 날짜의 내역부터 통장에서 차감),
         # 가계부 내역에는 차감한 통장과 차감액을 기록해 두어 금액 수정/삭제 때 정확히 되돌린다
         "ALTER TABLE recurring_budget ADD COLUMN IF NOT EXISTS deposit_linked_at DATE",
+        # 부동산 납입(매수=출금 / 매도=입금) 때 어느 통장 잔액을 움직일지 선택. 자동조정 기록에도 실제로 반영한 통장을 남긴다
+        "ALTER TABLE real_estate_payments ADD COLUMN IF NOT EXISTS deposit_id INTEGER REFERENCES cash_deposits(id) ON DELETE SET NULL",
+        "ALTER TABLE cash_auto_adjustments ADD COLUMN IF NOT EXISTS deposit_id INTEGER",
         "ALTER TABLE budget ADD COLUMN IF NOT EXISTS deposit_id INTEGER REFERENCES cash_deposits(id) ON DELETE SET NULL",
         "ALTER TABLE budget ADD COLUMN IF NOT EXISTS deposit_applied BIGINT NOT NULL DEFAULT 0",
         "ALTER TABLE budget DROP CONSTRAINT IF EXISTS budget_recurring_id_fkey",
