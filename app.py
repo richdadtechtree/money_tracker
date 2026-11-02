@@ -6834,6 +6834,67 @@ def api_cash_deposits_detail(rid):
     db.close()
     return jsonify({'ok': True})
 
+# ── 현금 합계 점검/맞추기 ─────────────────────────────────────
+def _cash_reconcile_report(db):
+    """현금관리 통장별로 '저장된 합계(amount)'와 '원화+달러×환율로 계산한 합계'를 비교한다.
+    옛 자동조정(부동산 납입 등)은 합계(amount)만 바꾸고 화면에 보이는 원화 잔액은 바꾸지 않아서,
+    통장 화면의 숫자와 대시보드·테크트리의 현금 합계가 어긋날 수 있었다."""
+    rate = get_current_exchange_rate()
+    cur = db.cursor()
+    cur.execute("SELECT id, name, krw_amount, usd_amount, amount, is_system FROM cash_deposits ORDER BY is_system, name")
+    rows = []
+    for r in cur.fetchall():
+        krw, usd, saved = float(r['krw_amount'] or 0), float(r['usd_amount'] or 0), int(r['amount'] or 0)
+        expected = int(round(krw + usd * rate))
+        # 원화·달러 잔액이 모두 0인데 합계만 양수인 줄은 옛 데이터일 수 있어 자동으로 고치지 않고 알려만 준다
+        unverified = (not r['is_system']) and krw == 0 and usd == 0 and saved > 0
+        rows.append({'id': r['id'], 'name': r['name'], 'is_system': bool(r['is_system']),
+                     'krw': krw, 'usd': usd, 'saved': saved, 'expected': expected,
+                     'diff': saved - expected, 'unverified': unverified})
+    cur.execute("""SELECT COALESCE(source_type,'') AS src, COUNT(*) AS n, COALESCE(SUM(amount),0) AS total
+                   FROM cash_auto_adjustments WHERE deposit_id IS NULL GROUP BY source_type ORDER BY source_type""")
+    legacy = [{'source': r['src'], 'count': r['n'], 'amount': int(r['total'])} for r in cur.fetchall()]
+    cur.close()
+    return {
+        'rate': rate,
+        'rows': rows,
+        'saved_total': sum(x['saved'] for x in rows),
+        'expected_total': sum(x['expected'] for x in rows if not x['unverified']) + sum(x['saved'] for x in rows if x['unverified']),
+        'legacy_adjustments': legacy,
+    }
+
+
+@app.route('/api/cash-reconcile', methods=['GET', 'POST'])
+def api_cash_reconcile():
+    """GET: 통장별 저장 합계 vs 계산 합계 비교(미리보기). POST {"confirm":"맞추기"}: 어긋난 통장의 합계를 계산값으로 바로잡고,
+    합계에만 영향을 줬던 옛 자동조정 기록을 정리한다."""
+    db = get_db()
+    _ensure_and_sync_deposit_row(db)
+    _refresh_usd_cash_amounts(db)
+    rep_ = _cash_reconcile_report(db)
+    if request.method == 'GET':
+        db.close()
+        return jsonify(rep_)
+    if (request.json or {}).get('confirm') != '맞추기':
+        db.close()
+        return jsonify({'error': "확인 문구 '맞추기'를 보내야 실행됩니다."}), 400
+    cur = db.cursor()
+    changed = []
+    for r in rep_['rows']:
+        if r['is_system'] or r['unverified'] or r['diff'] == 0:
+            continue
+        cur.execute("UPDATE cash_deposits SET amount=%s, updated_date=%s WHERE id=%s",
+                    (r['expected'], date.today().isoformat(), r['id']))
+        changed.append({'name': r['name'], 'from': r['saved'], 'to': r['expected']})
+    cur.execute("DELETE FROM cash_auto_adjustments WHERE deposit_id IS NULL")
+    cleared = cur.rowcount
+    cur.close()
+    db.commit()
+    after = _cash_reconcile_report(db)
+    db.close()
+    return jsonify({'ok': True, 'changed': changed, 'cleared_adjustments': cleared, 'saved_total': after['saved_total']})
+
+
 # ── API: 현금 자동 조정 ──────────────────────────────────────
 @app.route('/api/cash-auto-adjustments', methods=['GET', 'DELETE'])
 def api_cash_auto_adj():
