@@ -6547,11 +6547,17 @@ def api_pension():
         cur.close()
         # 연동 행에는 그 계좌에서 보유 중인 종목 세부내역을 함께 내려준다 (연금 화면이 보여주는 용도, 합계에는 포함하지 않음)
         if any(r.get('account_id') for r in rows):
-            pos = _compute_account_positions(db, get_current_exchange_rate())
+            ex = get_current_exchange_rate()
+            pos = _compute_account_positions(db, ex)
+            cash = get_account_cash_map(db)       # 계좌 예수금(원화/달러) — 화면에 비중을 보여주기 위한 값이며 연금 누적액에는 더하지 않는다
             for r in rows:
                 if r.get('account_id'):
                     items = (pos.get(r['account_id']) or {}).get('items', [])
                     r['holdings'] = sorted(items, key=lambda x: -x['eval_amount'])
+                    c = cash.get(r['account_id'], {'krw': 0.0, 'usd': 0.0})
+                    r['cash_krw'] = round(c['krw'])
+                    r['cash_usd'] = round(c['usd'], 4)
+                    r['cash_total'] = round(c['krw'] + c['usd'] * ex)      # 원화 환산 예수금
         db.close()
         return jsonify(rows)
 
