@@ -6238,14 +6238,26 @@ def api_real_estate_sell(rid):
     )
 
     # 2. 이번 매도 확정 폼에서 넘어온 매도 거래 단계(payments) 저장
+    #    (이미 임시 저장돼 통장에 입금됐던 매도 단계는 먼저 되돌리고, 새 단계로 다시 반영한다)
+    cur.execute("SELECT id FROM real_estate_payments WHERE sold_real_estate_id = %s AND direction = 'sell'", (sold_id,))
+    for _old in cur.fetchall():
+        _remove_cash_adj(cur, 're_payment', _old['id'])
     cur.execute("DELETE FROM real_estate_payments WHERE sold_real_estate_id = %s AND direction = 'sell'", (sold_id,))
     payments = d.get('payments', [])
     for p in payments:
+        err = _check_payment_deposit(cur, p.get('deposit_id'))
+        if err:
+            db.rollback(); db.close()
+            return jsonify({'error': err}), 400
         cur.execute(
-            "INSERT INTO real_estate_payments (sold_real_estate_id, direction, payment_type, scheduled_date, actual_date, amount, memo) "
-            "VALUES (%s, 'sell', %s, %s, %s, %s, '')",
-            (sold_id, p.get('payment_type'), p.get('scheduled_date') or None, p.get('actual_date') or None, p.get('amount', 0))
+            "INSERT INTO real_estate_payments (sold_real_estate_id, direction, payment_type, scheduled_date, actual_date, amount, memo, deposit_id) "
+            "VALUES (%s, 'sell', %s, %s, %s, %s, '', %s) RETURNING id",
+            (sold_id, p.get('payment_type'), p.get('scheduled_date') or None, p.get('actual_date') or None,
+             p.get('amount', 0), p.get('deposit_id') or None)
         )
+        _pid = cur.fetchone()['id']
+        _apply_re_payment_cash(cur, _pid, 'sell', p.get('payment_type', ''), p.get('actual_date'),
+                               p.get('amount', 0), p.get('deposit_id') or None, re['name'])
     cur.close()
 
     # 원본 데이터 삭제 (관련 레코드 먼저; real_estate_payments는 분리 완료되어 영향 없음)
@@ -6312,12 +6324,16 @@ def api_re_payments():
         cur = db.cursor()
         if rid:
             cur.execute(
-                "SELECT * FROM real_estate_payments WHERE real_estate_id=%s ORDER BY scheduled_date, id",
+                "SELECT p.*, d.name AS deposit_name FROM real_estate_payments p "
+                "LEFT JOIN cash_deposits d ON d.id = p.deposit_id "
+                "WHERE p.real_estate_id=%s ORDER BY p.scheduled_date, p.id",
                 (rid,)
             )
         elif sid:
             cur.execute(
-                "SELECT * FROM real_estate_payments WHERE sold_real_estate_id=%s ORDER BY scheduled_date, id",
+                "SELECT p.*, d.name AS deposit_name FROM real_estate_payments p "
+                "LEFT JOIN cash_deposits d ON d.id = p.deposit_id "
+                "WHERE p.sold_real_estate_id=%s ORDER BY p.scheduled_date, p.id",
                 (sid,)
             )
         else:
@@ -6332,12 +6348,16 @@ def api_re_payments():
 
     d = request.json
     cur = db.cursor()
+    err = _check_payment_deposit(cur, d.get('deposit_id'))
+    if err:
+        cur.close(); db.close()
+        return jsonify({'error': err}), 400
     cur.execute(
-        "INSERT INTO real_estate_payments (real_estate_id, direction, payment_type, scheduled_date, actual_date, amount, memo) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        "INSERT INTO real_estate_payments (real_estate_id, direction, payment_type, scheduled_date, actual_date, amount, memo, deposit_id) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
         (d.get('real_estate_id'), d.get('direction'), d.get('payment_type'),
          d.get('scheduled_date') or None, d.get('actual_date') or None,
-         d.get('amount', 0), d.get('memo'))
+         d.get('amount', 0), d.get('memo'), d.get('deposit_id') or None)
     )
     new_id = cur.fetchone()[0]
 
@@ -6348,18 +6368,14 @@ def api_re_payments():
             (d.get('actual_date'), d.get('real_estate_id'))
         )
 
-    # 매수 실지급 → 현금 자동 조정 생성
-    if d.get('direction') == 'buy' and d.get('actual_date'):
-        re_id = d.get('real_estate_id')
-        if re_id:
-            cur.execute("SELECT name FROM real_estate WHERE id=%s", (re_id,))
-            r = cur.fetchone()
-            rname = r['name'] if r else '부동산'
-        else:
-            rname = '부동산'
-        ptype = d.get('payment_type', '')
-        amt = -int(d.get('amount', 0))
-        _upsert_cash_adj(cur, 're_payment', new_id, amt, f"{rname} {ptype}", d.get('actual_date'))
+    # 실지급(매수)/실수령(매도) → 선택한 통장 잔액에 자동 반영
+    rname = '부동산'
+    if d.get('real_estate_id'):
+        cur.execute("SELECT name FROM real_estate WHERE id=%s", (d.get('real_estate_id'),))
+        r = cur.fetchone()
+        rname = r['name'] if r else '부동산'
+    _apply_re_payment_cash(cur, new_id, d.get('direction'), d.get('payment_type', ''), d.get('actual_date'),
+                           d.get('amount', 0), d.get('deposit_id') or None, rname)
 
     cur.close()
     db.commit(); db.close()
@@ -6379,12 +6395,16 @@ def api_re_payment_detail(pid):
 
     d = request.json
     cur = db.cursor()
+    err = _check_payment_deposit(cur, d.get('deposit_id'))
+    if err:
+        cur.close(); db.close()
+        return jsonify({'error': err}), 400
     cur.execute(
         "UPDATE real_estate_payments SET direction=%s, payment_type=%s, scheduled_date=%s, "
-        "actual_date=%s, amount=%s, memo=%s WHERE id=%s",
+        "actual_date=%s, amount=%s, memo=%s, deposit_id=%s WHERE id=%s",
         (d.get('direction'), d.get('payment_type'),
          d.get('scheduled_date') or None, d.get('actual_date') or None,
-         d.get('amount', 0), d.get('memo'), pid)
+         d.get('amount', 0), d.get('memo'), d.get('deposit_id') or None, pid)
     )
 
     # 매수일정 잔금일에 취득일 자동 등록
@@ -6397,19 +6417,15 @@ def api_re_payment_detail(pid):
                 (d.get('actual_date'), row[0])
             )
 
-    # 매수 실지급 → 현금 자동 조정 갱신
-    if d.get('direction') == 'buy' and d.get('actual_date'):
-        cur.execute(
-            "SELECT r.name FROM real_estate_payments p "
-            "LEFT JOIN real_estate r ON r.id=p.real_estate_id WHERE p.id=%s", (pid,)
-        )
-        row = cur.fetchone()
-        rname = row['name'] if row and row.get('name') else '부동산'
-        ptype = d.get('payment_type', '')
-        amt = -int(d.get('amount', 0))
-        _upsert_cash_adj(cur, 're_payment', pid, amt, f"{rname} {ptype}", d.get('actual_date'))
-    else:
-        _remove_cash_adj(cur, 're_payment', pid)
+    # 실지급(매수)/실수령(매도) → 선택한 통장 잔액 자동 반영 갱신
+    cur.execute(
+        "SELECT r.name FROM real_estate_payments p "
+        "LEFT JOIN real_estate r ON r.id=p.real_estate_id WHERE p.id=%s", (pid,)
+    )
+    row = cur.fetchone()
+    rname = row['name'] if row and row.get('name') else '부동산'
+    _apply_re_payment_cash(cur, pid, d.get('direction'), d.get('payment_type', ''), d.get('actual_date'),
+                           d.get('amount', 0), d.get('deposit_id') or None, rname)
 
     cur.close()
     db.commit(); db.close()
@@ -6649,61 +6665,93 @@ def _refresh_usd_cash_amounts(db, ex_rate=None):
     db.commit()
 
 
-def _upsert_cash_adj(cur, source_type, source_id, amount, description, adj_date=None):
-    """자동조정 기록 후 즉시 현금 잔액에 반영 (현금관리 통장 중 잔액 최대 통장 증감).
+def _largest_bank_id(cur):
+    """잔액이 가장 큰 원화 통장 id (통장을 따로 고르지 않았을 때의 기본 대상). 없으면 None."""
+    cur.execute("SELECT id FROM cash_deposits WHERE usd_amount = 0 AND NOT is_system ORDER BY amount DESC LIMIT 1")
+    r = cur.fetchone()
+    return r['id'] if r else None
+
+
+def _legacy_adjust_amount(cur, delta, adj_date):
+    """(옛 방식) 반영한 통장을 기록해 두지 않은 자동조정 — 지금 잔액이 가장 큰 통장의 amount 만 증감한다."""
+    acct_id = _largest_bank_id(cur)
+    if acct_id and delta:
+        cur.execute("UPDATE cash_deposits SET amount = amount + %s, updated_date=%s WHERE id=%s",
+                    (int(delta), adj_date, acct_id))
+
+
+def _undo_cash_adj_effect(cur, prev_amount, prev_deposit_id, adj_date):
+    """이전에 반영했던 자동조정을 되돌린다. 반영한 통장이 기록돼 있으면 그 통장에서, 옛 기록이면 예전 방식대로."""
+    if not prev_amount:
+        return
+    if prev_deposit_id:
+        _bank_adjust(cur, prev_deposit_id, 'KRW', -prev_amount, allow_negative=True)
+    else:
+        _legacy_adjust_amount(cur, -prev_amount, adj_date)
+
+
+def _upsert_cash_adj(cur, source_type, source_id, amount, description, adj_date=None, deposit_id=None):
+    """자동조정을 기록하고 통장 잔액에 반영한다. amount 가 음수면 출금, 양수면 입금.
+    deposit_id 로 통장을 고르면 그 통장에, 고르지 않으면 잔액이 가장 큰 원화 통장에 반영한다.
+    반영한 통장은 기록해 두므로 나중에 수정/삭제할 때 같은 통장에서 정확히 되돌린다.
     지금은 부동산 납입(re_payment)에서만 새로 기록한다. 주식·ETF 매수/매도는 투자 계좌 예수금 원장으로 옮겨졌고
-    (_record_trade_cash), 이 기록은 그 이전에 쌓인 옛 거래의 통장 차감을 되돌릴 때(_remove_cash_adj)만 남아 있다."""
+    (_record_trade_cash), 그 이전 거래의 기록은 _remove_cash_adj 로 되돌릴 때만 남아 있다."""
     if adj_date is None:
         adj_date = date.today().isoformat()
 
-    # 이전 동일 소스의 기존 조정액 조회 (역적용 위해)
-    cur.execute(
-        "SELECT amount FROM cash_auto_adjustments WHERE source_type=%s AND source_id=%s",
-        (source_type, source_id)
-    )
-    prev = cur.fetchone()
-    prev_amount = int(prev['amount']) if prev else 0
-
-    # 자동조정 테이블 upsert
-    cur.execute("""
-        INSERT INTO cash_auto_adjustments (adj_date, source_type, source_id, amount, description, applied)
-        VALUES (%s, %s, %s, %s, %s, TRUE)
-        ON CONFLICT (source_type, source_id) DO UPDATE
-            SET adj_date=EXCLUDED.adj_date, amount=EXCLUDED.amount,
-                description=EXCLUDED.description, applied=TRUE
-    """, (adj_date, source_type, source_id, amount, description))
-
-    # 현금 최대 잔액 계좌에 차액 즉시 반영
-    delta = amount - prev_amount
-    if delta != 0:
-        cur.execute("SELECT id, amount FROM cash_deposits WHERE usd_amount = 0 AND NOT is_system ORDER BY amount DESC LIMIT 1")
-        acct = cur.fetchone()
-        if acct:
-            cur.execute(
-                "UPDATE cash_deposits SET amount=%s, updated_date=%s WHERE id=%s",
-                (int(acct['amount']) + delta, adj_date, acct['id'])
-            )
-
-def _remove_cash_adj(cur, source_type, source_id):
-    """자동조정 삭제 시 현금 잔액도 역적용"""
-    cur.execute(
-        "SELECT amount FROM cash_auto_adjustments WHERE source_type=%s AND source_id=%s",
-        (source_type, source_id)
-    )
+    cur.execute("SELECT amount, deposit_id FROM cash_auto_adjustments WHERE source_type=%s AND source_id=%s",
+                (source_type, source_id))
     prev = cur.fetchone()
     if prev:
-        prev_amount = int(prev['amount'])
-        cur.execute("SELECT id, amount FROM cash_deposits WHERE usd_amount = 0 AND NOT is_system ORDER BY amount DESC LIMIT 1")
-        acct = cur.fetchone()
-        if acct:
-            cur.execute(
-                "UPDATE cash_deposits SET amount=%s, updated_date=%s WHERE id=%s",
-                (int(acct['amount']) - prev_amount, date.today().isoformat(), acct['id'])
-            )
-    cur.execute(
-        "DELETE FROM cash_auto_adjustments WHERE source_type=%s AND source_id=%s",
-        (source_type, source_id)
-    )
+        _undo_cash_adj_effect(cur, int(prev['amount']), prev['deposit_id'], adj_date)
+
+    target = deposit_id or _largest_bank_id(cur)
+    cur.execute("""
+        INSERT INTO cash_auto_adjustments (adj_date, source_type, source_id, amount, description, applied, deposit_id)
+        VALUES (%s, %s, %s, %s, %s, TRUE, %s)
+        ON CONFLICT (source_type, source_id) DO UPDATE
+            SET adj_date=EXCLUDED.adj_date, amount=EXCLUDED.amount,
+                description=EXCLUDED.description, applied=TRUE, deposit_id=EXCLUDED.deposit_id
+    """, (adj_date, source_type, source_id, amount, description, target))
+    if target and amount:
+        _bank_adjust(cur, target, 'KRW', amount, allow_negative=True)
+
+
+def _remove_cash_adj(cur, source_type, source_id):
+    """자동조정 삭제 시 통장 잔액도 역적용"""
+    cur.execute("SELECT amount, deposit_id FROM cash_auto_adjustments WHERE source_type=%s AND source_id=%s",
+                (source_type, source_id))
+    prev = cur.fetchone()
+    if prev:
+        _undo_cash_adj_effect(cur, int(prev['amount']), prev['deposit_id'], date.today().isoformat())
+    cur.execute("DELETE FROM cash_auto_adjustments WHERE source_type=%s AND source_id=%s", (source_type, source_id))
+
+
+def _apply_re_payment_cash(cur, pid, direction, ptype, actual_date, amount, deposit_id, rname):
+    """부동산 납입 한 줄이 통장 잔액에 미치는 영향을 맞춘다.
+    매수(buy)  : 실제 지급일이 있으면 금액만큼 출금 (통장을 고르지 않으면 잔액이 가장 큰 통장)
+    매도(sell) : 실제 수령일이 있고 입금 통장을 골랐으면 금액만큼 입금 (고르지 않으면 통장은 건드리지 않음)
+    그 외      : 이전에 반영한 것이 있으면 되돌림"""
+    amt = int(amount or 0)
+    if direction == 'buy' and actual_date:
+        _upsert_cash_adj(cur, 're_payment', pid, -amt, f"{rname} {ptype}", actual_date, deposit_id)
+    elif direction == 'sell' and actual_date and deposit_id:
+        _upsert_cash_adj(cur, 're_payment', pid, amt, f"{rname} {ptype} 입금", actual_date, deposit_id)
+    else:
+        _remove_cash_adj(cur, 're_payment', pid)
+
+
+def _check_payment_deposit(cur, deposit_id):
+    """부동산 납입에 지정한 통장이 실제 있는 일반 통장인지 확인. 문제 있으면 안내 문구를 돌려준다."""
+    if not deposit_id:
+        return None
+    cur.execute("SELECT is_system FROM cash_deposits WHERE id=%s", (deposit_id,))
+    r = cur.fetchone()
+    if not r:
+        return '선택한 통장을 찾을 수 없습니다.'
+    if r['is_system']:
+        return '예수금은 선택할 수 없습니다. 현금관리의 일반 통장을 선택하세요.'
+    return None
 
 
 # ── API: 현금/예금 ───────────────────────────────────────────

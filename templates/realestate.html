@@ -234,6 +234,13 @@
           <input type="date" class="form-control" id="sell-date" max="9999-12-31">
         </div>
 
+        <!-- 매도대금을 받을 통장 -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">입금 받을 통장</label>
+          <select class="form-select" id="sell-deposit"></select>
+          <div class="form-text">실제 수령일을 입력한 단계의 금액이 이 통장에 입금됩니다. 고르지 않으면 통장 잔액은 바뀌지 않습니다.</div>
+        </div>
+
         <!-- 거래 단계 (계약금/중도금/잔금) -->
         <div class="mb-3">
           <div class="d-flex justify-content-between align-items-center mb-2">
@@ -548,6 +555,12 @@
           </div>
         </div>
 
+        <div class="mb-3">
+          <label class="form-label fw-semibold">출금 통장</label>
+          <select class="form-select form-select-sm" id="buy-deposit"></select>
+          <div class="form-text">실제 지급일을 입력한 단계의 금액이 이 통장에서 빠집니다. 고르지 않으면 잔액이 가장 큰 통장에서 빠집니다.</div>
+        </div>
+
         <div class="d-flex justify-content-between align-items-center mb-2">
           <label class="form-label fw-semibold mb-0">거래 단계 입력</label>
           <button type="button" class="btn btn-sm btn-outline-primary" onclick="addBuyRow()">
@@ -782,6 +795,7 @@ const reGrid = new GridTable({
               scheduled_date: r.scheduled || null,
               actual_date: r.actual || null,
               amount: r.amount, memo: '',
+              deposit_id: r.deposit_id || null,
             }),
           });
         }
@@ -939,7 +953,19 @@ const PAYMENT_TYPES = ['계약금', '중도금', '잔금', '기타'];
 let sellTargetId = null;
 let sellPurchasePrice = 0;
 let sellRealInv = 0;
-let _sellRows = [];   // [{type, scheduled, actual, amount}]
+let _sellRows = [];   // [{type, scheduled, actual, amount, deposit_id}]
+
+/** 통장 선택 상자를 채운다. 현금관리의 일반 통장(예수금 합계 행 제외)만 보여준다. selectedId 는 미리 선택할 통장 id */
+async function fillDepositSelect(selectId, emptyLabel, selectedId) {
+  const sel = document.getElementById(selectId);
+  let deps = [];
+  try { deps = ((await fetchJSON('/api/cash-deposits')) || []).filter(d => !d.is_system); } catch (e) { deps = []; }
+  sel.innerHTML = `<option value="">${emptyLabel}</option>` +
+    deps.map(d => `<option value="${d.id}">${d.name} (${fmt(d.krw_amount || 0)}원)</option>`).join('');
+  sel.value = selectedId ? String(selectedId) : '';
+  if (selectedId && sel.value !== String(selectedId)) sel.value = '';     // 지워진 통장이면 선택 해제
+}
+const _depOf = id => { const v = document.getElementById(id).value; return v ? parseInt(v) : null; };
 
 function openSellModal(id, name, purchasePrice, realInv) {
   sellTargetId = id;
@@ -965,10 +991,11 @@ function openSellModal(id, name, purchasePrice, realInv) {
   fetchJSON(`/api/real-estate-payments?real_estate_id=${id}&_t=${Date.now()}`).then(rows => {
     const sellRows = (rows || []).filter(r => r.direction === 'sell');
     _sellRows = sellRows.length
-      ? sellRows.map(r => ({ id: r.id, type: r.payment_type, scheduled: r.scheduled_date || '', actual: r.actual_date || '', amount: r.amount }))
+      ? sellRows.map(r => ({ id: r.id, type: r.payment_type, scheduled: r.scheduled_date || '', actual: r.actual_date || '', amount: r.amount, deposit_id: r.deposit_id || null }))
       : [{ type: '계약금', scheduled: '', actual: '', amount: 0 },
          { type: '잔금',   scheduled: '', actual: '', amount: 0 }];
     renderSellRows();
+    fillDepositSelect('sell-deposit', '입금하지 않음 (통장 잔액 변경 없음)', (sellRows.find(r => r.deposit_id) || {}).deposit_id);
   });
 
   bootstrap.Modal.getOrCreateInstance(document.getElementById('sellModal')).show();
@@ -1049,6 +1076,7 @@ async function _saveSellPayments() {
         scheduled_date: r.scheduled || null,
         actual_date: r.actual || null,
         amount: r.amount, memo: '',
+        deposit_id: _depOf('sell-deposit'),
       }),
     });
   }
@@ -1092,6 +1120,7 @@ async function confirmSell() {
   const payments = _sellRows.filter(r => r.amount > 0).map(r => ({
     payment_type: r.type, scheduled_date: r.scheduled || null,
     actual_date: r.actual || null, amount: r.amount,
+    deposit_id: _depOf('sell-deposit'),
   }));
 
   const res = await fetch(`/api/real-estate/${sellTargetId}/sell`, {
@@ -1130,6 +1159,7 @@ function skipBuyAndAdd() {
 
 function saveBuyScheduleAndAdd() {
   if (_buyRows.some(r => r.amount)) {
+    _buyRows.forEach(r => { r.deposit_id = _depOf('buy-deposit'); });
     tempBuyRows = JSON.parse(JSON.stringify(_buyRows));
   } else {
     tempBuyRows = null;
@@ -1149,6 +1179,7 @@ async function openBuyModal(id, name) {
     // 신규 부동산 추가 중인 경우: 임시 저장된 매수 일정이 있으면 복사하고, 없으면 기본값 설정
     if (tempBuyRows && tempBuyRows.length > 0) {
       _buyRows = JSON.parse(JSON.stringify(tempBuyRows));
+      var _buyDepPre = (_buyRows.find(r => r.deposit_id) || {}).deposit_id;
     } else {
       _buyRows = [
         { type: '계약금', scheduled: '', actual: '', amount: 0 },
@@ -1160,11 +1191,13 @@ async function openBuyModal(id, name) {
     const rows = await fetchJSON(`/api/real-estate-payments?real_estate_id=${id}&_t=${Date.now()}`);
     const buyRows = (rows || []).filter(r => r.direction === 'buy');
     _buyRows = buyRows.length
-      ? buyRows.map(r => ({ id: r.id, type: r.payment_type, scheduled: r.scheduled_date || '', actual: r.actual_date || '', amount: r.amount }))
+      ? buyRows.map(r => ({ id: r.id, type: r.payment_type, scheduled: r.scheduled_date || '', actual: r.actual_date || '', amount: r.amount, deposit_id: r.deposit_id || null }))
       : [{ type: '계약금', scheduled: '', actual: '', amount: 0 },
          { type: '잔금',   scheduled: '', actual: '', amount: 0 }];
+    var _buyDepPre = (buyRows.find(r => r.deposit_id) || {}).deposit_id;
   }
   renderBuyRows();
+  fillDepositSelect('buy-deposit', '자동 (잔액이 가장 큰 통장)', typeof _buyDepPre !== 'undefined' ? _buyDepPre : null);
 
   const showNewFooter = (id === 'new') && _isNewREAdd;
   document.getElementById('buy-footer-existing').style.display = showNewFooter ? 'none' : '';
@@ -1221,6 +1254,7 @@ async function saveBuySchedule() {
 
   if (buyTargetId === 'new') {
     // 신규 부동산 추가 중인 경우: 메모리에 임시 저장하고 창만 닫음 (그리드 리로드 방지)
+    _buyRows.forEach(r => { r.deposit_id = _depOf('buy-deposit'); });
     tempBuyRows = JSON.parse(JSON.stringify(_buyRows));
     _afterSaveSuccess('buyModal', () => {
       alert('매수 일정이 임시 저장되었습니다.\n부동산 정보 입력칸 오른쪽의 저장(체크버튼)을 누르면 최종 저장됩니다.');
@@ -1245,6 +1279,7 @@ async function saveBuySchedule() {
         scheduled_date: r.scheduled || null,
         actual_date: r.actual || null,
         amount: r.amount, memo: '',
+        deposit_id: _depOf('buy-deposit'),
       }),
     });
   }
