@@ -175,7 +175,7 @@
           <button class="btn btn-outline-secondary btn-sm" onclick="recalcAllRealizedPnl()">
             <i class="bi bi-arrow-repeat me-1"></i>실현손익 재계산
           </button>
-          <small class="text-muted d-none d-lg-inline" title="매수·매도는 선택한 계좌의 예수금에서 자동으로 빠지고 더해집니다 (국내=원화, 해외=달러, 원화로 결제했다면 '결제'에서 원화 선택). 이미 보유 중인 종목을 처음 등록할 때는 구분=매수, 기초보유=기초 보유로 입력하세요. 단가에는 평균 매입단가를 넣으며 예수금은 변하지 않습니다.">
+          <small class="text-muted d-none d-lg-inline" title="매수·매도는 선택한 계좌의 예수금에서 자동으로 빠지고 더해집니다 (국내=원화, 해외=달러. 해외 종목을 살 때 달러 예수금이 모자라면 원화 예수금에서 거래 환율로 자동 환전합니다. 원화로 바로 결제하려면 '결제'에서 원화 선택). 이미 보유 중인 종목을 처음 등록할 때는 구분=매수, 기초보유=기초 보유로 입력하세요. 단가에는 평균 매입단가를 넣으며 예수금은 변하지 않습니다.">
             <i class="bi bi-info-circle"></i> 매매는 계좌 예수금에 자동 반영 · 종목 줄의 [매수]/[매도]로 빠르게 등록 · 기존 보유분은 '기초보유'
           </small>
           <button class="btn btn-primary btn-sm" onclick="txGrid.addRow()">
@@ -1804,6 +1804,14 @@ function updateQuickPreview() {
     ? `${acct.name} ${settle === 'USD' ? '달러' : '원화'} 예수금 ${fmtCash(now)} → ${fmtCash(now + delta)}`
     : '계좌를 선택하면 예수금 변화를 보여줍니다.';
   pv2.className = 'small mt-1 ' + (acct && now + delta < 0 ? 'text-danger' : 'text-muted');
+  // 해외 종목을 달러로 사는데 달러 예수금이 모자라고 원화 예수금이 있으면, 서버가 모자란 만큼 원화를 달러로 자동 환전한다
+  if (acct && foreign && settle === 'USD' && side === 'buy' && now + delta < 0 && acct.cash_krw > 0) {
+    const shortUsd = -(now + delta);
+    const needKrw = shortUsd * usdKrw;
+    const useKrw = Math.min(needKrw, acct.cash_krw);
+    pv2.textContent += ` · 💱 달러 부족분 ${fmtUsdCash(shortUsd)}은 원화 예수금에서 자동 환전합니다 (약 ${fmt(Math.round(useKrw))}원, 환율 ${usdKrw.toLocaleString('ko-KR')})`;
+    pv2.className = 'small mt-1 ' + (needKrw > acct.cash_krw ? 'text-danger' : 'text-info-emphasis');
+  }
 }
 
 async function saveQuickTrade() {
@@ -1824,6 +1832,7 @@ async function saveQuickTrade() {
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (res === null) { alert(fetchJSON.lastError || '등록하지 못했습니다.'); return; }
   _afterSaveSuccess('quickTradeModal', async () => {
+    if (res.notice) showToast('💱 ' + res.notice);
     if (res.warning) alert(res.warning);
     await Promise.all([stockGrid.load(), etfGrid.load()]);     // 각 onLoad 에서 거래내역도 이어서 갱신
     refreshAccountBar();
@@ -2112,7 +2121,7 @@ const txGrid = new GridTable({
       }},
     { key: 'memo',     type: 'text' },
   ],
-  onSave:   (res) => { if (res?.warning) alert(res.warning); Promise.all([stockGrid.load(), etfGrid.load()]); loadAccountSummary().then(renderAccountBar); },
+  onSave:   (res) => { if (res?.notice) showToast('💱 ' + res.notice); if (res?.warning) alert(res.warning); Promise.all([stockGrid.load(), etfGrid.load()]); loadAccountSummary().then(renderAccountBar); },
   onDelete: () => { Promise.all([stockGrid.load(), etfGrid.load()]); loadAccountSummary().then(renderAccountBar); },
   onStartEdit: (tr, r) => {
     prefillAccount(tr, r);

@@ -1963,7 +1963,7 @@ def api_stocks_detail(rid):
         return jsonify({'ok': True})
     cur = db.cursor()
     # 이 종목의 매수·매도로 기록된 계좌 예수금 원장 줄도 함께 지운다 (예수금은 거래 이전 상태로 돌아간다)
-    cur.execute("DELETE FROM account_cash_tx WHERE ref_type='stock_tx' AND ref_id IN (SELECT id FROM stock_tx WHERE stock_id = %s)", (rid,))
+    cur.execute("DELETE FROM account_cash_tx WHERE ref_type IN ('stock_tx','stock_tx_fx') AND ref_id IN (SELECT id FROM stock_tx WHERE stock_id = %s)", (rid,))
     cur.execute("DELETE FROM stock_tx WHERE stock_id = %s", (rid,))
     cur.close()
     cur = db.cursor()
@@ -2060,19 +2060,61 @@ def _trade_cash_amount(ticker, tx_type, price, quantity, fee, exchange_rate, set
     return round(amt) if settle == 'KRW' else round(amt, 4)
 
 
+def _auto_fx_for_buy(cur, ref_type, ref_id, account_id, need_usd, ex, tx_date, label):
+    """해외 종목을 달러로 결제하는 매수인데 그 계좌의 달러 예수금이 모자라고 원화 예수금이 있으면,
+    모자란 만큼을 원화에서 달러로 자동 환전해 둔다(환율은 거래 환율). 원화가 모자라 일부만 환전할 수 있으면 가능한 만큼만 한다.
+    환전 줄은 ref_type + '_fx' 로 기록해 이 거래를 수정·삭제하면 함께 지워진다. 반환: (환전한 달러, 쓴 원화) 또는 None.
+    환차손익은 사용자가 잔액설정으로 직접 보정한다는 전제라, 환율은 거래 환율 그대로 쓴다."""
+    if not ex or float(ex) <= 1.0:
+        return None
+    cur.execute("SELECT currency, COALESCE(SUM(amount),0) AS bal FROM account_cash_tx WHERE account_id=%s GROUP BY currency",
+                (account_id,))
+    bal = {r['currency']: float(r['bal']) for r in cur.fetchall()}
+    usd_bal, krw_bal = bal.get('USD', 0.0), bal.get('KRW', 0.0)
+    short = round(need_usd - usd_bal, 4)                   # 이 매수를 하려면 더 필요한 달러
+    if short <= 0 or krw_bal <= 0:
+        return None
+    max_usd = _math.floor(krw_bal / float(ex) * 10000) / 10000     # 원화 예수금으로 살 수 있는 최대 달러(내림)
+    conv_usd = round(min(short, max_usd), 4)
+    if conv_usd <= 0:
+        return None
+    conv_krw = min(int(round(conv_usd * float(ex))), int(krw_bal))
+    memo = f"{label} 자동 환전 (1달러={float(ex):,.2f}원)"
+    for code, amt in (('KRW', -conv_krw), ('USD', conv_usd)):
+        cur.execute("""INSERT INTO account_cash_tx (account_id, tx_date, currency, kind, amount, ref_type, ref_id, memo)
+                       VALUES (%s,%s,%s,'exchange',%s,%s,%s,%s)""",
+                    (account_id, tx_date, code, amt, ref_type + '_fx', ref_id, memo))
+    return conv_usd, conv_krw
+
+
 def _record_trade_cash(cur, ref_type, ref_id, account_id, is_opening, tx_type, ticker, price, quantity, fee, ex,
                        settle, tx_date, label):
     """이 거래에 연결된 예수금 원장 줄을 지우고(수정 시 이전 기록 교체) 새로 기록한다.
-    기초 보유와 매수·매도가 아닌 거래는 기록하지 않는다. 반환: 기록한 통화(없으면 None)."""
-    cur.execute("DELETE FROM account_cash_tx WHERE ref_type=%s AND ref_id=%s", (ref_type, ref_id))
+    기초 보유와 매수·매도가 아닌 거래는 기록하지 않는다. 반환: 기록한 통화(없으면 None).
+    해외 종목 매수를 달러로 결제하는데 달러 예수금이 모자라면 원화 예수금에서 자동 환전한다(_auto_fx_for_buy)."""
+    cur.execute("DELETE FROM account_cash_tx WHERE ref_type IN (%s, %s) AND ref_id=%s", (ref_type, ref_type + '_fx', ref_id))
     if is_opening or settle is None or tx_type not in ('buy', '매수', 'sell', '매도'):
         return None
     kind = 'buy' if tx_type in ('buy', '매수') else 'sell'
     amt = _trade_cash_amount(ticker, tx_type, price, quantity, fee, ex, settle)
+    if kind == 'buy' and settle == 'USD' and amt < 0:
+        _auto_fx_for_buy(cur, ref_type, ref_id, account_id, round(-amt, 4), ex, tx_date, label)
     cur.execute("""INSERT INTO account_cash_tx (account_id, tx_date, currency, kind, amount, ref_type, ref_id, memo)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (account_id, tx_date, settle, kind, amt, ref_type, ref_id, label))
     return settle
+
+
+def _trade_fx_notice(db, ref_type, ref_id):
+    """이 거래에서 자동 환전이 일어났다면 화면에 보여줄 안내 문구, 없으면 None."""
+    cur = db.cursor()
+    cur.execute("SELECT currency, amount FROM account_cash_tx WHERE ref_type=%s AND ref_id=%s",
+                (ref_type + '_fx', ref_id))
+    rows = {r['currency']: float(r['amount']) for r in cur.fetchall()}
+    cur.close()
+    if 'USD' not in rows or 'KRW' not in rows:
+        return None
+    return f"달러 예수금이 부족해 원화 {abs(rows['KRW']):,.0f}원을 ${rows['USD']:,.4f}로 자동 환전해 매수했습니다."
 
 
 def _trade_cash_warning(db, account_id, currency, tx_type):
@@ -3201,6 +3243,9 @@ def api_stock_tx():
     warn = _trade_cash_warning(db, account_id, used, tx_type)
     if warn:
         out['warning'] = warn
+    notice = _trade_fx_notice(db, 'stock_tx', new_id)
+    if notice:
+        out['notice'] = notice
     db.close()
     return jsonify(out), 201
 
@@ -3257,6 +3302,9 @@ def api_stock_tx_detail(rid):
         warn = _trade_cash_warning(db, account_id, used, tx_type)
         if warn:
             out['warning'] = warn
+        notice = _trade_fx_notice(db, 'stock_tx', rid)
+        if notice:
+            out['notice'] = notice
         db.close()
         return jsonify(out)
     cur = db.cursor()
@@ -3264,7 +3312,7 @@ def api_stock_tx_detail(rid):
     old_row = cur.fetchone()
     old_stock_id = old_row['stock_id'] if old_row else None
     _remove_cash_adj(cur, 'stock_tx', rid)       # 예전 방식으로 기록된 거래의 통장 차감 되돌림
-    cur.execute("DELETE FROM account_cash_tx WHERE ref_type='stock_tx' AND ref_id=%s", (rid,))   # 계좌 예수금 반영 되돌림
+    cur.execute("DELETE FROM account_cash_tx WHERE ref_type IN ('stock_tx','stock_tx_fx') AND ref_id=%s", (rid,))   # 계좌 예수금 반영 되돌림
     cur.execute("DELETE FROM stock_tx WHERE id = %s", (rid,))
     if old_stock_id is not None:
         recalc_realized_pnl(db, old_stock_id)
@@ -3380,7 +3428,7 @@ def api_etf_detail(rid):
         db.close()
         return jsonify({'ok': True})
     cur = db.cursor()
-    cur.execute("DELETE FROM account_cash_tx WHERE ref_type='etf_tx' AND ref_id IN (SELECT id FROM etf_tx WHERE etf_id = %s)", (rid,))
+    cur.execute("DELETE FROM account_cash_tx WHERE ref_type IN ('etf_tx','etf_tx_fx') AND ref_id IN (SELECT id FROM etf_tx WHERE etf_id = %s)", (rid,))
     cur.execute("DELETE FROM etf_tx WHERE etf_id = %s", (rid,))
     cur.execute("DELETE FROM etf WHERE id = %s", (rid,))
     cur.close()
@@ -3459,6 +3507,9 @@ def api_etf_tx():
     warn = _trade_cash_warning(db, account_id, used, tx_type)
     if warn:
         out['warning'] = warn
+    notice = _trade_fx_notice(db, 'etf_tx', new_id)
+    if notice:
+        out['notice'] = notice
     db.close()
     return jsonify(out), 201
 
@@ -3472,7 +3523,7 @@ def api_etf_tx_detail(rid):
         old_row = cur.fetchone()
         old_etf_id = old_row['etf_id'] if old_row else None
         _remove_cash_adj(cur, 'etf_tx', rid)       # 예전 방식으로 기록된 거래의 통장 차감 되돌림
-        cur.execute("DELETE FROM account_cash_tx WHERE ref_type='etf_tx' AND ref_id=%s", (rid,))   # 계좌 예수금 반영 되돌림
+        cur.execute("DELETE FROM account_cash_tx WHERE ref_type IN ('etf_tx','etf_tx_fx') AND ref_id=%s", (rid,))   # 계좌 예수금 반영 되돌림
         cur.execute("DELETE FROM etf_tx WHERE id = %s", (rid,))
         if old_etf_id is not None:
             recalc_realized_pnl(db, old_etf_id, is_etf=True)
@@ -3527,6 +3578,9 @@ def api_etf_tx_detail(rid):
     warn = _trade_cash_warning(db, account_id, used, tx_type)
     if warn:
         out['warning'] = warn
+    notice = _trade_fx_notice(db, 'etf_tx', rid)
+    if notice:
+        out['notice'] = notice
     db.close()
     return jsonify(out)
 
@@ -4593,6 +4647,9 @@ def api_split_buy_plan_linked_tx(pid):
         warn = _trade_cash_warning(db, account_id, used, tx_type)
         if warn:
             out['warning'] = warn
+        notice = _trade_fx_notice(db, 'stock_tx', new_id)
+        if notice:
+            out['notice'] = notice
         db.close()
         return jsonify(out), 201
 
@@ -4619,6 +4676,9 @@ def api_split_buy_plan_linked_tx(pid):
         warn = _trade_cash_warning(db, account_id, used, tx_type)
         if warn:
             out['warning'] = warn
+        notice = _trade_fx_notice(db, 'etf_tx', new_id)
+        if notice:
+            out['notice'] = notice
         db.close()
         return jsonify(out), 201
 
@@ -4632,11 +4692,11 @@ def api_split_buy_plan_linked_tx_delete(pid, source, tx_id):
     cur = db.cursor()
     if source == 'stock':
         _remove_cash_adj(cur, 'stock_tx', tx_id)
-        cur.execute("DELETE FROM account_cash_tx WHERE ref_type='stock_tx' AND ref_id=%s", (tx_id,))
+        cur.execute("DELETE FROM account_cash_tx WHERE ref_type IN ('stock_tx','stock_tx_fx') AND ref_id=%s", (tx_id,))
         cur.execute("DELETE FROM stock_tx WHERE id = %s", (tx_id,))
     elif source == 'etf':
         _remove_cash_adj(cur, 'etf_tx', tx_id)
-        cur.execute("DELETE FROM account_cash_tx WHERE ref_type='etf_tx' AND ref_id=%s", (tx_id,))
+        cur.execute("DELETE FROM account_cash_tx WHERE ref_type IN ('etf_tx','etf_tx_fx') AND ref_id=%s", (tx_id,))
         cur.execute("DELETE FROM etf_tx WHERE id = %s", (tx_id,))
     else:
         cur.close(); db.close()
