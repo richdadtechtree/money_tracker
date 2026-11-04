@@ -7487,29 +7487,22 @@ def api_investment_monthly():
     return jsonify(months)
 
 
-# ── API: 총손익 (실현 + 평가) 카드 / 월간 총손익 그래프 ──────────────
-@app.route('/api/total-pnl')
-def api_total_pnl():
-    """투자 총손익 (연 단위). ?year=YYYY (기본 올해)
-    - 카드: 총손익 = 그 해 실현손익 + 평가손익.
-        · 실현손익(연) = 그 해 매도 실현손익 (주식·ETF·공모주·코인) + 초기화 전에 박제한 주식·ETF 분(초기화 후에만)
-        · 평가손익 = 현재 보유분의 (현재가 - 이동평균 매입단가) × 수량 의 계좌 합계. 올해는 실시간,
-          과거 연도는 account_year_snapshots 에 기록한 그 해 말 값(없으면 None)
-    - 아래 monthly 는 기존 방식(월말 평가금액 - 누적 순매수) 그대로이고 선택 연도의 달만 돌려준다.
-      카드와 정의가 달라 합계가 정확히 일치하지는 않는다.
-    - 기존 설명: 단기/장기·리밸런싱 구분 없이 계좌 전체 기준.
-    - 월간: 누적 총손익(월말) = 월말 평가금액 - 누적 순매수금액. 월간 총손익은 그 월별 차이.
-      (순매수 = 매수금액+수수료 - 매도금액+수수료. 종목 구분과 무관해 리밸런싱 매매가 상쇄된다.)
-      월말 평가금액은 daily_snapshots.stocks(주식+ETF)의 월말 마지막 값을 쓰고, 현재 월은 실시간 평가금액을 쓴다.
-    """
+def _total_pnl_monthly_all(records, ex_rate, base=None):
+    """월간 총손익 전체 이력(기준점 적용 전). [{'ym','total_pnl','realized_pnl','valuation_change','cumulative_total_pnl'}...]
+    누적 총손익(월말) = 월말 평가금액(일별 스냅샷) - 누적 순매수금액 + 보정상수 + 누적 공모주 실현손익.
+    첫 스냅샷 달은 기준점이라 total_pnl 이 None 이다. 이 함수는 api_total_pnl 과 '새로 그리기' 기준점 저장이 함께 쓴다.
+    base={'ym','date','cum'} 를 주면 그 달 이전은 버리고, 기준 시점의 누적 총손익(cum)을 0 으로 삼아 다시 그린다.
+    (기준 달의 실현손익도 기준일 이후 매도분만 센다)"""
     from collections import defaultdict
-    this_year = date.today().year
-    year = request.args.get('year', type=int) or this_year
-    ex_rate = get_current_exchange_rate()
-    records = _calc_realized_records()
-
     db = get_db()
-    s_val, s_cost, e_val, e_cost = get_stocks_etf_totals(db, ex_rate)
+    # 일별 스냅샷(daily_snapshots.stocks)은 연금저축 계좌를 뺀 값이라, 이 그래프도 같은 기준(연금저축 계좌 제외)으로 계산한다.
+    # (기준이 섞이면 스냅샷 값과 현재 평가금액·순매수가 서로 어긋나 월간 막대가 틀어진다)
+    _c = db.cursor()
+    _c.execute("SELECT id FROM invest_accounts WHERE acct_type = ANY(%s)", (list(PENSION_LINK_TYPES),))
+    pen_ids = {r['id'] for r in _c.fetchall()}
+    _c.close()
+    records = [r for r in records if r.get('account_id') not in pen_ids]
+    s_val, s_cost, e_val, e_cost = get_stocks_etf_totals(db, ex_rate, exclude_pension=True)
     eval_now = float(s_val or 0) + float(e_val or 0)
     cost_now = float(s_cost or 0) + float(e_cost or 0)
     unrealized = eval_now - cost_now
@@ -7522,7 +7515,8 @@ def api_total_pnl():
             SELECT to_char(tx_date::date, 'YYYY-MM') AS ym, tx_type, price, quantity,
                    COALESCE(fee, 0) AS fee, COALESCE(exchange_rate, 1) AS rate
             FROM {tbl} WHERE tx_date IS NOT NULL AND NOT is_opening
-        """)
+              AND (account_id IS NULL OR NOT (account_id = ANY(%s)))
+        """, (list(pen_ids) or [0],))
         for r in cur.fetchall():
             amt = float(r['price'] or 0) * float(r['quantity'] or 0)
             fee = float(r['fee'] or 0)
@@ -7590,6 +7584,115 @@ def api_total_pnl():
                 'cumulative_total_pnl': round(cum_total),
             })
             prev_total = cum_total
+    if base:
+        b_ym, b_date, x = base['ym'], base['date'], float(base['cum'])
+        realized_m = defaultdict(float)
+        for r in records:
+            d = (r['date'] or '')[:10]
+            if d[:7] < b_ym or (d[:7] == b_ym and d < b_date):
+                continue
+            realized_m[d[:7]] += r['pnl']
+        out, prev = [], x
+        for m in monthly:
+            if m['ym'] < b_ym:
+                continue
+            cum = float(m['cumulative_total_pnl'])
+            total = cum - prev
+            rz = realized_m.get(m['ym'], 0.0)
+            out.append({'ym': m['ym'], 'total_pnl': round(total), 'realized_pnl': round(rz),
+                        'valuation_change': round(total - rz), 'cumulative_total_pnl': round(cum - x)})
+            prev = cum
+        monthly = out
+    return monthly
+
+
+def _pnl_chart_baseline(db):
+    """월간 그래프 '새로 그리기' 기준점. 없으면 None, 전체 기록 보기면 {'mode':'all'}."""
+    cur = db.cursor()
+    cur.execute("SELECT value FROM app_settings WHERE key='pnl_chart_baseline'")
+    r = cur.fetchone()
+    cur.close()
+    if not r or not r['value']:
+        return None
+    try:
+        return json.loads(r['value'])
+    except Exception:
+        return None
+
+
+def _save_pnl_chart_baseline(db, value):
+    cur = db.cursor()
+    cur.execute("INSERT INTO app_settings (key, value) VALUES ('pnl_chart_baseline', %s) "
+                "ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value", (json.dumps(value),))
+    cur.close()
+    db.commit()
+
+
+def _make_pnl_chart_baseline(records, ex_rate):
+    """지금 시점을 기준점으로 만든다: 이번 달 + 오늘 날짜 + 지금의 누적 총손익. 이번 달 데이터가 없으면 None."""
+    raw = _total_pnl_monthly_all(records, ex_rate)
+    this_ym = date.today().strftime('%Y-%m')
+    cur_m = [m for m in raw if m['ym'] == this_ym]
+    if not cur_m:
+        return None
+    return {'ym': this_ym, 'date': date.today().isoformat(), 'cum': cur_m[0]['cumulative_total_pnl']}
+
+
+@app.route('/api/total-pnl/chart-baseline', methods=['POST'])
+def api_total_pnl_chart_baseline():
+    """월간 그래프를 다시 그린다. {action:'reset'} 지금부터(이번 달 오늘 기준) 새로 그림 /
+    {action:'all'} 예전 기록 전체를 다시 보여줌. 기록 데이터 자체는 지우지 않는다."""
+    action = (request.json or {}).get('action')
+    db = get_db()
+    if action == 'all':
+        _save_pnl_chart_baseline(db, {'mode': 'all'})
+        db.close()
+        return jsonify({'ok': True, 'mode': 'all'})
+    if action != 'reset':
+        db.close()
+        return jsonify({'error': "action 은 'reset' 또는 'all' 이어야 합니다."}), 400
+    base = _make_pnl_chart_baseline(_calc_realized_records(), get_current_exchange_rate())
+    if not base:
+        db.close()
+        return jsonify({'error': '이번 달 평가 데이터가 아직 없습니다. 잠시 뒤 다시 시도해 주세요.'}), 400
+    _save_pnl_chart_baseline(db, base)
+    db.close()
+    return jsonify({'ok': True, 'baseline': base})
+
+
+# ── API: 총손익 (실현 + 평가) 카드 / 월간 총손익 그래프 ──────────────
+@app.route('/api/total-pnl')
+def api_total_pnl():
+    """투자 총손익 (연 단위). ?year=YYYY (기본 올해)
+    - 카드: 총손익 = 그 해 실현손익 + 평가손익.
+        · 실현손익(연) = 그 해 매도 실현손익 (주식·ETF·공모주·코인) + 초기화 전에 박제한 주식·ETF 분(초기화 후에만)
+        · 평가손익 = 현재 보유분의 (현재가 - 이동평균 매입단가) × 수량 의 계좌 합계. 올해는 실시간,
+          과거 연도는 account_year_snapshots 에 기록한 그 해 말 값(없으면 None)
+    - 아래 monthly 는 기존 방식(월말 평가금액 - 누적 순매수) 그대로이고 선택 연도의 달만 돌려준다.
+      카드와 정의가 달라 합계가 정확히 일치하지는 않는다.
+    - 기존 설명: 단기/장기·리밸런싱 구분 없이 계좌 전체 기준.
+    - 월간: 누적 총손익(월말) = 월말 평가금액 - 누적 순매수금액. 월간 총손익은 그 월별 차이.
+      (순매수 = 매수금액+수수료 - 매도금액+수수료. 종목 구분과 무관해 리밸런싱 매매가 상쇄된다.)
+      월말 평가금액은 daily_snapshots.stocks(주식+ETF)의 월말 마지막 값을 쓰고, 현재 월은 실시간 평가금액을 쓴다.
+    """
+    from collections import defaultdict
+    this_year = date.today().year
+    year = request.args.get('year', type=int) or this_year
+    ex_rate = get_current_exchange_rate()
+    records = _calc_realized_records()
+
+    # 월간 그래프 기준점: 처음 열 때 이번 달·오늘 시점으로 자동 설정해 이달부터 새로 그린다 (전체 기록 보기를 고른 경우는 예외)
+    _bdb = get_db()
+    try:
+        baseline = _pnl_chart_baseline(_bdb)
+        if baseline is None:
+            baseline = _make_pnl_chart_baseline(records, ex_rate)
+            if baseline:
+                _save_pnl_chart_baseline(_bdb, baseline)
+    finally:
+        _bdb.close()
+    active_base = baseline if (baseline and baseline.get('ym')) else None
+    monthly = _total_pnl_monthly_all(records, ex_rate, active_base)
 
     # ── 카드(연 단위): 계좌 합계 기준 ──
     db3 = get_db()
@@ -7624,7 +7727,10 @@ def api_total_pnl():
     prefix = f"{year}-"
     prior = [m for m in monthly if m['ym'] < prefix]
     in_year = [dict(m) for m in monthly if m['ym'].startswith(prefix)]
-    base = prior[-1]['cumulative_total_pnl'] if prior else (in_year[0]['cumulative_total_pnl'] if in_year else 0)
+    if active_base:
+        base = 0          # 새로 그리기 기준점이 있으면 누적선은 이미 기준점 대비 값이다
+    else:
+        base = prior[-1]['cumulative_total_pnl'] if prior else (in_year[0]['cumulative_total_pnl'] if in_year else 0)
     for m in in_year:
         m['cumulative_total_pnl'] = m['cumulative_total_pnl'] - base
 
@@ -7643,6 +7749,7 @@ def api_total_pnl():
         'unrealized_rate': (round((eval_acct - cost_acct) / cost_acct * 100, 2)
                             if (year == this_year and cost_acct) else None),
         'monthly': in_year,
+        'chart_baseline': active_base,
     })
 
 
